@@ -4,16 +4,21 @@
 
 FROM node:24-alpine AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
+# The lockfile is vetted on developer machines (pnpm minimumReleaseAge policy); skip the per-package metadata
+# re-check inside the image build, and keep the pnpm store in a BuildKit cache so rebuilds do not re-download.
+ENV npm_config_store_dir=/pnpm/store
 RUN corepack enable && corepack prepare pnpm@11.21.0 --activate
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
+RUN printf '\nminimumReleaseAge: 0\n' >> pnpm-workspace.yaml
 COPY scripts ./scripts
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/api/package.json ./apps/api/
 COPY apps/mobile/package.json ./apps/mobile/
 COPY apps/advertiser-web/package.json ./apps/advertiser-web/
 COPY apps/admin-web/package.json ./apps/admin-web/
-RUN pnpm install --frozen-lockfile --ignore-scripts
+# Only this app's dependency subset (the hoisted workspace install of everything - Expo, RN... - is 2 GB).
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile --ignore-scripts --filter @rap/advertiser-web... --filter @rap/shared...
 COPY packages/shared ./packages/shared
 COPY apps/advertiser-web ./apps/advertiser-web
 ARG VITE_API_URL=http://localhost:3000
@@ -25,4 +30,4 @@ FROM nginx:1.27-alpine AS runtime
 COPY docker/nginx-spa.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /repo/apps/advertiser-web/dist /usr/share/nginx/html
 EXPOSE 80
-HEALTHCHECK --interval=15s --timeout=3s CMD wget -qO- http://localhost/ >/dev/null || exit 1
+HEALTHCHECK --interval=15s --timeout=3s CMD wget -q --spider http://127.0.0.1/ || exit 1

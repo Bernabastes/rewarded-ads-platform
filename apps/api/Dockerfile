@@ -1,21 +1,27 @@
+# A full hoisted workspace install would pull Expo / React Native / Vite for the other apps (~2 GB image).
 # syntax=docker/dockerfile:1.7
 # Multi-stage build for the API. Build context = repository root (needs the shared package).
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
+# The lockfile is vetted on developer machines (pnpm minimumReleaseAge policy); skip the per-package metadata
+# re-check inside the image build, and keep the pnpm store in a BuildKit cache so rebuilds do not re-download.
+ENV npm_config_store_dir=/pnpm/store
 RUN corepack enable && corepack prepare pnpm@11.21.0 --activate
 WORKDIR /repo
 
-# ---- install all workspace deps (cached by lockfile) ----
+# ---- install ONLY the API + shared dependency subset (cached by lockfile) ----
+# A full hoisted workspace install would pull Expo / React Native / Vite for the other apps (~2 GB image).
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
+RUN printf '\nminimumReleaseAge: 0\n' >> pnpm-workspace.yaml
 COPY scripts ./scripts
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/api/package.json ./apps/api/
 COPY apps/mobile/package.json ./apps/mobile/
 COPY apps/advertiser-web/package.json ./apps/advertiser-web/
 COPY apps/admin-web/package.json ./apps/admin-web/
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile --ignore-scripts --filter @rap/api... --filter @rap/shared...
 
 # ---- build shared + api ----
 FROM deps AS build
