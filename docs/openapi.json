@@ -1,0 +1,4916 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "live",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "status": "ok",
+                    "version": "0.1.0",
+                    "time": "2026-01-01T00:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Readiness probe (database + redis)",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/auth/otp/request": {
+      "post": {
+        "description": "Rate-limited per phone and per IP. The SMS provider is mocked in this build; when OTP_DEV_ECHO=true the code is returned as `devCode`.",
+        "operationId": "requestOtp",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "429": {
+            "description": "OTP_RATE_LIMITED"
+          }
+        },
+        "summary": "Request an OTP for a phone number",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/otp/verify": {
+      "post": {
+        "description": "Returns `isNewUser` and the profile; when `user.profileComplete` is false call /auth/users/complete-profile.",
+        "operationId": "verifyOtp",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpVerifyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "401": {
+            "description": "OTP_INVALID | OTP_EXPIRED"
+          },
+          "403": {
+            "description": "ACCOUNT_SUSPENDED | ACCOUNT_BANNED | AGE_RESTRICTED"
+          }
+        },
+        "summary": "Verify an OTP and receive tokens (creates the user on first login)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/users/complete-profile": {
+      "post": {
+        "description": "Under MIN_AGE (18) the account is marked age-rejected, its sessions are revoked and 403 AGE_RESTRICTED is returned.",
+        "operationId": "completeProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "AGE_RESTRICTED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set full name + date of birth; age is verified server-side",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/advertiser/register": {
+      "post": {
+        "operationId": "registerAdvertiser",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdvertiserRegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "409": {
+            "description": "EMAIL_ALREADY_REGISTERED"
+          }
+        },
+        "summary": "Register an advertiser business account (starts in pending verification)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/advertiser/login": {
+      "post": {
+        "operationId": "loginAdvertiser",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailPasswordLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "401": {
+            "description": "INVALID_CREDENTIALS"
+          }
+        },
+        "summary": "Advertiser email + password login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/admin/login": {
+      "post": {
+        "operationId": "loginAdmin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailPasswordLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "401": {
+            "description": "INVALID_CREDENTIALS"
+          }
+        },
+        "summary": "Admin email + password login (role is embedded in the access token)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "refresh",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "INVALID_TOKEN | TOKEN_EXPIRED | REFRESH_TOKEN_REUSED"
+          }
+        },
+        "summary": "Rotate a refresh token (single use; reuse revokes the whole token family)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "Revoke a refresh token family",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/fraud/rules": {
+      "get": {
+        "operationId": "rules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the completion fraud rules with their weights",
+        "tags": [
+          "fraud"
+        ]
+      }
+    },
+    "/api/v1/fraud/flags": {
+      "post": {
+        "operationId": "createFlag",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFraudFlagDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a manual fraud flag",
+        "tags": [
+          "fraud"
+        ]
+      }
+    },
+    "/api/v1/fraud/flags/{id}/resolve": {
+      "post": {
+        "operationId": "resolveFlag",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveFraudFlagDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resolve a flag (dismissed / escalated / confirmed)",
+        "tags": [
+          "fraud"
+        ]
+      }
+    },
+    "/api/v1/fraud/users/{userId}/recompute-trust": {
+      "post": {
+        "operationId": "recompute",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Recompute a user trust score from completions, withdrawals and open flags",
+        "tags": [
+          "fraud"
+        ]
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "operationId": "me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Current user profile",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "operationId": "update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update name, language or notification preferences",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/summary": {
+      "get": {
+        "operationId": "summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Home-screen summary: balance, daily progress, counts",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/balance": {
+      "get": {
+        "operationId": "balance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Coin balance with ledger checksum (source of truth; never compute locally)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/ledger": {
+      "get": {
+        "operationId": "ledger",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Paginated coin ledger (transaction history)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/notifications": {
+      "get": {
+        "operationId": "notificationsList",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "In-app notification inbox",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/notifications/{id}/read": {
+      "post": {
+        "operationId": "markRead",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mark a notification as read",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/push-tokens": {
+      "post": {
+        "operationId": "registerPushToken",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterPushTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Register an FCM device token",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/push-tokens/{token}": {
+      "delete": {
+        "operationId": "removePushToken",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove an FCM device token",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/ad-reports": {
+      "post": {
+        "operationId": "reportAd",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Report a bad ad",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/ads/feed": {
+      "get": {
+        "description": "Only approved ads of active, funded campaigns the user has not been credited for. Empty when the daily cap is reached or the trust score is too low. `meta` includes dailyLimit/dailyCompleted/dailyRemaining.",
+        "operationId": "feed",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Personalised, server-filtered ad feed",
+        "tags": [
+          "ads"
+        ]
+      }
+    },
+    "/api/v1/ads/{id}": {
+      "get": {
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ad detail",
+        "tags": [
+          "ads"
+        ]
+      }
+    },
+    "/api/v1/ads/{id}/watch-sessions": {
+      "post": {
+        "description": "Records started_at, device fingerprint and IP on the server. Returns the heartbeat interval, minimum watch seconds and (optionally) an attention question that must be answered at completion.",
+        "operationId": "start",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartWatchSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "description": "AD_NOT_AVAILABLE | DAILY_LIMIT_REACHED | TOO_MANY_WATCH_ATTEMPTS"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start a server-timed watch session",
+        "tags": [
+          "ads"
+        ]
+      }
+    },
+    "/api/v1/ads/watch-sessions/{sid}/heartbeat": {
+      "post": {
+        "operationId": "heartbeat",
+        "parameters": [
+          {
+            "name": "sid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "description": "WATCH_SESSION_NOT_ACTIVE | WATCH_SESSION_EXPIRED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Heartbeat while the ad is playing (call every heartbeatIntervalSeconds)",
+        "tags": [
+          "ads"
+        ]
+      }
+    },
+    "/api/v1/ads/watch-sessions/{sid}/complete": {
+      "post": {
+        "description": "Watch duration = server now - server started_at. Verifies min/max duration, heartbeat continuity, attention answer, daily cap and fraud signals, then credits the ledger in one transaction. Idempotent: repeating the call returns the same result (`replayed: true`) and never double-credits. Result status: valid | flagged | rejected with `reasonCode`.",
+        "operationId": "complete",
+        "parameters": [
+          {
+            "name": "sid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteWatchSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Complete a watch session (server decides the reward)",
+        "tags": [
+          "ads"
+        ]
+      }
+    },
+    "/api/v1/offers": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "survey",
+                "app_install"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Surveys and app-install offers available to the user (higher value than plain ads)",
+        "tags": [
+          "offers"
+        ]
+      }
+    },
+    "/api/v1/offers/me/completions": {
+      "get": {
+        "operationId": "myCompletions",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Offer completion history",
+        "tags": [
+          "offers"
+        ]
+      }
+    },
+    "/api/v1/offers/surveys/{id}": {
+      "get": {
+        "operationId": "survey",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Survey detail with questions",
+        "tags": [
+          "offers"
+        ]
+      }
+    },
+    "/api/v1/offers/surveys/{id}/complete": {
+      "post": {
+        "operationId": "completeSurvey",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSurveyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Submit survey answers (validated; credited immediately)",
+        "tags": [
+          "offers"
+        ]
+      }
+    },
+    "/api/v1/offers/app-installs/{id}": {
+      "get": {
+        "operationId": "appInstall",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "App-install offer detail",
+        "tags": [
+          "offers"
+        ]
+      }
+    },
+    "/api/v1/offers/app-installs/{id}/complete": {
+      "post": {
+        "operationId": "completeAppInstall",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteAppInstallDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Report an app install (recorded as pending verification; credited after admin verification)",
+        "tags": [
+          "offers"
+        ]
+      }
+    },
+    "/api/v1/campaigns/overview": {
+      "get": {
+        "operationId": "overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Advertiser dashboard cards + 30-day series",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/uploads/presign": {
+      "post": {
+        "operationId": "presign",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresignUploadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "UPLOAD_TYPE_NOT_ALLOWED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a presigned PUT URL for a creative (video/image) upload to object storage",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "pending_review",
+                "active",
+                "paused",
+                "completed",
+                "rejected"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List my campaigns",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "post": {
+        "operationId": "create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCampaignDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a draft campaign (reward per action is derived from cost x (1 - take rate))",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}": {
+      "get": {
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Campaign detail including ads",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "patch": {
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCampaignDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a draft/rejected campaign (paused: budget increase only)",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "delete": {
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a draft campaign",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}/submit": {
+      "post": {
+        "operationId": "submit",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "403": {
+            "description": "ADVERTISER_NOT_VERIFIED"
+          },
+          "422": {
+            "description": "INSUFFICIENT_WALLET_BALANCE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Submit for review; reserves the budget from the wallet",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}/pause": {
+      "post": {
+        "operationId": "pause",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pause an active campaign",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}/resume": {
+      "post": {
+        "operationId": "resume",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resume a paused campaign",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}/ads": {
+      "get": {
+        "operationId": "listAds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List creatives of a campaign",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "post": {
+        "operationId": "addAd",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a creative (enters the admin review queue)",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}/ads/{adId}": {
+      "delete": {
+        "operationId": "removeAd",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "adId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a non-approved creative",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{id}/analytics": {
+      "get": {
+        "operationId": "analytics",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "ISO date or datetime (default: 30 days ago)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "ISO date or datetime (default: now)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Raw vs fraud-filtered performance with daily buckets",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v1/billing/balance": {
+      "get": {
+        "operationId": "balance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Wallet balance, reserved budget and lifetime totals",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/ledger": {
+      "get": {
+        "operationId": "ledger",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Wallet ledger (top-ups, budget reservations, refunds)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/topups": {
+      "post": {
+        "description": "Returns a `checkoutUrl` to redirect the browser to. Without CHAPA_SECRET_KEY the API serves a local mock checkout page (`mock: true`).",
+        "operationId": "createTopup",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTopupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start a wallet top-up via the payment gateway",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/payments": {
+      "get": {
+        "operationId": "payments",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Payment history",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/payments/{id}": {
+      "get": {
+        "operationId": "payment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Payment detail (pending payments are re-verified with the gateway)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/invoices": {
+      "get": {
+        "operationId": "invoices",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Invoices (JSON)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/invoices/{id}": {
+      "get": {
+        "operationId": "invoice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Invoice detail",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/webhooks/chapa": {
+      "post": {
+        "operationId": "chapaWebhook",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "401": {
+            "description": "WEBHOOK_SIGNATURE_INVALID"
+          }
+        },
+        "summary": "Chapa payment webhook (signature verified, idempotent)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/mock-checkout/{txRef}/pay": {
+      "post": {
+        "deprecated": false,
+        "operationId": "mockPay",
+        "parameters": [
+          {
+            "name": "txRef",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "summary": "[MOCK MODE ONLY] Complete or fail a mock checkout",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/withdrawals/config": {
+      "get": {
+        "operationId": "config",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Withdrawal thresholds, conversion rate and available payout methods",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/withdrawals": {
+      "post": {
+        "description": "Converts ETB to coins and holds them in the same transaction. First-ever withdrawals, amounts >= the large threshold and low-trust accounts are held for manual review (`flagged_for_review`); otherwise the payout is queued immediately (`pending`). The platform never holds funds: payouts execute through telebirr/Chapa.",
+        "operationId": "request",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWithdrawalDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "description": "BELOW_MIN_WITHDRAWAL | INVALID_PAYOUT_DESTINATION"
+          },
+          "409": {
+            "description": "WITHDRAWAL_PENDING_EXISTS"
+          },
+          "422": {
+            "description": "INSUFFICIENT_BALANCE"
+          },
+          "429": {
+            "description": "WITHDRAWAL_RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Request a withdrawal",
+        "tags": [
+          "withdrawals"
+        ]
+      },
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "processing",
+                "completed",
+                "failed",
+                "flagged_for_review",
+                "rejected"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Withdrawal history",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/withdrawals/{id}": {
+      "get": {
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Withdrawal status",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/admin/me": {
+      "get": {
+        "operationId": "me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Current admin profile and role",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/overview": {
+      "get": {
+        "operationId": "overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Dashboard home counters",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/config": {
+      "get": {
+        "operationId": "config",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Effective platform configuration (read-only)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/ads/review-queue": {
+      "get": {
+        "operationId": "queue",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "pending",
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ad review queue (default: pending)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/ads/{id}": {
+      "get": {
+        "operationId": "ad",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ad detail for review (includes banned-topics list and attention questions)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/ads/{id}/approve": {
+      "post": {
+        "operationId": "approveAd",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveAdDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve an ad (every banned topic must be checked off)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/ads/{id}/reject": {
+      "post": {
+        "operationId": "rejectAd",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectAdDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject an ad (reason required)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/campaigns": {
+      "get": {
+        "operationId": "campaigns",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "pending_review",
+                "active",
+                "paused",
+                "completed",
+                "rejected"
+              ]
+            }
+          },
+          {
+            "name": "advertiserId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "All campaigns (filter by status / advertiser)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/campaigns/{id}": {
+      "get": {
+        "operationId": "campaign",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Campaign detail with ads and analytics",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/campaigns/{id}/approve": {
+      "post": {
+        "operationId": "approveCampaign",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionalNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve a pending campaign (pending_review -> active)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/campaigns/{id}/reject": {
+      "post": {
+        "operationId": "rejectCampaign",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject a campaign (reason required; unspent budget is refunded)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/campaigns/{id}/pause": {
+      "post": {
+        "operationId": "pauseCampaign",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pause an active campaign (platform-initiated)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/campaigns/{id}/resume": {
+      "post": {
+        "operationId": "resumeCampaign",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resume a paused campaign",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/ad-reports": {
+      "get": {
+        "operationId": "adReports",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "open",
+              "type": "string",
+              "enum": [
+                "open",
+                "reviewed",
+                "dismissed"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "User-submitted ad reports",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/ad-reports/{id}/review": {
+      "post": {
+        "operationId": "reviewReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewAdReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Close an ad report (optionally pulling the ad)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "Search phone number or name",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "suspended",
+                "banned"
+              ]
+            }
+          },
+          {
+            "name": "minTrustScore",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 0,
+              "maximum": 100,
+              "type": "number"
+            }
+          },
+          {
+            "name": "maxTrustScore",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 0,
+              "maximum": 100,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Search users",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{id}": {
+      "get": {
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "User detail: trust score, flags, ledger, withdrawals, device/IP stats",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{id}/suspend": {
+      "post": {
+        "operationId": "suspend",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Suspend a user (reason required; sessions revoked)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{id}/ban": {
+      "post": {
+        "operationId": "ban",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ban a user (reason required; sessions revoked)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{id}/reinstate": {
+      "post": {
+        "operationId": "reinstate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reinstate a suspended/banned user",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/advertisers": {
+      "get": {
+        "operationId": "advertisers",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "verified",
+                "rejected"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Advertisers (filter by verification status)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/advertisers/{id}": {
+      "get": {
+        "operationId": "advertiser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Advertiser detail with campaigns",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/advertisers/{id}/verify": {
+      "post": {
+        "operationId": "verifyAdvertiser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionalNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Verify an advertiser business registration",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/advertisers/{id}/reject": {
+      "post": {
+        "operationId": "rejectAdvertiser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject an advertiser verification (reason required)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/fraud/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Aggregate fraud metrics (weekly flagged rate, open flags by severity, daily series)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/fraud/flags": {
+      "get": {
+        "operationId": "flags",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "severity",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            }
+          },
+          {
+            "name": "resolved",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "flagType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "relatedEntityType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fraud flags (filter by severity / resolved / user / type)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/fraud/flags/{id}": {
+      "get": {
+        "operationId": "flag",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Flag detail",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/fraud/flags/{id}/dismiss": {
+      "post": {
+        "operationId": "dismiss",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Dismiss (false positive). A flagged completion whose flags are all dismissed is credited.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/fraud/flags/{id}/escalate": {
+      "post": {
+        "operationId": "escalate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionalNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Escalate for deeper investigation (trust score -10)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/fraud/flags/{id}/suspend-user": {
+      "post": {
+        "operationId": "suspend",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Confirm the flag and suspend the user",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/withdrawals": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "processing",
+                "completed",
+                "failed",
+                "flagged_for_review",
+                "rejected"
+              ]
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Withdrawal queue (filter by status; flagged_for_review first)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/withdrawals/{id}": {
+      "get": {
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Withdrawal detail with approvals",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/withdrawals/{id}/approve": {
+      "post": {
+        "operationId": "approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionalNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve a held withdrawal. Large amounts need two DISTINCT finance/super_admin approvals.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/withdrawals/{id}/reject": {
+      "post": {
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject a held/pending withdrawal (coins refunded via reversing ledger entry)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/withdrawals/{id}/retry": {
+      "post": {
+        "operationId": "retry",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Retry a failed payout",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/coin-adjustments": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending_approval",
+                "executed",
+                "rejected",
+                "cancelled"
+              ]
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Adjustment requests (pending first)",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "operationId": "create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCoinAdjustmentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Step 1: request a manual coin adjustment (nothing is credited yet)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/coin-adjustments/{id}": {
+      "get": {
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Adjustment request detail",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/coin-adjustments/{id}/approve": {
+      "post": {
+        "operationId": "approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionalNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Step 2: a DIFFERENT admin approves; the ledger is written exactly once",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/coin-adjustments/{id}/reject": {
+      "post": {
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject a pending request",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/coin-adjustments/{id}/cancel": {
+      "post": {
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Requester cancels their own pending request",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/revenue/overview": {
+      "get": {
+        "operationId": "revenue",
+        "parameters": [
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "ISO date (default 30 days ago)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "ISO date (default today)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revenue dashboard: spend, rewards, platform revenue, payouts, top-ups; daily + by advertiser",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/audit-log": {
+      "get": {
+        "operationId": "audit",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "actorId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "actorType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "system",
+                "user",
+                "advertiser"
+              ]
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "Exact action or prefix, e.g. \"withdrawal.\"",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "targetType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 60,
+              "type": "string"
+            }
+          },
+          {
+            "name": "targetId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "Free-text search in action/target type",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Searchable audit log",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/offers/app-install-completions": {
+      "get": {
+        "operationId": "appInstalls",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "pending_verification",
+              "type": "string",
+              "enum": [
+                "pending_verification",
+                "valid",
+                "flagged",
+                "rejected"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "App-install completions awaiting verification",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/offers/app-install-completions/{id}/verify": {
+      "post": {
+        "operationId": "verifyInstall",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionalNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Verify an install (credits the user via the ledger)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/offers/app-install-completions/{id}/reject": {
+      "post": {
+        "operationId": "rejectInstall",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectWithReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject an install claim",
+        "tags": [
+          "admin"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Rewarded Ads Platform API",
+    "description": "REST API for the Rewarded Advertising Platform (Ethiopia).\n\nAll routes are prefixed with `/api/v1` (except /health).\nErrors use the envelope `{ statusCode, code, message, details? }` where `code` is a stable value from `@rap/shared` `ErrorCode`.\nList endpoints accept `?page&limit` and return `{ data, meta: { page, limit, total } }`.\nTimestamps are ISO-8601 UTC; ids are UUIDs; ETB amounts are numbers with 2 decimals; coins are integers.",
+    "version": "0.1.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": ""
+    },
+    {
+      "name": "auth",
+      "description": "OTP login for users, email/password for advertisers and admins, token rotation"
+    },
+    {
+      "name": "users",
+      "description": "Profile, balance, ledger, notifications, ad reports (user tokens)"
+    },
+    {
+      "name": "ads",
+      "description": "Feed, watch sessions and server-verified completions (user tokens)"
+    },
+    {
+      "name": "offers",
+      "description": "Surveys and app-install offers (user tokens)"
+    },
+    {
+      "name": "campaigns",
+      "description": "Advertiser campaign management, creatives and analytics (advertiser tokens)"
+    },
+    {
+      "name": "billing",
+      "description": "Advertiser wallet, top-ups, payments, invoices"
+    },
+    {
+      "name": "withdrawals",
+      "description": "User withdrawal requests and status (user tokens)"
+    },
+    {
+      "name": "admin",
+      "description": "Admin dashboard endpoints (admin tokens, role-based)"
+    },
+    {
+      "name": "fraud",
+      "description": "Internal fraud flag endpoints (admin tokens)"
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "OtpRequestDto": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": {
+            "type": "string",
+            "description": "Ethiopian mobile number (09.., 07.., +2519.., 2517..). Normalised server-side to +251XXXXXXXXX.",
+            "maxLength": 20,
+            "example": "0911223344"
+          }
+        },
+        "required": [
+          "phoneNumber"
+        ]
+      },
+      "OtpVerifyDto": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": {
+            "type": "string",
+            "maxLength": 20,
+            "example": "0911223344"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 8,
+            "example": "123456"
+          },
+          "deviceId": {
+            "type": "string",
+            "description": "Stable app-installation identifier.",
+            "maxLength": 128
+          },
+          "deviceFingerprint": {
+            "type": "string",
+            "description": "Device fingerprint hash collected by the client.",
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "phoneNumber",
+          "code"
+        ]
+      },
+      "CompleteProfileDto": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120,
+            "example": "Abebe Bikila"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "description": "Date of birth as YYYY-MM-DD. Age is computed on the server; under-18 is rejected with AGE_RESTRICTED.",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "example": "1995-04-12"
+          },
+          "languagePreference": {
+            "enum": [
+              "am",
+              "en",
+              "om",
+              "ti"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "fullName",
+          "dateOfBirth"
+        ]
+      },
+      "AdvertiserRegisterDto": {
+        "type": "object",
+        "properties": {
+          "businessName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 160,
+            "example": "Habesha Coffee Roasters PLC"
+          },
+          "businessRegistrationNumber": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 80,
+            "example": "MT/AA/2/0012345/2015"
+          },
+          "contactEmail": {
+            "type": "string",
+            "maxLength": 160,
+            "format": "email",
+            "example": "ads@habesha-coffee.et"
+          },
+          "contactPhone": {
+            "type": "string",
+            "maxLength": 20,
+            "example": "+251911000001"
+          },
+          "password": {
+            "type": "string",
+            "description": "Min 8 characters with at least one letter and one digit.",
+            "minLength": 8,
+            "maxLength": 128,
+            "pattern": "^(?=.*[A-Za-z])(?=.*\\d).+$",
+            "example": "Advertiser123!"
+          }
+        },
+        "required": [
+          "businessName",
+          "businessRegistrationNumber",
+          "contactEmail",
+          "contactPhone",
+          "password"
+        ]
+      },
+      "EmailPasswordLoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "super@rap.et"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "example": "Admin123!"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "minLength": 20
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "LogoutDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "minLength": 20
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "CreateFraudFlagDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relatedEntityType": {
+            "type": "string",
+            "maxLength": 50,
+            "example": "user"
+          },
+          "relatedEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "flagType": {
+            "type": "string",
+            "maxLength": 60,
+            "example": "MANUAL_REVIEW"
+          },
+          "severity": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "trustScoreDelta": {
+            "type": "number",
+            "minimum": -50,
+            "maximum": 50,
+            "description": "Signed trust-score change to apply immediately"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "relatedEntityType",
+          "flagType",
+          "severity",
+          "description"
+        ]
+      },
+      "ResolveFraudFlagDto": {
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "enum": [
+              "dismissed",
+              "escalated",
+              "confirmed"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "resolution",
+          "note"
+        ]
+      },
+      "NotificationPrefsDto": {
+        "type": "object",
+        "properties": {
+          "rewards": {
+            "type": "boolean"
+          },
+          "withdrawals": {
+            "type": "boolean"
+          },
+          "offers": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "languagePreference": {
+            "enum": [
+              "am",
+              "en",
+              "om",
+              "ti"
+            ],
+            "type": "string"
+          },
+          "notificationPrefs": {
+            "$ref": "#/components/schemas/NotificationPrefsDto"
+          }
+        }
+      },
+      "RegisterPushTokenDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "platform": {
+            "enum": [
+              "android",
+              "ios",
+              "web"
+            ],
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "token",
+          "platform"
+        ]
+      },
+      "CreateAdReportDto": {
+        "type": "object",
+        "properties": {
+          "adId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "enum": [
+              "inappropriate",
+              "misleading",
+              "broken_media",
+              "offensive",
+              "banned_topic",
+              "other"
+            ],
+            "type": "string"
+          },
+          "details": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "adId",
+          "reason"
+        ]
+      },
+      "StartWatchSessionDto": {
+        "type": "object",
+        "properties": {
+          "deviceFingerprint": {
+            "type": "string",
+            "description": "Stable device fingerprint hash computed by the client (required for fraud checks).",
+            "maxLength": 256,
+            "example": "fp_9f8e7d6c5b4a"
+          },
+          "deviceId": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "deviceFingerprint"
+        ]
+      },
+      "HeartbeatDto": {
+        "type": "object",
+        "properties": {
+          "positionSeconds": {
+            "type": "number",
+            "description": "Current player position in seconds (informational only; the server uses its own clock).",
+            "minimum": 0,
+            "maximum": 100000
+          }
+        }
+      },
+      "CompleteWatchSessionDto": {
+        "type": "object",
+        "properties": {
+          "attentionAnswerIndex": {
+            "type": "number",
+            "description": "Index of the selected option when an attention question was returned at session start.",
+            "minimum": 0,
+            "maximum": 9
+          }
+        }
+      },
+      "SurveyAnswerDto": {
+        "type": "object",
+        "properties": {
+          "questionId": {
+            "type": "string"
+          },
+          "value": {
+            "description": "string (text / option index), string[] (multi choice) or number (rating).",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "required": [
+          "questionId",
+          "value"
+        ]
+      },
+      "CompleteSurveyDto": {
+        "type": "object",
+        "properties": {
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SurveyAnswerDto"
+            }
+          }
+        },
+        "required": [
+          "answers"
+        ]
+      },
+      "CompleteAppInstallDto": {
+        "type": "object",
+        "properties": {
+          "deviceFingerprint": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "proof": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Optional attribution token / proof stored for manual verification"
+          }
+        },
+        "required": [
+          "deviceFingerprint"
+        ]
+      },
+      "PresignUploadDto": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "morning-roast.mp4"
+          },
+          "contentType": {
+            "type": "string",
+            "maxLength": 100,
+            "example": "video/mp4"
+          },
+          "sizeBytes": {
+            "type": "number",
+            "minimum": 1,
+            "example": 10485760
+          }
+        },
+        "required": [
+          "fileName",
+          "contentType",
+          "sizeBytes"
+        ]
+      },
+      "CreateCampaignDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 160,
+            "example": "Buna Time - Morning Roast launch"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "budgetEtb": {
+            "type": "number",
+            "description": "Total budget in ETB; reserved from the wallet when the campaign is submitted.",
+            "minimum": 1,
+            "maximum": 10000000,
+            "example": 5000
+          },
+          "costPerActionEtb": {
+            "type": "number",
+            "description": "Amount the advertiser pays per valid action. User reward = cost x (1 - take rate).",
+            "minimum": 0.01,
+            "maximum": 10000,
+            "example": 2
+          },
+          "targetActionType": {
+            "enum": [
+              "video_view",
+              "survey",
+              "app_install"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2026-10-01"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2026-12-31"
+          },
+          "attentionCheckEnabled": {
+            "type": "boolean",
+            "description": "Ask a one-question attention check after each ad (default true).",
+            "default": true
+          }
+        },
+        "required": [
+          "title",
+          "budgetEtb",
+          "costPerActionEtb",
+          "targetActionType"
+        ]
+      },
+      "UpdateCampaignDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 160
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "budgetEtb": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10000000
+          },
+          "costPerActionEtb": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 10000
+          },
+          "targetActionType": {
+            "enum": [
+              "video_view",
+              "survey",
+              "app_install"
+            ],
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "attentionCheckEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AttentionQuestionInputDto": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 300,
+            "example": "Which product was shown in the video?"
+          },
+          "promptAm": {
+            "type": "string",
+            "maxLength": 300,
+            "example": "በቪዲዮው ላይ የታየው ምርት ምንድን ነው?"
+          },
+          "options": {
+            "minItems": 2,
+            "maxItems": 4,
+            "example": [
+              "Coffee",
+              "Tea",
+              "Water"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          "correctIndex": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3,
+            "example": 0
+          }
+        },
+        "required": [
+          "prompt",
+          "options",
+          "correctIndex"
+        ]
+      },
+      "CreateAdDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 160,
+            "example": "Morning Roast - 30s spot"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "storageKey": {
+            "type": "string",
+            "description": "Storage key returned by POST /campaigns/uploads/presign (preferred).",
+            "maxLength": 300
+          },
+          "mediaUrl": {
+            "type": "string",
+            "description": "Alternatively a publicly reachable media URL.",
+            "maxLength": 1000,
+            "format": "uri"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "maxLength": 1000,
+            "format": "uri"
+          },
+          "mediaType": {
+            "enum": [
+              "video",
+              "image"
+            ],
+            "type": "string"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "5..120 seconds. For images this is the fixed viewing time.",
+            "minimum": 5,
+            "maximum": 120,
+            "example": 30
+          },
+          "attentionQuestions": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttentionQuestionInputDto"
+            }
+          }
+        },
+        "required": [
+          "title",
+          "mediaType",
+          "durationSeconds"
+        ]
+      },
+      "CreateTopupDto": {
+        "type": "object",
+        "properties": {
+          "amountEtb": {
+            "type": "number",
+            "description": "ETB amount to add to the wallet (min MIN_TOPUP_ETB, default 100).",
+            "minimum": 1,
+            "maximum": 10000000,
+            "example": 5000
+          },
+          "returnUrl": {
+            "type": "string",
+            "description": "Where to send the browser after checkout. Defaults to ADVERTISER_WEB_URL/billing.",
+            "format": "uri",
+            "example": "http://localhost:5173/billing?topup=done"
+          }
+        },
+        "required": [
+          "amountEtb"
+        ]
+      },
+      "CreateWithdrawalDto": {
+        "type": "object",
+        "properties": {
+          "amountEtb": {
+            "type": "number",
+            "description": "ETB with up to 2 decimals, at least the configured minimum (default 50).",
+            "minimum": 0.01,
+            "maximum": 1000000,
+            "example": 100
+          },
+          "payoutMethod": {
+            "enum": [
+              "telebirr",
+              "bank",
+              "cbe_birr"
+            ],
+            "type": "string"
+          },
+          "payoutDestination": {
+            "type": "string",
+            "description": "Phone number for telebirr / CBE Birr, account number for bank.",
+            "maxLength": 64,
+            "example": "0911223344"
+          },
+          "destinationName": {
+            "type": "string",
+            "description": "Account holder name (required for bank transfers).",
+            "maxLength": 120,
+            "example": "Abebe Bikila"
+          },
+          "bankCode": {
+            "type": "string",
+            "description": "Chapa bank code for bank transfers (see GET /v1/banks on Chapa).",
+            "maxLength": 20,
+            "example": "946"
+          }
+        },
+        "required": [
+          "amountEtb",
+          "payoutMethod",
+          "payoutDestination"
+        ]
+      },
+      "BannedTopicsChecklistDto": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "Map of banned-topic key -> true when the reviewer confirmed the ad does NOT contain it.",
+            "example": {
+              "alcohol": true,
+              "gambling": true,
+              "restricted_medicine": true,
+              "political": true,
+              "tobacco": true,
+              "adult": true,
+              "weapons": true,
+              "misleading_financial": true
+            }
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "checks"
+        ]
+      },
+      "ApproveAdDto": {
+        "type": "object",
+        "properties": {
+          "bannedTopicsChecklist": {
+            "$ref": "#/components/schemas/BannedTopicsChecklistDto"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "bannedTopicsChecklist"
+        ]
+      },
+      "RejectAdDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 1000,
+            "example": "Contains alcohol promotion (banned topic)."
+          },
+          "bannedTopicsChecklist": {
+            "$ref": "#/components/schemas/BannedTopicsChecklistDto"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "OptionalNoteDto": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "ReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 1000,
+            "example": "Multiple accounts on one device confirmed by support ticket #123"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "ReviewAdReportDto": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "enum": [
+              "reviewed",
+              "dismissed"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "rejectAd": {
+            "type": "boolean",
+            "description": "When true the ad is pulled from the feed (review_status -> rejected) with rejectionReason."
+          },
+          "rejectionReason": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "outcome"
+        ]
+      },
+      "CreateCoinAdjustmentDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number",
+            "example": 500
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 1000,
+            "example": "Goodwill credit for failed video playback (ticket #452)"
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 120,
+            "example": "TICKET-452"
+          }
+        },
+        "required": [
+          "userId",
+          "amount",
+          "reason"
+        ]
+      },
+      "RejectWithReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      }
+    }
+  }
+}
