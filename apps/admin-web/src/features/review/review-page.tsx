@@ -90,7 +90,7 @@ export function ReviewPage() {
   };
 
   const approve = useMutation({
-    mutationFn: (ad: AdReview) => reviewApi.approve(ad.id, { bannedTopicsChecklist: toChecklist(checks, notes) }),
+    mutationFn: (ad: AdReview) => reviewApi.approve(ad.id, { bannedTopicsChecklist: toChecklist(checks, notes), note: notes.trim() || undefined }),
     onSuccess: (_res, ad) => {
       toast.success('Ad approved', { description: ad.title });
       removeFromQueue(ad.id);
