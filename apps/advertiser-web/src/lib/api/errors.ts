@@ -180,8 +180,8 @@ export function mapValidationErrors(
 export function prettifyServerMessage(message: string, field: string): string {
   const label = field
     .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/Etb\b/, 'ETB')
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\betb\b/g, 'ETB');
   const withLabel = message.startsWith(field) ? `${label}${message.slice(field.length)}` : message;
   return withLabel.charAt(0).toUpperCase() + withLabel.slice(1);
 }

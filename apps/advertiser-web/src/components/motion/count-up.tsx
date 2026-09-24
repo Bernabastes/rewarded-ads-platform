@@ -1,5 +1,5 @@
-import { animate, useInView, useReducedMotion } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { animate, MotionConfigContext, useInView, useReducedMotion } from 'framer-motion';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils/cn';
 
 export interface CountUpProps {
@@ -14,11 +14,20 @@ export interface CountUpProps {
 
 const defaultFormat = (v: number) => new Intl.NumberFormat('en-ET', { maximumFractionDigits: 0 }).format(v);
 
+/** Honour both the OS setting and an explicit <MotionConfig reducedMotion="always"> (used in tests). */
+function useMotionReduced(): boolean {
+  const osReduced = useReducedMotion();
+  const { reducedMotion } = useContext(MotionConfigContext);
+  if (reducedMotion === 'always') return true;
+  if (reducedMotion === 'never') return false;
+  return !!osReduced;
+}
+
 /** Animated number that eases from the previous value to the next; static under prefers-reduced-motion. */
 export function CountUp({ value, format = defaultFormat, duration = 1.1, className, inView = false }: CountUpProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const isInView = useInView(ref, { once: true, margin: '0px 0px -10% 0px' });
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useMotionReduced();
   const previous = useRef(0);
   const [display, setDisplay] = useState(() => format(reduceMotion ? value : 0));
   const shouldAnimate = !reduceMotion && (isInView || !inView);

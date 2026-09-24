@@ -21,6 +21,24 @@ class ResizeObserverMock {
 if (!('ResizeObserver' in globalThis)) {
   vi.stubGlobal('ResizeObserver', ResizeObserverMock);
 }
+class IntersectionObserverMock {
+  readonly root = null;
+  readonly rootMargin = '';
+  readonly thresholds: number[] = [];
+  constructor(private readonly callback: IntersectionObserverCallback) {}
+  observe(target: Element) {
+    // Report everything as visible so in-view animations run immediately.
+    this.callback([{ isIntersecting: true, target, intersectionRatio: 1 } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+  }
+  unobserve() {}
+  disconnect() {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+}
+if (!('IntersectionObserver' in globalThis)) {
+  vi.stubGlobal('IntersectionObserver', IntersectionObserverMock);
+}
 if (!window.matchMedia) {
   window.matchMedia = (query: string) =>
     ({
