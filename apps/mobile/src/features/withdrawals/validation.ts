@@ -7,7 +7,9 @@ export type AmountValidation =
 
 /** Parses user input like "50", "50.5", "1,250.00" or "1 250" into a positive ETB number (2 dp) or null. */
 export function parseAmount(text: string): number | null {
-  const cleaned = text.replace(/[\s,]/g, '').replace(/[^\d.]/g, '');
+  const trimmed = text.trim();
+  if (trimmed.startsWith('-')) return null;
+  const cleaned = trimmed.replace(/[\s,]/g, '').replace(/[^\d.]/g, '');
   if (!cleaned || cleaned === '.') return null;
   const value = Number(cleaned);
   if (!Number.isFinite(value) || value <= 0) return null;
