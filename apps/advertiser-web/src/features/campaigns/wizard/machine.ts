@@ -8,10 +8,26 @@ export const WIZARD_STEPS = ['details', 'budget', 'creative', 'review'] as const
 export type WizardStep = (typeof WIZARD_STEPS)[number];
 
 export const STEP_META: Record<WizardStep, { title: string; short: string; description: string }> = {
-  details: { title: 'Campaign details', short: 'Details', description: 'What are you promoting and to whom?' },
-  budget: { title: 'Budget & pricing', short: 'Budget', description: 'How much to spend and what each verified action is worth.' },
-  creative: { title: 'Creatives', short: 'Creatives', description: 'Upload the video or image viewers will see.' },
-  review: { title: 'Review & submit', short: 'Review', description: 'Check everything, then send it for review.' },
+  details: {
+    title: 'Campaign details',
+    short: 'Details',
+    description: 'What are you promoting and to whom?',
+  },
+  budget: {
+    title: 'Budget & pricing',
+    short: 'Budget',
+    description: 'How much to spend and what each verified action is worth.',
+  },
+  creative: {
+    title: 'Creatives',
+    short: 'Creatives',
+    description: 'Upload the video or image viewers will see.',
+  },
+  review: {
+    title: 'Review & submit',
+    short: 'Review',
+    description: 'Check everything, then send it for review.',
+  },
 };
 
 export interface WizardState {
@@ -87,7 +103,10 @@ export function wizardReducer(state: WizardState, event: WizardEvent): WizardSta
         targetActionType: event.campaign.targetActionType,
       };
       const requested = event.step ?? state.step;
-      return { ...hydrated, step: canNavigateTo(hydrated, requested) ? requested : firstIncomplete(hydrated) };
+      return {
+        ...hydrated,
+        step: canNavigateTo(hydrated, requested) ? requested : firstIncomplete(hydrated),
+      };
     }
     case 'SET_TARGET':
       return { ...state, targetActionType: event.targetActionType };

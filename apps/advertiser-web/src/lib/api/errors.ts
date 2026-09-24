@@ -83,16 +83,28 @@ const MESSAGES: Partial<Record<AnyErrorCode, ErrorDescription>> = {
   [ErrorCode.NOT_FOUND]: { title: 'We could not find that', description: 'It may have been removed.' },
   [ErrorCode.UNAUTHORIZED]: { title: 'Please sign in again' },
   [ErrorCode.TOKEN_EXPIRED]: { title: 'Your session expired', description: 'Sign in to continue.' },
-  [ErrorCode.INVALID_TOKEN]: { title: 'Your session is no longer valid', description: 'Sign in to continue.' },
+  [ErrorCode.INVALID_TOKEN]: {
+    title: 'Your session is no longer valid',
+    description: 'Sign in to continue.',
+  },
   [ErrorCode.REFRESH_TOKEN_REUSED]: {
     title: 'You were signed out for your security',
     description: 'We detected your session being used elsewhere. Please sign in again.',
   },
   [ErrorCode.FORBIDDEN]: { title: 'You do not have access to that' },
   [ErrorCode.ROLE_NOT_ALLOWED]: { title: 'Your account cannot perform this action' },
-  [ErrorCode.CONFLICT]: { title: 'That change conflicts with the current state', description: 'Refresh and try again.' },
-  [ErrorCode.RATE_LIMITED]: { title: 'Too many requests', description: 'Please wait a moment and try again.' },
-  [ErrorCode.INTERNAL_ERROR]: { title: 'Something went wrong on our side', description: 'Please try again shortly.' },
+  [ErrorCode.CONFLICT]: {
+    title: 'That change conflicts with the current state',
+    description: 'Refresh and try again.',
+  },
+  [ErrorCode.RATE_LIMITED]: {
+    title: 'Too many requests',
+    description: 'Please wait a moment and try again.',
+  },
+  [ErrorCode.INTERNAL_ERROR]: {
+    title: 'Something went wrong on our side',
+    description: 'Please try again shortly.',
+  },
   [ErrorCode.SERVICE_UNAVAILABLE]: {
     title: 'A service is temporarily unavailable',
     description: 'Please try again in a few minutes.',
@@ -107,7 +119,8 @@ const MESSAGES: Partial<Record<AnyErrorCode, ErrorDescription>> = {
   },
   [ErrorCode.ADVERTISER_NOT_VERIFIED]: {
     title: 'Your business is not verified yet',
-    description: 'Our team is reviewing your registration. You can prepare drafts now and submit once verified.',
+    description:
+      'Our team is reviewing your registration. You can prepare drafts now and submit once verified.',
   },
   [ErrorCode.INSUFFICIENT_WALLET_BALANCE]: {
     title: 'Not enough funds in your wallet',

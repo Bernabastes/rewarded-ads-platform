@@ -64,7 +64,9 @@ export function CampaignsPage() {
   const status = isStatus(params.get('status')) ? (params.get('status') as CampaignStatus) : 'all';
   const search = params.get('q') ?? '';
   const sortParam = params.get('sort');
-  const sort: CampaignSort = SORT_OPTIONS.some((o) => o.value === sortParam) ? (sortParam as CampaignSort) : 'updated';
+  const sort: CampaignSort = SORT_OPTIONS.some((o) => o.value === sortParam)
+    ? (sortParam as CampaignSort)
+    : 'updated';
 
   const campaigns = useCampaigns();
 
@@ -78,7 +80,10 @@ export function CampaignsPage() {
   };
 
   const all = useMemo(() => campaigns.data?.data ?? [], [campaigns.data]);
-  const visible = useMemo(() => filterAndSortCampaigns(all, { status, search, sort }), [all, status, search, sort]);
+  const visible = useMemo(
+    () => filterAndSortCampaigns(all, { status, search, sort }),
+    [all, status, search, sort],
+  );
   const counts = useMemo(() => {
     const map = new Map<CampaignStatus, number>();
     for (const c of all) map.set(c.status, (map.get(c.status) ?? 0) + 1);
@@ -108,7 +113,8 @@ export function CampaignsPage() {
             </TabsTrigger>
             {STATUS_ORDER.map((s) => (
               <TabsTrigger key={s} value={s}>
-                {CAMPAIGN_STATUS_LABEL[s]} <span className="text-fg-subtle tabular-nums">{counts.get(s) ?? 0}</span>
+                {CAMPAIGN_STATUS_LABEL[s]}{' '}
+                <span className="text-fg-subtle tabular-nums">{counts.get(s) ?? 0}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -124,7 +130,12 @@ export function CampaignsPage() {
               leading={<Search className="size-4" />}
               trailing={
                 search ? (
-                  <Button variant="ghost" size="icon-sm" onClick={() => update({ q: null })} aria-label="Clear search">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => update({ q: null })}
+                    aria-label="Clear search"
+                  >
                     <X className="size-4" />
                   </Button>
                 ) : undefined
@@ -132,7 +143,12 @@ export function CampaignsPage() {
             />
           </div>
           <div className="sm:w-52">
-            <Select value={sort} onValueChange={(v) => update({ sort: v })} options={SORT_OPTIONS} aria-label="Sort campaigns" />
+            <Select
+              value={sort}
+              onValueChange={(v) => update({ sort: v })}
+              options={SORT_OPTIONS}
+              aria-label="Sort campaigns"
+            />
           </div>
         </div>
       </div>
@@ -165,7 +181,11 @@ export function CampaignsPage() {
             <EmptyState
               compact
               title="Nothing matches these filters"
-              description={search ? `No campaign title or description contains “${search}”.` : `You have no ${CAMPAIGN_STATUS_LABEL[status as CampaignStatus]?.toLowerCase() ?? ''} campaigns.`}
+              description={
+                search
+                  ? `No campaign title or description contains “${search}”.`
+                  : `You have no ${CAMPAIGN_STATUS_LABEL[status as CampaignStatus]?.toLowerCase() ?? ''} campaigns.`
+              }
               action={
                 <Button variant="outline" onClick={() => update({ q: null, status: null })}>
                   Clear filters

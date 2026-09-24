@@ -33,7 +33,10 @@ export function BudgetStep({
 }) {
   const form = useForm<BudgetValues>({
     resolver: zodResolver(budgetSchema),
-    defaultValues: { budgetEtb: defaultValues.budgetEtb ?? Number.NaN, costPerActionEtb: defaultValues.costPerActionEtb ?? 2 },
+    defaultValues: {
+      budgetEtb: defaultValues.budgetEtb ?? Number.NaN,
+      costPerActionEtb: defaultValues.costPerActionEtb ?? 2,
+    },
     mode: 'onTouched',
   });
   const { register, handleSubmit, formState, control, setValue } = form;
@@ -84,7 +87,9 @@ export function BudgetStep({
                       type="button"
                       variant={budgetEtb === preset ? 'secondary' : 'outline'}
                       size="sm"
-                      onClick={() => setValue('budgetEtb', preset, { shouldValidate: true, shouldDirty: true })}
+                      onClick={() =>
+                        setValue('budgetEtb', preset, { shouldValidate: true, shouldDirty: true })
+                      }
                     >
                       {formatNumber(preset)}
                     </Button>
@@ -122,7 +127,9 @@ export function BudgetStep({
                       type="button"
                       variant={costPerActionEtb === preset ? 'secondary' : 'outline'}
                       size="sm"
-                      onClick={() => setValue('costPerActionEtb', preset, { shouldValidate: true, shouldDirty: true })}
+                      onClick={() =>
+                        setValue('costPerActionEtb', preset, { shouldValidate: true, shouldDirty: true })
+                      }
                     >
                       {preset.toFixed(2)}
                     </Button>
@@ -134,8 +141,8 @@ export function BudgetStep({
 
           {walletBalanceEtb !== undefined && Number.isFinite(budgetEtb) && budgetEtb > walletBalanceEtb && (
             <Alert tone="warning" title="Budget exceeds your wallet balance">
-              Your wallet holds {formatEtb(walletBalanceEtb)}. You can save this draft now and add funds before submitting — we will
-              guide you through it.
+              Your wallet holds {formatEtb(walletBalanceEtb)}. You can save this draft now and add funds
+              before submitting — we will guide you through it.
             </Alert>
           )}
         </div>
@@ -150,17 +157,23 @@ export function BudgetStep({
               <div className="flex items-center justify-between gap-3">
                 <dt className="flex items-center gap-1.5 text-fg-muted">
                   <span className="size-2 rounded-full bg-primary" aria-hidden="true" /> Viewer receives
-                  <Tooltip content={`Paid out as coins: ${formatNumber(split.rewardCoins)} coins at ${PLATFORM_DEFAULTS.COINS_PER_ETB} coins per birr.`}>
+                  <Tooltip
+                    content={`Paid out as coins: ${formatNumber(split.rewardCoins)} coins at ${PLATFORM_DEFAULTS.COINS_PER_ETB} coins per birr.`}
+                  >
                     <Info className="size-3.5 text-fg-subtle" aria-label="About coins" />
                   </Tooltip>
                 </dt>
                 <dd className="font-semibold tabular-nums text-fg">
-                  {formatEtb(split.rewardEtb)} <span className="text-xs font-normal text-fg-subtle">({formatNumber(split.rewardCoins)} coins)</span>
+                  {formatEtb(split.rewardEtb)}{' '}
+                  <span className="text-xs font-normal text-fg-subtle">
+                    ({formatNumber(split.rewardCoins)} coins)
+                  </span>
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="flex items-center gap-1.5 text-fg-muted">
-                  <span className="size-2 rounded-full bg-accent" aria-hidden="true" /> Platform fee ({formatPercent(split.takeRate, 0)})
+                  <span className="size-2 rounded-full bg-accent" aria-hidden="true" /> Platform fee (
+                  {formatPercent(split.takeRate, 0)})
                 </dt>
                 <dd className="font-semibold tabular-nums text-fg">{formatEtb(split.platformFeeEtb)}</dd>
               </div>
@@ -186,7 +199,12 @@ export function BudgetStep({
         <Button type="button" variant="ghost" onClick={onBack} leadingIcon={<ArrowLeft className="size-4" />}>
           Back
         </Button>
-        <Button type="submit" size="lg" loading={saving || formState.isSubmitting} trailingIcon={<ArrowRight className="size-4" />}>
+        <Button
+          type="submit"
+          size="lg"
+          loading={saving || formState.isSubmitting}
+          trailingIcon={<ArrowRight className="size-4" />}
+        >
           {submitLabel}
         </Button>
       </div>
@@ -199,7 +217,10 @@ function SplitBar({ rewardEtb, feeEtb }: { rewardEtb: number; feeEtb: number }) 
   const rewardShare = total > 0 ? rewardEtb / total : 0.5;
   return (
     <div className="flex h-3 w-full overflow-hidden rounded-full bg-border" aria-hidden="true">
-      <div className={cn('h-full bg-primary transition-[width] duration-500')} style={{ width: `${rewardShare * 100}%` }} />
+      <div
+        className={cn('h-full bg-primary transition-[width] duration-500')}
+        style={{ width: `${rewardShare * 100}%` }}
+      />
       <div className="h-full flex-1 bg-accent transition-[width] duration-500" />
     </div>
   );

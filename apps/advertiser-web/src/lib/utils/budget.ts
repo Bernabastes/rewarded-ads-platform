@@ -1,4 +1,10 @@
-import { computePlatformRevenueEtb, computeRewardEtb, etbToCoins, PLATFORM_DEFAULTS, roundEtb } from '@rap/shared';
+import {
+  computePlatformRevenueEtb,
+  computeRewardEtb,
+  etbToCoins,
+  PLATFORM_DEFAULTS,
+  roundEtb,
+} from '@rap/shared';
 
 export interface BudgetSplit {
   costPerActionEtb: number;

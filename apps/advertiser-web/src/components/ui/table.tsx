@@ -19,16 +19,28 @@ export function TableBody(props: HTMLAttributes<HTMLTableSectionElement>) {
   return <tbody className="[&_tr:last-child]:border-0" {...props} />;
 }
 
-export function TableRow({ className, interactive, ...props }: HTMLAttributes<HTMLTableRowElement> & { interactive?: boolean }) {
+export function TableRow({
+  className,
+  interactive,
+  ...props
+}: HTMLAttributes<HTMLTableRowElement> & { interactive?: boolean }) {
   return (
     <tr
-      className={cn('border-b border-border transition-colors', interactive && 'cursor-pointer hover:bg-surface-muted/60', className)}
+      className={cn(
+        'border-b border-border transition-colors',
+        interactive && 'cursor-pointer hover:bg-surface-muted/60',
+        className,
+      )}
       {...props}
     />
   );
 }
 
-export function TableHead({ className, numeric, ...props }: ThHTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
+export function TableHead({
+  className,
+  numeric,
+  ...props
+}: ThHTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
   return (
     <th
       scope="col"
@@ -42,10 +54,18 @@ export function TableHead({ className, numeric, ...props }: ThHTMLAttributes<HTM
   );
 }
 
-export function TableCell({ className, numeric, ...props }: TdHTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
+export function TableCell({
+  className,
+  numeric,
+  ...props
+}: TdHTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
   return (
     <td
-      className={cn('px-4 py-3.5 align-middle text-fg first:pl-5 last:pr-5', numeric && 'text-right tabular-nums', className)}
+      className={cn(
+        'px-4 py-3.5 align-middle text-fg first:pl-5 last:pr-5',
+        numeric && 'text-right tabular-nums',
+        className,
+      )}
       {...props}
     />
   );
@@ -60,24 +80,49 @@ export interface PaginationProps {
   itemLabel?: string;
 }
 
-export function Pagination({ page, limit, total, onPageChange, className, itemLabel = 'items' }: PaginationProps) {
+export function Pagination({
+  page,
+  limit,
+  total,
+  onPageChange,
+  className,
+  itemLabel = 'items',
+}: PaginationProps) {
   const pages = Math.max(1, Math.ceil(total / limit));
   if (total <= limit) return null;
   const from = (page - 1) * limit + 1;
   const to = Math.min(total, page * limit);
   return (
-    <nav className={cn('flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-sm text-fg-muted', className)} aria-label="Pagination">
+    <nav
+      className={cn(
+        'flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-sm text-fg-muted',
+        className,
+      )}
+      aria-label="Pagination"
+    >
       <p className="tabular-nums">
         Showing {from}–{to} of {total} {itemLabel}
       </p>
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="icon-sm" onClick={() => onPageChange(page - 1)} disabled={page <= 1} aria-label="Previous page">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          aria-label="Previous page"
+        >
           <ChevronLeft className="size-4" />
         </Button>
         <span className="tabular-nums">
           Page {page} of {pages}
         </span>
-        <Button variant="outline" size="icon-sm" onClick={() => onPageChange(page + 1)} disabled={page >= pages} aria-label="Next page">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= pages}
+          aria-label="Next page"
+        >
           <ChevronRight className="size-4" />
         </Button>
       </div>
@@ -85,7 +130,13 @@ export function Pagination({ page, limit, total, onPageChange, className, itemLa
   );
 }
 
-export function DescriptionList({ items, className }: { items: Array<{ term: ReactNode; detail: ReactNode }>; className?: string }) {
+export function DescriptionList({
+  items,
+  className,
+}: {
+  items: Array<{ term: ReactNode; detail: ReactNode }>;
+  className?: string;
+}) {
   return (
     <dl className={cn('grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2', className)}>
       {items.map((item, i) => (

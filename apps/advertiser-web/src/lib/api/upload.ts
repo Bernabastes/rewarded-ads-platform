@@ -99,7 +99,13 @@ export async function uploadCreative(
     contentType: file.type,
     sizeBytes: file.size,
   });
-  await putWithProgress(resolveUploadUrl(presign.uploadUrl), file, presign.headers, options.onProgress, options.signal);
+  await putWithProgress(
+    resolveUploadUrl(presign.uploadUrl),
+    file,
+    presign.headers,
+    options.onProgress,
+    options.signal,
+  );
   return {
     storageKey: presign.storageKey,
     publicUrl: presign.publicUrl,

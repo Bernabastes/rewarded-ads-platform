@@ -26,7 +26,11 @@ export interface ReturnParams {
 /** Parse every reference the gateway (or our mock) might send back. */
 export function parseReturnParams(search: URLSearchParams): ReturnParams {
   const topup = search.get('topup');
-  const txRef = search.get('txRef') ?? search.get('tx_ref') ?? search.get('trx_ref') ?? (topup && topup !== 'start' ? topup : null);
+  const txRef =
+    search.get('txRef') ??
+    search.get('tx_ref') ??
+    search.get('trx_ref') ??
+    (topup && topup !== 'start' ? topup : null);
   return { txRef, paymentId: search.get('paymentId') ?? search.get('payment_id') };
 }
 
@@ -110,10 +114,15 @@ export function TopupReturnPanel({ params, onDone }: { params: ReturnParams; onD
           </span>
           <h2 className="text-display text-xl font-semibold text-fg">We could not match this payment yet</h2>
           <p className="max-w-md text-sm text-fg-muted">
-            If you completed the payment, it will appear in your history within a minute. Your wallet balance updates automatically.
+            If you completed the payment, it will appear in your history within a minute. Your wallet balance
+            updates automatically.
           </p>
           <div className="flex gap-3">
-            <Button variant="outline" onClick={() => void payment.refetch()} leadingIcon={<RefreshCw className="size-4" />}>
+            <Button
+              variant="outline"
+              onClick={() => void payment.refetch()}
+              leadingIcon={<RefreshCw className="size-4" />}
+            >
               Check again
             </Button>
             <Button onClick={onDone}>Back to billing</Button>
@@ -133,7 +142,9 @@ export function TopupReturnPanel({ params, onDone }: { params: ReturnParams; onD
             <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" aria-hidden="true" />
             <Clock className="size-7" />
           </span>
-          <h2 className="text-display text-xl font-semibold text-fg">{timedOut ? 'Still waiting for the gateway' : 'Confirming your payment…'}</h2>
+          <h2 className="text-display text-xl font-semibold text-fg">
+            {timedOut ? 'Still waiting for the gateway' : 'Confirming your payment…'}
+          </h2>
           <p className="max-w-md text-sm text-fg-muted">
             {timedOut
               ? 'The payment provider has not confirmed yet. You can keep this page open, come back later, or resume the checkout.'
@@ -173,9 +184,12 @@ export function TopupReturnPanel({ params, onDone }: { params: ReturnParams; onD
         <span className="flex size-14 items-center justify-center rounded-full bg-danger/10 text-danger">
           <XCircle className="size-7" />
         </span>
-        <h2 className="text-display text-xl font-semibold text-fg">Payment {data.status === 'failed' ? 'failed' : 'cancelled'}</h2>
+        <h2 className="text-display text-xl font-semibold text-fg">
+          Payment {data.status === 'failed' ? 'failed' : 'cancelled'}
+        </h2>
         <p className="max-w-md text-sm text-fg-muted">
-          {formatEtb(data.amountEtb)} was not charged (reference {data.txRef}). Nothing was added to your wallet — you can try again with a new top-up.
+          {formatEtb(data.amountEtb)} was not charged (reference {data.txRef}). Nothing was added to your
+          wallet — you can try again with a new top-up.
         </p>
         <div className="flex gap-3">
           <Button asChild>
@@ -190,7 +204,15 @@ export function TopupReturnPanel({ params, onDone }: { params: ReturnParams; onD
   );
 }
 
-function Receipt({ payment, context, onDone }: { payment: PaymentItem; context: TopupContext | null; onDone: () => void }) {
+function Receipt({
+  payment,
+  context,
+  onDone,
+}: {
+  payment: PaymentItem;
+  context: TopupContext | null;
+  onDone: () => void;
+}) {
   const invoices = useInvoices(1, 20);
   const invoice = invoices.data?.data.find((inv) => inv.paymentId === payment.id);
   return (
@@ -202,12 +224,16 @@ function Receipt({ payment, context, onDone }: { payment: PaymentItem; context: 
         </span>
         <div>
           <h2 className="text-display text-2xl font-bold text-fg">Payment received</h2>
-          <p className="mt-1 text-sm text-fg-muted">Your wallet has been credited and an invoice was issued.</p>
+          <p className="mt-1 text-sm text-fg-muted">
+            Your wallet has been credited and an invoice was issued.
+          </p>
         </div>
         <dl className="grid w-full max-w-md gap-3 rounded-md border border-border bg-surface-muted/60 p-4 text-left text-sm sm:grid-cols-2">
           <div>
             <dt className="text-fg-subtle">Amount</dt>
-            <dd className="text-display text-xl font-bold text-fg tabular-nums">{formatEtb(payment.amountEtb)}</dd>
+            <dd className="text-display text-xl font-bold text-fg tabular-nums">
+              {formatEtb(payment.amountEtb)}
+            </dd>
           </div>
           <div>
             <dt className="text-fg-subtle">Paid</dt>

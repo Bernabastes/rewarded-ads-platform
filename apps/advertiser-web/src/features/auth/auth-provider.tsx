@@ -1,6 +1,14 @@
 import type { AdvertiserProfile, AdvertiserRegisterDto, EmailPasswordLoginDto } from '@rap/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { createContext, useCallback, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { toast } from 'sonner';
 import { authApi } from '@/lib/api';
 import { authStore, type AuthState } from '@/lib/api/auth-store';

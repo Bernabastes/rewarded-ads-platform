@@ -26,7 +26,11 @@ export function validateCreativeFile(file: File): CreativeValidation {
   const limit = UPLOAD_LIMITS[mediaType];
   if (file.size > limit.maxBytes) {
     const maxMb = Math.round(limit.maxBytes / (1024 * 1024));
-    return { ok: false, mediaType, reason: `File is too large. ${mediaType === 'video' ? 'Videos' : 'Images'} must be under ${maxMb} MB.` };
+    return {
+      ok: false,
+      mediaType,
+      reason: `File is too large. ${mediaType === 'video' ? 'Videos' : 'Images'} must be under ${maxMb} MB.`,
+    };
   }
   return { ok: true, mediaType };
 }

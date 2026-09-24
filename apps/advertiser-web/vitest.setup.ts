@@ -28,7 +28,10 @@ class IntersectionObserverMock {
   constructor(private readonly callback: IntersectionObserverCallback) {}
   observe(target: Element) {
     // Report everything as visible so in-view animations run immediately.
-    this.callback([{ isIntersecting: true, target, intersectionRatio: 1 } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    this.callback(
+      [{ isIntersecting: true, target, intersectionRatio: 1 } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    );
   }
   unobserve() {}
   disconnect() {}

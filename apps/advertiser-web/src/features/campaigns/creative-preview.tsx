@@ -16,7 +16,15 @@ export interface CreativePreviewProps {
 }
 
 /** Inline preview for a creative: HTML5 video (poster + controls) or responsive image with alt text. */
-export function CreativePreview({ src, mediaType, title, poster, durationSeconds, className, compact }: CreativePreviewProps) {
+export function CreativePreview({
+  src,
+  mediaType,
+  title,
+  poster,
+  durationSeconds,
+  className,
+  compact,
+}: CreativePreviewProps) {
   const [failed, setFailed] = useState(false);
   const Icon = mediaType === 'video' ? PlayCircle : ImageIcon;
 
@@ -52,7 +60,8 @@ export function CreativePreview({ src, mediaType, title, poster, durationSeconds
       )}
       {compact && !failed && (
         <span className="pointer-events-none absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-sm bg-stone-950/70 px-1.5 py-0.5 text-[11px] font-medium tabular-nums">
-          <Icon className="size-3" /> {durationSeconds !== undefined ? formatDuration(durationSeconds) : mediaType}
+          <Icon className="size-3" />{' '}
+          {durationSeconds !== undefined ? formatDuration(durationSeconds) : mediaType}
         </span>
       )}
     </div>

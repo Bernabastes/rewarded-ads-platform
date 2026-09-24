@@ -14,7 +14,15 @@ import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { useWalletBalance } from '@/features/billing/hooks';
 import { useCampaign, useCreateCampaign, useUpdateCampaign } from '@/features/campaigns/hooks';
 import { useSubmitCampaignFlow } from '@/features/campaigns/submit-flow';
-import { canNavigateTo, deriveCompletedSteps, firstIncomplete, isWizardStep, STEP_META, type WizardState, type WizardStep } from './machine';
+import {
+  canNavigateTo,
+  deriveCompletedSteps,
+  firstIncomplete,
+  isWizardStep,
+  STEP_META,
+  type WizardState,
+  type WizardStep,
+} from './machine';
 import { wizardScratch, type BudgetValues, type DetailsValues } from './schemas';
 import { BudgetStep } from './step-budget';
 import { CreativeStep } from './step-creative';
@@ -39,7 +47,12 @@ function toDto(details: DetailsValues, budget: BudgetValues) {
 function useWizardState(campaign: CampaignDetail | undefined, requestedStep: string | null): WizardState {
   const scratch = wizardScratch.read();
   const base: WizardState = campaign
-    ? { step: 'details', campaignId: campaign.id, completed: deriveCompletedSteps(campaign), targetActionType: campaign.targetActionType }
+    ? {
+        step: 'details',
+        campaignId: campaign.id,
+        completed: deriveCompletedSteps(campaign),
+        targetActionType: campaign.targetActionType,
+      }
     : {
         step: 'details',
         campaignId: null,
@@ -47,7 +60,14 @@ function useWizardState(campaign: CampaignDetail | undefined, requestedStep: str
         targetActionType: scratch.details?.targetActionType ?? 'video_view',
       };
   const wanted = isWizardStep(requestedStep) ? requestedStep : null;
-  const step = wanted && canNavigateTo(base, wanted) ? wanted : campaign ? firstIncomplete(base) : scratch.details ? 'budget' : 'details';
+  const step =
+    wanted && canNavigateTo(base, wanted)
+      ? wanted
+      : campaign
+        ? firstIncomplete(base)
+        : scratch.details
+          ? 'budget'
+          : 'details';
   return { ...base, step };
 }
 
@@ -92,9 +112,17 @@ export function WizardPage() {
   if (campaign && campaign.status !== 'draft' && campaign.status !== 'rejected') {
     return (
       <PageTransition className="flex flex-col gap-6">
-        <PageHeader crumbs={[{ label: 'Campaigns', to: '/campaigns' }, { label: campaign.title, to: `/campaigns/${campaign.id}` }, { label: 'Edit' }]} title="This campaign cannot be edited" />
+        <PageHeader
+          crumbs={[
+            { label: 'Campaigns', to: '/campaigns' },
+            { label: campaign.title, to: `/campaigns/${campaign.id}` },
+            { label: 'Edit' },
+          ]}
+          title="This campaign cannot be edited"
+        />
         <Alert tone="info" title={`“${campaign.title}” is ${campaign.status.replace('_', ' ')}`}>
-          Only drafts and rejected campaigns can be edited. Pause an active campaign from its page if you need to stop delivery.
+          Only drafts and rejected campaigns can be edited. Pause an active campaign from its page if you need
+          to stop delivery.
         </Alert>
         <Button asChild className="self-start">
           <Link to={`/campaigns/${campaign.id}`}>Back to campaign</Link>
@@ -131,7 +159,10 @@ export function WizardPage() {
 
   const saveBudget = async (values: BudgetValues) => {
     if (campaign) {
-      await updateCampaign.mutateAsync({ id: campaign.id, dto: { budgetEtb: values.budgetEtb, costPerActionEtb: values.costPerActionEtb } });
+      await updateCampaign.mutateAsync({
+        id: campaign.id,
+        dto: { budgetEtb: values.budgetEtb, costPerActionEtb: values.costPerActionEtb },
+      });
       toast.success('Budget saved');
       goTo('creative');
       return;
@@ -144,18 +175,32 @@ export function WizardPage() {
     wizardScratch.write({ budget: values });
     const created = await createCampaign.mutateAsync(toDto(details, values));
     wizardScratch.clear();
-    toast.success('Draft created', { description: 'Your progress is saved — you can come back to this campaign any time.' });
+    toast.success('Draft created', {
+      description: 'Your progress is saved — you can come back to this campaign any time.',
+    });
     navigate(`/campaigns/${created.id}/edit?step=creative`, { replace: true });
   };
 
-  const title = campaign ? (campaign.status === 'rejected' ? 'Revise campaign' : 'Continue your draft') : 'New campaign';
+  const title = campaign
+    ? campaign.status === 'rejected'
+      ? 'Revise campaign'
+      : 'Continue your draft'
+    : 'New campaign';
 
   return (
     <PageTransition className="flex flex-col gap-6">
       <PageHeader
-        crumbs={[{ label: 'Campaigns', to: '/campaigns' }, ...(campaign ? [{ label: campaign.title, to: `/campaigns/${campaign.id}` }] : []), { label: title }]}
+        crumbs={[
+          { label: 'Campaigns', to: '/campaigns' },
+          ...(campaign ? [{ label: campaign.title, to: `/campaigns/${campaign.id}` }] : []),
+          { label: title },
+        ]}
         title={title}
-        description={campaign ? 'Every step saves to your draft as you go.' : 'Four short steps. Your draft is saved to the server once the budget is set.'}
+        description={
+          campaign
+            ? 'Every step saves to your draft as you go.'
+            : 'Four short steps. Your draft is saved to the server once the budget is set.'
+        }
       />
 
       <WizardStepper state={state} onSelect={(step) => goTo(step)} />
@@ -175,7 +220,12 @@ export function WizardPage() {
               transition={{ duration: 0.25, ease: EASE_OUT }}
             >
               {state.step === 'details' && (
-                <DetailsStep defaultValues={detailsDefaults} onSubmit={saveDetails} saving={updateCampaign.isPending} submitLabel={campaign ? 'Save and continue' : 'Continue to budget'} />
+                <DetailsStep
+                  defaultValues={detailsDefaults}
+                  onSubmit={saveDetails}
+                  saving={updateCampaign.isPending}
+                  submitLabel={campaign ? 'Save and continue' : 'Continue to budget'}
+                />
               )}
               {state.step === 'budget' && (
                 <BudgetStep
@@ -187,7 +237,13 @@ export function WizardPage() {
                   walletBalanceEtb={wallet.data?.balanceEtb}
                 />
               )}
-              {state.step === 'creative' && campaign && <CreativeStep campaign={campaign} onBack={() => goTo('budget')} onContinue={() => goTo('review')} />}
+              {state.step === 'creative' && campaign && (
+                <CreativeStep
+                  campaign={campaign}
+                  onBack={() => goTo('budget')}
+                  onContinue={() => goTo('review')}
+                />
+              )}
               {state.step === 'review' && campaign && (
                 <ReviewStep
                   campaign={campaign}

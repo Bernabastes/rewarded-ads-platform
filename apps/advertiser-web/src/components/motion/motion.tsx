@@ -1,4 +1,10 @@
-import { motion, useReducedMotion, type HTMLMotionProps, type Transition, type Variants } from 'framer-motion';
+import {
+  motion,
+  useReducedMotion,
+  type HTMLMotionProps,
+  type Transition,
+  type Variants,
+} from 'framer-motion';
 import type { ReactNode } from 'react';
 
 export const EASE_OUT: Transition['ease'] = [0.16, 1, 0.3, 1];
@@ -50,7 +56,11 @@ export function Stagger({
   );
 }
 
-export function StaggerItem({ children, className, ...props }: HTMLMotionProps<'div'> & { children: ReactNode }) {
+export function StaggerItem({
+  children,
+  className,
+  ...props
+}: HTMLMotionProps<'div'> & { children: ReactNode }) {
   return (
     <motion.div className={className} variants={fadeUp} {...props}>
       {children}

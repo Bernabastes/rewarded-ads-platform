@@ -13,8 +13,24 @@ const base = {
 export function EmptyCampaignsIllustration(props: IllustrationProps) {
   return (
     <svg {...base} {...props}>
-      <rect x="28" y="30" width="184" height="104" rx="14" className="fill-surface-muted stroke-border-strong" strokeWidth="2" />
-      <rect x="44" y="46" width="152" height="60" rx="8" className="fill-surface stroke-border" strokeWidth="2" />
+      <rect
+        x="28"
+        y="30"
+        width="184"
+        height="104"
+        rx="14"
+        className="fill-surface-muted stroke-border-strong"
+        strokeWidth="2"
+      />
+      <rect
+        x="44"
+        y="46"
+        width="152"
+        height="60"
+        rx="8"
+        className="fill-surface stroke-border"
+        strokeWidth="2"
+      />
       <circle cx="120" cy="76" r="18" className="fill-primary" />
       <path d="M115 67v18l14-9-14-9z" className="fill-primary-fg" />
       <rect x="44" y="114" width="70" height="8" rx="4" className="fill-border-strong" />
@@ -37,7 +53,13 @@ export function EmptyDataIllustration(props: IllustrationProps) {
       <rect x="92" y="78" width="18" height="46" rx="4" className="fill-forest-300 dark:fill-forest-800" />
       <rect x="124" y="60" width="18" height="64" rx="4" className="fill-primary" />
       <rect x="156" y="98" width="18" height="26" rx="4" className="fill-accent" />
-      <path d="M60 66c30 -14 60 -20 120 -26" className="stroke-fg-subtle" strokeWidth="2" strokeDasharray="4 5" strokeLinecap="round" />
+      <path
+        d="M60 66c30 -14 60 -20 120 -26"
+        className="stroke-fg-subtle"
+        strokeWidth="2"
+        strokeDasharray="4 5"
+        strokeLinecap="round"
+      />
       <circle cx="180" cy="40" r="6" className="fill-surface stroke-accent" strokeWidth="2.5" />
     </svg>
   );
@@ -97,9 +119,20 @@ export function NotFoundIllustration(props: IllustrationProps) {
 export function UploadIllustration(props: IllustrationProps) {
   return (
     <svg {...base} {...props}>
-      <path d="M60 104v16a10 10 0 0 0 10 10h100a10 10 0 0 0 10-10v-16" className="stroke-border-strong" strokeWidth="3" strokeLinecap="round" />
+      <path
+        d="M60 104v16a10 10 0 0 0 10 10h100a10 10 0 0 0 10-10v-16"
+        className="stroke-border-strong"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
       <path d="M120 100V40" className="stroke-primary" strokeWidth="4" strokeLinecap="round" />
-      <path d="M100 60l20-20 20 20" className="stroke-primary" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M100 60l20-20 20 20"
+        className="stroke-primary"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <rect x="86" y="108" width="68" height="10" rx="5" className="fill-primary-soft" />
     </svg>
   );
@@ -109,13 +142,29 @@ export function UploadIllustration(props: IllustrationProps) {
 export function VerificationIllustration({ verified, ...props }: IllustrationProps & { verified?: boolean }) {
   return (
     <svg {...base} {...props}>
-      <path d="M120 30l52 18v34c0 30-22 50-52 60-30-10-52-30-52-60V48z" className={verified ? 'fill-primary' : 'fill-warning/20 stroke-warning'} strokeWidth="2.5" />
+      <path
+        d="M120 30l52 18v34c0 30-22 50-52 60-30-10-52-30-52-60V48z"
+        className={verified ? 'fill-primary' : 'fill-warning/20 stroke-warning'}
+        strokeWidth="2.5"
+      />
       {verified ? (
-        <path d="M98 82l14 14 30-32" className="stroke-primary-fg" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M98 82l14 14 30-32"
+          className="stroke-primary-fg"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       ) : (
         <>
           <circle cx="120" cy="82" r="22" className="fill-surface stroke-warning" strokeWidth="3" />
-          <path d="M120 68v14l10 6" className="stroke-warning" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M120 68v14l10 6"
+            className="stroke-warning"
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </>
       )}
     </svg>

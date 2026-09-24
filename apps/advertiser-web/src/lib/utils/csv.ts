@@ -19,7 +19,9 @@ export function toCsv<T extends object>(rows: readonly T[], columns: readonly Cs
   const lines = rows.map((row) =>
     columns
       .map((column) => {
-        const value = column.format ? column.format(row) : (row as Record<string, unknown>)[column.key as string];
+        const value = column.format
+          ? column.format(row)
+          : (row as Record<string, unknown>)[column.key as string];
         return escapeCell(value);
       })
       .join(','),

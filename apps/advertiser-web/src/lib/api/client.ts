@@ -85,7 +85,11 @@ export class ApiClient {
 
     if (useAuth) await this.ensureFreshToken();
 
-    let response = await this.send(path, options, useAuth ? this.options.tokens.get()?.accessToken : undefined);
+    let response = await this.send(
+      path,
+      options,
+      useAuth ? this.options.tokens.get()?.accessToken : undefined,
+    );
 
     if (response.status === 401 && useAuth) {
       const error = await this.toError(response);

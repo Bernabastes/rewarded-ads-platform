@@ -2,7 +2,13 @@ import { Monitor, Moon, Sun } from 'lucide-react';
 import { useTheme, type ThemePreference } from '@/components/theme/theme-store';
 import { cn } from '@/lib/utils/cn';
 import { Button } from '../ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Tooltip } from '../ui/primitives';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Tooltip,
+} from '../ui/primitives';
 
 const OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof Sun }> = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -27,7 +33,10 @@ export function ThemeToggle({ className }: { className?: string }) {
           <DropdownMenuItem
             key={option.value}
             onSelect={() => setPreference(option.value)}
-            className={cn(preference === option.value && 'bg-primary-soft text-primary data-[highlighted]:bg-primary-soft')}
+            className={cn(
+              preference === option.value &&
+                'bg-primary-soft text-primary data-[highlighted]:bg-primary-soft',
+            )}
           >
             <option.icon className="size-4" />
             {option.label}

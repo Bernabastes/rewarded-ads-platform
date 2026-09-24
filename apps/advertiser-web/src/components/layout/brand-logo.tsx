@@ -6,7 +6,14 @@ export function BrandMark({ className }: { className?: string }) {
     <svg viewBox="0 0 64 64" className={cn('size-9', className)} aria-hidden="true">
       <rect width="64" height="64" rx="16" className="fill-primary" />
       <circle cx="32" cy="32" r="17" fill="none" className="stroke-primary-fg" strokeWidth="4" />
-      <path d="M32 21v11l8 5" fill="none" className="stroke-accent dark:stroke-terracotta-300" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M32 21v11l8 5"
+        fill="none"
+        className="stroke-accent dark:stroke-terracotta-300"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

@@ -1,8 +1,21 @@
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
-import { canNavigateTo, STEP_META, stepIndex, WIZARD_STEPS, type WizardState, type WizardStep } from './machine';
+import {
+  canNavigateTo,
+  STEP_META,
+  stepIndex,
+  WIZARD_STEPS,
+  type WizardState,
+  type WizardStep,
+} from './machine';
 
-export function WizardStepper({ state, onSelect }: { state: WizardState; onSelect: (step: WizardStep) => void }) {
+export function WizardStepper({
+  state,
+  onSelect,
+}: {
+  state: WizardState;
+  onSelect: (step: WizardStep) => void;
+}) {
   const currentIndex = stepIndex(state.step);
   return (
     <nav aria-label="Campaign setup progress">
@@ -43,7 +56,12 @@ export function WizardStepper({ state, onSelect }: { state: WizardState; onSelec
                   >
                     {complete ? <Check className="size-3.5" /> : index + 1}
                   </span>
-                  <span className={cn('truncate text-sm font-medium', current ? 'text-fg' : reachable ? 'text-fg-muted' : 'text-fg-subtle')}>
+                  <span
+                    className={cn(
+                      'truncate text-sm font-medium',
+                      current ? 'text-fg' : reachable ? 'text-fg-muted' : 'text-fg-subtle',
+                    )}
+                  >
                     <span className="hidden sm:inline">{STEP_META[step].short}</span>
                     <span className="sm:hidden">{index + 1}</span>
                   </span>

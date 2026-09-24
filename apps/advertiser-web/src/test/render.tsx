@@ -38,10 +38,15 @@ export interface RenderWithAppOptions extends Omit<RenderOptions, 'wrapper'> {
 }
 
 /** Render a component under the real providers and a memory router. */
-export function renderWithApp(ui: ReactElement, { route = '/', routes = [], path, authenticated = false, ...options }: RenderWithAppOptions = {}) {
+export function renderWithApp(
+  ui: ReactElement,
+  { route = '/', routes = [], path, authenticated = false, ...options }: RenderWithAppOptions = {},
+) {
   if (authenticated) authStore.signIn(tokensFixture, profileFixture, true);
   const client = createTestQueryClient();
-  const router = createMemoryRouter([{ path: path ?? route.split('?')[0], element: ui }, ...routes], { initialEntries: [route] });
+  const router = createMemoryRouter([{ path: path ?? route.split('?')[0], element: ui }, ...routes], {
+    initialEntries: [route],
+  });
   const result = render(<RouterProvider router={router} />, {
     wrapper: ({ children }) => <Providers client={client}>{children}</Providers>,
     ...options,

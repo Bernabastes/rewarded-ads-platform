@@ -25,7 +25,8 @@ export default defineConfig(({ mode }) => {
         [proxyPath]: {
           target: proxyTarget,
           changeOrigin: false,
-          rewrite: (path) => path.replace(new RegExp(`^${proxyPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), ''),
+          rewrite: (path) =>
+            path.replace(new RegExp(`^${proxyPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), ''),
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
               proxyReq.setHeader('host', internalHost);

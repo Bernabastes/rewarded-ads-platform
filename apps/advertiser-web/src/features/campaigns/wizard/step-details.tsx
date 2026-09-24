@@ -44,7 +44,11 @@ export function DetailsStep({
   submitLabel?: string;
   saving?: boolean;
 }) {
-  const form = useForm<DetailsValues>({ resolver: zodResolver(detailsSchema), defaultValues, mode: 'onTouched' });
+  const form = useForm<DetailsValues>({
+    resolver: zodResolver(detailsSchema),
+    defaultValues,
+    mode: 'onTouched',
+  });
   const { register, handleSubmit, formState, control, setValue } = form;
   const targetActionType = useWatch({ control, name: 'targetActionType' });
   const attentionCheckEnabled = useWatch({ control, name: 'attentionCheckEnabled' });
@@ -62,15 +66,38 @@ export function DetailsStep({
     <form onSubmit={submit} noValidate className="flex flex-col gap-6" aria-label="Campaign details">
       {formState.errors.root?.server && <Alert tone="danger">{formState.errors.root.server.message}</Alert>}
 
-      <Field label="Campaign title" required error={formState.errors.title?.message} hint="Shown to viewers above the ad — Amharic titles are welcome.">
+      <Field
+        label="Campaign title"
+        required
+        error={formState.errors.title?.message}
+        hint="Shown to viewers above the ad — Amharic titles are welcome."
+      >
         {({ id, describedBy, invalid }) => (
-          <Input id={id} placeholder="e.g. ቡና ታይም — Morning Roast launch" aria-describedby={describedBy} invalid={invalid} autoFocus {...register('title')} />
+          <Input
+            id={id}
+            placeholder="e.g. ቡና ታይም — Morning Roast launch"
+            aria-describedby={describedBy}
+            invalid={invalid}
+            autoFocus
+            {...register('title')}
+          />
         )}
       </Field>
 
-      <Field label="Description" error={formState.errors.description?.message} hint="Optional. Helps our reviewers understand the campaign.">
+      <Field
+        label="Description"
+        error={formState.errors.description?.message}
+        hint="Optional. Helps our reviewers understand the campaign."
+      >
         {({ id, describedBy, invalid }) => (
-          <Textarea id={id} rows={3} placeholder="What is the offer and who is it for?" aria-describedby={describedBy} invalid={invalid} {...register('description')} />
+          <Textarea
+            id={id}
+            rows={3}
+            placeholder="What is the offer and who is it for?"
+            aria-describedby={describedBy}
+            invalid={invalid}
+            {...register('description')}
+          />
         )}
       </Field>
 
@@ -88,10 +115,33 @@ export function DetailsStep({
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                data-value={type}
+                tabIndex={selected ? 0 : -1}
                 onClick={() => setValue('targetActionType', type, { shouldDirty: true })}
+                onKeyDown={(event) => {
+                  // Roving focus: arrow keys move the selection like a native radio group.
+                  const types = Object.keys(TARGET_ACTION_META) as TargetActionType[];
+                  const delta =
+                    event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                      ? 1
+                      : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                        ? -1
+                        : 0;
+                  if (!delta) return;
+                  event.preventDefault();
+                  const next = types[(types.indexOf(type) + delta + types.length) % types.length];
+                  setValue('targetActionType', next, { shouldDirty: true });
+                  (
+                    event.currentTarget.parentElement?.querySelector(
+                      `[data-value="${next}"]`,
+                    ) as HTMLButtonElement | null
+                  )?.focus();
+                }}
                 className={cn(
                   'flex min-h-11 flex-col gap-2 rounded-md border p-4 text-left transition-[border-color,box-shadow,background-color]',
-                  selected ? 'border-primary bg-primary-soft shadow-soft ring-1 ring-primary/30' : 'border-border bg-surface hover:border-border-strong',
+                  selected
+                    ? 'border-primary bg-primary-soft shadow-soft ring-1 ring-primary/30'
+                    : 'border-border bg-surface hover:border-border-strong',
                 )}
               >
                 <meta.icon className={cn('size-5', selected ? 'text-primary' : 'text-fg-subtle')} />
@@ -103,21 +153,43 @@ export function DetailsStep({
         </div>
         {targetActionType !== 'video_view' && (
           <Alert tone="info">
-            Survey and app-install offers are configured with our team after review. You can still attach an optional video or image so
-            viewers know what to expect.
+            Survey and app-install offers are configured with our team after review. You can still attach an
+            optional video or image so viewers know what to expect.
           </Alert>
         )}
       </fieldset>
 
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="Start date" error={formState.errors.startDate?.message} hint="Leave empty to start as soon as approved.">
+        <Field
+          label="Start date"
+          error={formState.errors.startDate?.message}
+          hint="Leave empty to start as soon as approved."
+        >
           {({ id, describedBy, invalid }) => (
-            <Input id={id} type="date" min={todayIsoDate()} aria-describedby={describedBy} invalid={invalid} {...register('startDate')} />
+            <Input
+              id={id}
+              type="date"
+              min={todayIsoDate()}
+              aria-describedby={describedBy}
+              invalid={invalid}
+              {...register('startDate')}
+            />
           )}
         </Field>
-        <Field label="End date" error={formState.errors.endDate?.message} hint="Leave empty to run until the budget is spent.">
+        <Field
+          label="End date"
+          error={formState.errors.endDate?.message}
+          hint="Leave empty to run until the budget is spent."
+        >
           {({ id, describedBy, invalid }) => (
-            <Input id={id} type="date" min={startDate || todayIsoDate()} aria-describedby={describedBy} invalid={invalid} {...register('endDate')} />
+            <Input
+              id={id}
+              type="date"
+              min={startDate || todayIsoDate()}
+              aria-describedby={describedBy}
+              invalid={invalid}
+              {...register('endDate')}
+            />
           )}
         </Field>
       </div>
@@ -128,8 +200,8 @@ export function DetailsStep({
             Attention check after each ad
           </p>
           <p id="attention-hint" className="mt-1 text-sm text-fg-muted">
-            Viewers answer one quick question about your ad before earning their reward. Recommended — it filters out passive
-            viewing and you only pay for completions that pass.
+            Viewers answer one quick question about your ad before earning their reward. Recommended — it
+            filters out passive viewing and you only pay for completions that pass.
           </p>
         </div>
         <Switch
@@ -141,7 +213,12 @@ export function DetailsStep({
       </div>
 
       <div className="flex justify-end">
-        <Button type="submit" size="lg" loading={saving || formState.isSubmitting} trailingIcon={<ArrowRight className="size-4" />}>
+        <Button
+          type="submit"
+          size="lg"
+          loading={saving || formState.isSubmitting}
+          trailingIcon={<ArrowRight className="size-4" />}
+        >
           {submitLabel}
         </Button>
       </div>

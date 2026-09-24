@@ -15,7 +15,13 @@ export interface FraudSummary {
   savedEtb: number;
 }
 
-export function summarizeFraud(totals: Pick<CampaignAnalyticsTotals, 'rawCompletions' | 'validCompletions' | 'flaggedCompletions' | 'rejectedCompletions' | 'fraudFilteredRate'>, costPerActionEtb: number): FraudSummary {
+export function summarizeFraud(
+  totals: Pick<
+    CampaignAnalyticsTotals,
+    'rawCompletions' | 'validCompletions' | 'flaggedCompletions' | 'rejectedCompletions' | 'fraudFilteredRate'
+  >,
+  costPerActionEtb: number,
+): FraudSummary {
   const filtered = totals.flaggedCompletions + totals.rejectedCompletions;
   return {
     filtered,
@@ -32,7 +38,13 @@ export function summarizeFraud(totals: Pick<CampaignAnalyticsTotals, 'rawComplet
  * The product differentiator, made unmistakable: how many completions were filtered before billing, and what
  * that saved the advertiser.
  */
-export function FraudFilterPanel({ summary, campaignTitle }: { summary: FraudSummary; campaignTitle?: string }) {
+export function FraudFilterPanel({
+  summary,
+  campaignTitle,
+}: {
+  summary: FraudSummary;
+  campaignTitle?: string;
+}) {
   const hasData = summary.raw > 0;
   return (
     <section
@@ -42,18 +54,24 @@ export function FraudFilterPanel({ summary, campaignTitle }: { summary: FraudSum
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
-        style={{ background: 'radial-gradient(60% 80% at 100% 0%, rgb(230 123 65 / 0.28), transparent 60%), radial-gradient(40% 60% at 0% 100%, rgb(78 152 119 / 0.35), transparent 60%)' }}
+        style={{
+          background:
+            'radial-gradient(60% 80% at 100% 0%, rgb(230 123 65 / 0.28), transparent 60%), radial-gradient(40% 60% at 0% 100%, rgb(78 152 119 / 0.35), transparent 60%)',
+        }}
       />
       <div className="relative grid gap-8 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <p className="inline-flex items-center gap-2 rounded-full bg-forest-700/60 px-3 py-1 text-xs font-medium text-forest-100">
             <ShieldCheck className="size-3.5 text-terracotta-300" /> Fraud protection
           </p>
-          <h2 id="fraud-panel-title" className="text-display mt-4 text-2xl leading-tight font-bold text-white sm:text-3xl">
+          <h2
+            id="fraud-panel-title"
+            className="text-display mt-4 text-2xl leading-tight font-bold text-white sm:text-3xl"
+          >
             {hasData ? (
               <>
-                We filtered <CountUp value={summary.filtered} className="text-terracotta-300" /> suspicious completion{summary.filtered === 1 ? '' : 's'} so you
-                only pay for real attention.
+                We filtered <CountUp value={summary.filtered} className="text-terracotta-300" /> suspicious
+                completion{summary.filtered === 1 ? '' : 's'} so you only pay for real attention.
               </>
             ) : (
               'Every completion is checked before you pay.'
@@ -62,9 +80,11 @@ export function FraudFilterPanel({ summary, campaignTitle }: { summary: FraudSum
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-forest-100/90 sm:text-base">
             {hasData ? (
               <>
-                Out of <strong className="font-semibold text-white">{formatNumber(summary.raw)}</strong> completions{campaignTitle ? ` for “${campaignTitle}”` : ''},{' '}
-                <strong className="font-semibold text-white">{formatNumber(summary.valid)}</strong> passed server-timed watch verification, device and
-                behaviour checks. The other {formatPercent(summary.rate, 1)} were flagged or rejected — and never charged to you.
+                Out of <strong className="font-semibold text-white">{formatNumber(summary.raw)}</strong>{' '}
+                completions{campaignTitle ? ` for “${campaignTitle}”` : ''},{' '}
+                <strong className="font-semibold text-white">{formatNumber(summary.valid)}</strong> passed
+                server-timed watch verification, device and behaviour checks. The other{' '}
+                {formatPercent(summary.rate, 1)} were flagged or rejected — and never charged to you.
               </>
             ) : (
               'As soon as viewers start completing this campaign, this panel shows raw versus verified completions and what the filtering saved you.'
@@ -90,7 +110,9 @@ export function FraudFilterPanel({ summary, campaignTitle }: { summary: FraudSum
                 <span className="cursor-help underline decoration-dotted underline-offset-4">Flagged</span>
               </Tooltip>
             </dt>
-            <dd className="text-display mt-1 text-2xl font-bold text-white tabular-nums">{formatNumber(summary.flagged)}</dd>
+            <dd className="text-display mt-1 text-2xl font-bold text-white tabular-nums">
+              {formatNumber(summary.flagged)}
+            </dd>
           </div>
           <div className="rounded-md bg-forest-900/50 p-4 ring-1 ring-forest-700/60">
             <dt className="text-xs font-medium text-forest-200">
@@ -98,7 +120,9 @@ export function FraudFilterPanel({ summary, campaignTitle }: { summary: FraudSum
                 <span className="cursor-help underline decoration-dotted underline-offset-4">Rejected</span>
               </Tooltip>
             </dt>
-            <dd className="text-display mt-1 text-2xl font-bold text-white tabular-nums">{formatNumber(summary.rejected)}</dd>
+            <dd className="text-display mt-1 text-2xl font-bold text-white tabular-nums">
+              {formatNumber(summary.rejected)}
+            </dd>
           </div>
         </dl>
       </div>

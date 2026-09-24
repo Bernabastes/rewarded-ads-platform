@@ -21,7 +21,9 @@ describe('DashboardPage', { timeout: 20_000 }, () => {
     expect(screen.getByText('1,248')).toBeInTheDocument();
     expect(screen.getByText(/122 filtered \(9%\)/)).toBeInTheDocument();
     expect(screen.getByText('Spend over time')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Good (morning|afternoon|evening), Habesha Coffee Roasters PLC/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /Good (morning|afternoon|evening), Habesha Coffee Roasters PLC/ }),
+    ).toBeInTheDocument();
   });
 
   it('shows the wallet balance and a top-up call to action', async () => {
@@ -35,7 +37,10 @@ describe('DashboardPage', { timeout: 20_000 }, () => {
     server.use(http.get(url(API_ROUTES.campaigns.overview), () => HttpResponse.json(emptyOverviewFixture)));
     renderWithApp(<DashboardPage />, { authenticated: true });
     expect(await screen.findByText('Launch your first campaign')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Create your first campaign/ })).toHaveAttribute('href', '/campaigns/new');
+    expect(screen.getByRole('link', { name: /Create your first campaign/ })).toHaveAttribute(
+      'href',
+      '/campaigns/new',
+    );
     expect(screen.queryByText('Active campaigns')).not.toBeInTheDocument();
   });
 

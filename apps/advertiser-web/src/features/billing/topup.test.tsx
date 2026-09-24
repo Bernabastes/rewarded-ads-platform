@@ -28,21 +28,42 @@ describe('TopupDialog', () => {
         const body = (await request.json()) as { amountEtb: number; returnUrl?: string };
         expect(body.returnUrl).toMatch(/\/billing\/return$/);
         return HttpResponse.json(
-          { paymentId: 'pay-real', txRef: 'RAP-REAL-1', amountEtb: body.amountEtb, status: 'pending', checkoutUrl: 'https://checkout.chapa.co/x', mock: false },
+          {
+            paymentId: 'pay-real',
+            txRef: 'RAP-REAL-1',
+            amountEtb: body.amountEtb,
+            status: 'pending',
+            checkoutUrl: 'https://checkout.chapa.co/x',
+            mock: false,
+          },
           { status: 201 },
         );
       }),
     );
     const redirect = vi.fn();
     const user = userEvent.setup();
-    renderWithApp(<TopupDialog open onOpenChange={() => {}} suggestedAmountEtb={2500} returnTo="/campaigns/camp-1" returnLabel="Back to campaign" redirect={redirect} />, {
-      authenticated: true,
-    });
+    renderWithApp(
+      <TopupDialog
+        open
+        onOpenChange={() => {}}
+        suggestedAmountEtb={2500}
+        returnTo="/campaigns/camp-1"
+        returnLabel="Back to campaign"
+        redirect={redirect}
+      />,
+      {
+        authenticated: true,
+      },
+    );
     expect(screen.getByRole('spinbutton', { name: /^Amount/ })).toHaveValue(2500);
     await user.click(screen.getByRole('button', { name: /Continue to payment · ETB 2,500\.00/ }));
 
     await waitFor(() => expect(redirect).toHaveBeenCalledWith('https://checkout.chapa.co/x'));
-    expect(topupContextStore.get('RAP-REAL-1')).toMatchObject({ paymentId: 'pay-real', amountEtb: 2500, returnTo: '/campaigns/camp-1' });
+    expect(topupContextStore.get('RAP-REAL-1')).toMatchObject({
+      paymentId: 'pay-real',
+      amountEtb: 2500,
+      returnTo: '/campaigns/camp-1',
+    });
   });
 
   it('settles mock-gateway payments in-app and lands on the return route', async () => {
@@ -54,7 +75,10 @@ describe('TopupDialog', () => {
       }),
     );
     const user = userEvent.setup();
-    const { router } = renderWithApp(<TopupDialog open onOpenChange={() => {}} />, { authenticated: true, route: '/billing' });
+    const { router } = renderWithApp(<TopupDialog open onOpenChange={() => {}} />, {
+      authenticated: true,
+      route: '/billing',
+    });
     await user.click(screen.getByRole('button', { name: /Continue to payment/ }));
     expect(await screen.findByText('Test payment')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Pay ETB 1,000\.00 \(test\)/ }));
@@ -71,23 +95,49 @@ describe('TopupReturnPanel', () => {
     server.use(
       http.get(url(API_ROUTES.billing.payment(':id')), () => {
         calls += 1;
-        return HttpResponse.json(calls < 2 ? paymentFixture : { ...paymentFixture, status: 'completed', paidAt: '2026-09-24T09:10:00.000Z' });
+        return HttpResponse.json(
+          calls < 2
+            ? paymentFixture
+            : { ...paymentFixture, status: 'completed', paidAt: '2026-09-24T09:10:00.000Z' },
+        );
       }),
     );
-    topupContextStore.save({ paymentId: paymentFixture.id, txRef: paymentFixture.txRef, amountEtb: 1000, returnTo: '/campaigns/camp-1', returnLabel: 'Back to campaign' });
-    renderWithApp(<TopupReturnPanel params={{ txRef: paymentFixture.txRef, paymentId: null }} onDone={() => {}} />, { authenticated: true });
+    topupContextStore.save({
+      paymentId: paymentFixture.id,
+      txRef: paymentFixture.txRef,
+      amountEtb: 1000,
+      returnTo: '/campaigns/camp-1',
+      returnLabel: 'Back to campaign',
+    });
+    renderWithApp(
+      <TopupReturnPanel params={{ txRef: paymentFixture.txRef, paymentId: null }} onDone={() => {}} />,
+      { authenticated: true },
+    );
 
     expect(await screen.findByText(/Confirming your payment/)).toBeInTheDocument();
     expect(await screen.findByText('Payment received', {}, { timeout: 6000 })).toBeInTheDocument();
     expect(screen.getByText('ETB 1,000.00')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Back to campaign/ })).toHaveAttribute('href', '/campaigns/camp-1');
+    expect(screen.getByRole('link', { name: /Back to campaign/ })).toHaveAttribute(
+      'href',
+      '/campaigns/camp-1',
+    );
     expect(await screen.findByRole('link', { name: /View invoice INV-2026-0001/ })).toBeInTheDocument();
     await waitFor(() => expect(topupContextStore.get(paymentFixture.txRef)).toBeNull());
   });
 
   it('explains a failed payment and offers to try again', async () => {
-    server.use(http.get(url(API_ROUTES.billing.payment(':id')), () => HttpResponse.json({ ...paymentFixture, status: 'failed' })));
-    renderWithApp(<TopupReturnPanel params={{ txRef: paymentFixture.txRef, paymentId: paymentFixture.id }} onDone={() => {}} />, { authenticated: true });
+    server.use(
+      http.get(url(API_ROUTES.billing.payment(':id')), () =>
+        HttpResponse.json({ ...paymentFixture, status: 'failed' }),
+      ),
+    );
+    renderWithApp(
+      <TopupReturnPanel
+        params={{ txRef: paymentFixture.txRef, paymentId: paymentFixture.id }}
+        onDone={() => {}}
+      />,
+      { authenticated: true },
+    );
     expect(await screen.findByText('Payment failed')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Try again' })).toHaveAttribute('href', '/billing?topup=start');
   });

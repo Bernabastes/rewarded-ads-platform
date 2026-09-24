@@ -7,7 +7,10 @@ export type AlertTone = 'info' | 'success' | 'warning' | 'danger';
 const TONES: Record<AlertTone, { wrapper: string; icon: typeof Info }> = {
   info: { wrapper: 'border-info/25 bg-info/8 text-fg [&_svg]:text-info', icon: Info },
   success: { wrapper: 'border-success/25 bg-success/8 text-fg [&_svg]:text-success', icon: CheckCircle2 },
-  warning: { wrapper: 'border-warning/35 bg-warning/10 text-fg [&_svg]:text-[#a56f00] dark:[&_svg]:text-warning', icon: AlertTriangle },
+  warning: {
+    wrapper: 'border-warning/35 bg-warning/10 text-fg [&_svg]:text-[#a56f00] dark:[&_svg]:text-warning',
+    icon: AlertTriangle,
+  },
   danger: { wrapper: 'border-danger/25 bg-danger/8 text-fg [&_svg]:text-danger', icon: XCircle },
 };
 

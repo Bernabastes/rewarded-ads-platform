@@ -1,4 +1,10 @@
-import type { AdvertiserVerificationStatus, CampaignStatus, InvoiceStatus, PaymentStatus, ReviewStatus } from '@rap/shared';
+import type {
+  AdvertiserVerificationStatus,
+  CampaignStatus,
+  InvoiceStatus,
+  PaymentStatus,
+  ReviewStatus,
+} from '@rap/shared';
 import type { HTMLAttributes, ReactNode } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { humanize } from '@/lib/utils/format';
@@ -64,7 +70,11 @@ export function CampaignStatusBadge({ status, className }: { status: CampaignSta
   );
 }
 
-const REVIEW_TONE: Record<ReviewStatus, BadgeTone> = { pending: 'warning', approved: 'success', rejected: 'danger' };
+const REVIEW_TONE: Record<ReviewStatus, BadgeTone> = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+};
 export function ReviewStatusBadge({ status }: { status: ReviewStatus }) {
   const label = status === 'pending' ? 'Awaiting review' : humanize(status);
   return (
@@ -102,7 +112,13 @@ const VERIFICATION_TONE: Record<AdvertiserVerificationStatus, BadgeTone> = {
   verified: 'success',
   rejected: 'danger',
 };
-export function VerificationBadge({ status, children }: { status: AdvertiserVerificationStatus; children?: ReactNode }) {
+export function VerificationBadge({
+  status,
+  children,
+}: {
+  status: AdvertiserVerificationStatus;
+  children?: ReactNode;
+}) {
   return (
     <Badge tone={VERIFICATION_TONE[status]} dot>
       {children ?? (status === 'pending' ? 'Verification pending' : humanize(status))}

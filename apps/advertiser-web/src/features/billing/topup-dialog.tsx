@@ -49,7 +49,14 @@ export function topupReturnPath(txRef: string): string {
   return `/billing?topup=${encodeURIComponent(txRef)}`;
 }
 
-export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, returnLabel, redirect }: TopupDialogProps) {
+export function TopupDialog({
+  open,
+  onOpenChange,
+  suggestedAmountEtb,
+  returnTo,
+  returnLabel,
+  redirect,
+}: TopupDialogProps) {
   const createTopup = useCreateTopup();
   const navigate = useNavigate();
   const [mockTopup, setMockTopup] = useState<TopupResponse | null>(null);
@@ -62,7 +69,8 @@ export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, 
   const amount = useWatch({ control, name: 'amountEtb' });
 
   const settleMock = useMutation({
-    mutationFn: ({ txRef, outcome }: { txRef: string; outcome: 'success' | 'failed' }) => billingApi.mockCheckoutPay(txRef, outcome),
+    mutationFn: ({ txRef, outcome }: { txRef: string; outcome: 'success' | 'failed' }) =>
+      billingApi.mockCheckoutPay(txRef, outcome),
     onSuccess: (_data, vars) => {
       setMockTopup(null);
       onOpenChange(false);
@@ -75,7 +83,13 @@ export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, 
     try {
       const returnUrl = `${env.publicUrl}/billing/return`;
       const topup = await createTopup.mutateAsync({ amountEtb: values.amountEtb, returnUrl });
-      topupContextStore.save({ paymentId: topup.paymentId, txRef: topup.txRef, amountEtb: topup.amountEtb, returnTo, returnLabel });
+      topupContextStore.save({
+        paymentId: topup.paymentId,
+        txRef: topup.txRef,
+        amountEtb: topup.amountEtb,
+        returnTo,
+        returnLabel,
+      });
       if (topup.mock) {
         // The hosted mock page cannot run its inline script under the API's CSP, so test payments settle in-app.
         setMockTopup(topup);
@@ -107,7 +121,11 @@ export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, 
           description="The API is running without live Chapa credentials, so this simulates the hosted checkout. No real money moves."
           footer={
             <>
-              <Button variant="outline" disabled={busy} onClick={() => settleMock.mutate({ txRef: mockTopup.txRef, outcome: 'failed' })}>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => settleMock.mutate({ txRef: mockTopup.txRef, outcome: 'failed' })}
+              >
                 Simulate failure
               </Button>
               <Button
@@ -123,7 +141,9 @@ export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, 
           <dl className="grid gap-3 rounded-md bg-surface-muted p-4 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-fg-subtle">Amount</dt>
-              <dd className="text-display text-xl font-bold text-fg tabular-nums">{formatEtb(mockTopup.amountEtb)}</dd>
+              <dd className="text-display text-xl font-bold text-fg tabular-nums">
+                {formatEtb(mockTopup.amountEtb)}
+              </dd>
             </div>
             <div>
               <dt className="text-fg-subtle">Reference</dt>
@@ -132,7 +152,12 @@ export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, 
           </dl>
           <p className="mt-4 text-xs text-fg-subtle">
             Prefer the hosted page?{' '}
-            <a href={mockTopup.checkoutUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline">
+            <a
+              href={mockTopup.checkoutUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+            >
               Open mock checkout <ExternalLink className="size-3" />
             </a>{' '}
             (its inline script is currently blocked by the API's content-security policy).
@@ -152,22 +177,41 @@ export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, 
             <Button variant="outline" onClick={() => close(false)} disabled={busy}>
               Cancel
             </Button>
-            <Button form="topup-form" type="submit" loading={busy} trailingIcon={<ArrowUpRight className="size-4" />}>
-              Continue to payment{Number.isFinite(amount) && amount >= MIN_TOPUP_ETB ? ` · ${formatEtb(amount)}` : ''}
+            <Button
+              form="topup-form"
+              type="submit"
+              loading={busy}
+              trailingIcon={<ArrowUpRight className="size-4" />}
+            >
+              Continue to payment
+              {Number.isFinite(amount) && amount >= MIN_TOPUP_ETB ? ` · ${formatEtb(amount)}` : ''}
             </Button>
           </>
         }
       >
         <form id="topup-form" onSubmit={submit} noValidate className="flex flex-col gap-5">
-          {formState.errors.root?.server && <Alert tone="danger">{formState.errors.root.server.message}</Alert>}
+          {formState.errors.root?.server && (
+            <Alert tone="danger">{formState.errors.root.server.message}</Alert>
+          )}
           <div className="flex flex-wrap gap-2" role="group" aria-label="Amount presets">
             {TOPUP_PRESETS.map((preset) => (
-              <Button key={preset} type="button" size="sm" variant={amount === preset ? 'secondary' : 'outline'} onClick={() => setValue('amountEtb', preset, { shouldValidate: true })}>
+              <Button
+                key={preset}
+                type="button"
+                size="sm"
+                variant={amount === preset ? 'secondary' : 'outline'}
+                onClick={() => setValue('amountEtb', preset, { shouldValidate: true })}
+              >
                 {formatNumber(preset)}
               </Button>
             ))}
           </div>
-          <Field label="Amount" required error={formState.errors.amountEtb?.message} hint={`Minimum ETB ${MIN_TOPUP_ETB}. Funds are available as soon as the payment is confirmed.`}>
+          <Field
+            label="Amount"
+            required
+            error={formState.errors.amountEtb?.message}
+            hint={`Minimum ETB ${MIN_TOPUP_ETB}. Funds are available as soon as the payment is confirmed.`}
+          >
             {({ id, describedBy, invalid }) => (
               <Input
                 id={id}
@@ -187,8 +231,8 @@ export function TopupDialog({ open, onOpenChange, suggestedAmountEtb, returnTo, 
           <div className="flex gap-3 rounded-md bg-surface-muted p-3 text-sm text-fg-muted">
             <Wallet className="mt-0.5 size-4 shrink-0 text-primary" />
             <p>
-              Payments are processed by a licensed gateway; we never hold your card details. An invoice is issued automatically for every
-              successful top-up.
+              Payments are processed by a licensed gateway; we never hold your card details. An invoice is
+              issued automatically for every successful top-up.
             </p>
           </div>
         </form>

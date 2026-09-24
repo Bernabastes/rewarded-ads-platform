@@ -39,19 +39,24 @@ export function ReviewStep({
     <div className="flex flex-col gap-6">
       {pending && (
         <Alert tone="warning" title="Submitting unlocks after verification">
-          Your business is still being verified. Save the draft now — everything is kept — and submit once your account is approved.
+          Your business is still being verified. Save the draft now — everything is kept — and submit once
+          your account is approved.
         </Alert>
       )}
       {!pending && shortfall > 0 && (
         <Alert tone="warning" title={`Add ${formatEtb(shortfall)} to submit`}>
-          Submitting reserves the full {formatEtb(campaign.budgetEtb)} budget. Your wallet holds {formatEtb(balance ?? 0)}; we will take you to add funds
-          and bring you back here.
+          Submitting reserves the full {formatEtb(campaign.budgetEtb)} budget. Your wallet holds{' '}
+          {formatEtb(balance ?? 0)}; we will take you to add funds and bring you back here.
         </Alert>
       )}
       {needsAds && (
         <Alert tone="danger" title="Add at least one creative">
           Video campaigns cannot be submitted without a creative.{' '}
-          <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => onEdit('creative')}>
+          <button
+            type="button"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+            onClick={() => onEdit('creative')}
+          >
             Upload one now
           </button>
           .
@@ -63,10 +68,22 @@ export function ReviewStep({
           items={[
             { term: 'Title', detail: campaign.title },
             { term: 'Target action', detail: meta.label },
-            { term: 'Description', detail: campaign.description || <span className="text-fg-subtle">None</span> },
-            { term: 'Attention check', detail: campaign.attentionCheckEnabled ? 'On — viewers answer one question per ad' : 'Off' },
-            { term: 'Start', detail: campaign.startDate ? formatDate(campaign.startDate) : 'As soon as approved' },
-            { term: 'End', detail: campaign.endDate ? formatDate(campaign.endDate) : 'When the budget is spent' },
+            {
+              term: 'Description',
+              detail: campaign.description || <span className="text-fg-subtle">None</span>,
+            },
+            {
+              term: 'Attention check',
+              detail: campaign.attentionCheckEnabled ? 'On — viewers answer one question per ad' : 'Off',
+            },
+            {
+              term: 'Start',
+              detail: campaign.startDate ? formatDate(campaign.startDate) : 'As soon as approved',
+            },
+            {
+              term: 'End',
+              detail: campaign.endDate ? formatDate(campaign.endDate) : 'When the budget is spent',
+            },
           ]}
         />
       </ReviewSection>
@@ -80,8 +97,14 @@ export function ReviewStep({
               term: 'Viewer receives',
               detail: `${formatEtb(campaign.rewardPerActionEtb)} (${formatNumber(campaign.rewardCoins)} coins)`,
             },
-            { term: `Platform fee (${formatPercent(split.takeRate, 0)})`, detail: formatEtb(split.platformFeeEtb) },
-            { term: 'Estimated verified completions', detail: `≈ ${formatNumber(split.estimatedCompletions)}` },
+            {
+              term: `Platform fee (${formatPercent(split.takeRate, 0)})`,
+              detail: formatEtb(split.platformFeeEtb),
+            },
+            {
+              term: 'Estimated verified completions',
+              detail: `≈ ${formatNumber(split.estimatedCompletions)}`,
+            },
           ]}
         />
       </ReviewSection>
@@ -96,7 +119,8 @@ export function ReviewStep({
                 <AdPreview ad={ad} compact />
                 <p className="truncate text-sm font-medium text-fg">{ad.title}</p>
                 <p className="text-xs text-fg-subtle">
-                  {ad.mediaType === 'video' ? 'Video' : 'Image'} · {formatDuration(ad.durationSeconds)} · {ad.attentionQuestionsCount} question
+                  {ad.mediaType === 'video' ? 'Video' : 'Image'} · {formatDuration(ad.durationSeconds)} ·{' '}
+                  {ad.attentionQuestionsCount} question
                   {ad.attentionQuestionsCount === 1 ? '' : 's'}
                 </p>
               </li>
@@ -108,9 +132,11 @@ export function ReviewStep({
       <div className="flex gap-3 rounded-md bg-primary-soft p-4 text-sm text-fg">
         <ShieldCheck className="mt-0.5 size-5 shrink-0 text-primary" />
         <p>
-          <strong className="font-semibold">What happens next.</strong> Submitting reserves {formatEtb(campaign.budgetEtb)} from your wallet and sends the
-          creatives to our review team (usually within one working day). Once approved, ads go live and you are charged only for completions
-          that pass server-side watch verification and fraud checks. Unspent budget is released back to your wallet.
+          <strong className="font-semibold">What happens next.</strong> Submitting reserves{' '}
+          {formatEtb(campaign.budgetEtb)} from your wallet and sends the creatives to our review team (usually
+          within one working day). Once approved, ads go live and you are charged only for completions that
+          pass server-side watch verification and fraud checks. Unspent budget is released back to your
+          wallet.
         </p>
       </div>
 
@@ -119,10 +145,22 @@ export function ReviewStep({
           Back
         </Button>
         <div className="flex flex-wrap gap-3">
-          <Button type="button" variant="outline" onClick={onSaveDraft} leadingIcon={<Save className="size-4" />}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onSaveDraft}
+            leadingIcon={<Save className="size-4" />}
+          >
             Save as draft
           </Button>
-          <Button type="button" size="lg" onClick={onSubmit} disabled={needsAds} loading={submitting} leadingIcon={<Send className="size-4" />}>
+          <Button
+            type="button"
+            size="lg"
+            onClick={onSubmit}
+            disabled={needsAds}
+            loading={submitting}
+            leadingIcon={<Send className="size-4" />}
+          >
             Submit for review
           </Button>
         </div>
@@ -131,12 +169,26 @@ export function ReviewStep({
   );
 }
 
-function ReviewSection({ title, onEdit, children }: { title: string; onEdit: () => void; children: React.ReactNode }) {
+function ReviewSection({
+  title,
+  onEdit,
+  children,
+}: {
+  title: string;
+  onEdit: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-lg border border-border p-5" aria-label={title}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-fg">{title}</h3>
-        <Button type="button" variant="ghost" size="sm" onClick={onEdit} leadingIcon={<Pencil className="size-3.5" />}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onEdit}
+          leadingIcon={<Pencil className="size-3.5" />}
+        >
           Edit
         </Button>
       </div>

@@ -27,7 +27,12 @@ export function StatusTimeline({ campaign }: { campaign: CampaignSummary }) {
       {MAIN_STEPS.map((step, index) => {
         const reached = index <= current;
         const isCurrent = index === current;
-        const sideState = isCurrent && campaign.status === 'paused' ? 'paused' : isCurrent && campaign.status === 'rejected' ? 'rejected' : null;
+        const sideState =
+          isCurrent && campaign.status === 'paused'
+            ? 'paused'
+            : isCurrent && campaign.status === 'rejected'
+              ? 'rejected'
+              : null;
         return (
           <li key={step.status} className="relative flex gap-3 sm:flex-col sm:gap-3">
             <div className="flex items-center sm:w-full">
@@ -44,10 +49,24 @@ export function StatusTimeline({ campaign }: { campaign: CampaignSummary }) {
                 )}
                 aria-current={isCurrent ? 'step' : undefined}
               >
-                {sideState === 'rejected' ? <X className="size-4" /> : sideState === 'paused' ? <Pause className="size-3.5" /> : reached && !isCurrent ? <Check className="size-4" /> : index + 1}
+                {sideState === 'rejected' ? (
+                  <X className="size-4" />
+                ) : sideState === 'paused' ? (
+                  <Pause className="size-3.5" />
+                ) : reached && !isCurrent ? (
+                  <Check className="size-4" />
+                ) : (
+                  index + 1
+                )}
               </span>
               {index < MAIN_STEPS.length - 1 && (
-                <span className={cn('mx-2 hidden h-0.5 flex-1 rounded-full sm:block', index < current ? 'bg-primary' : 'bg-border')} aria-hidden="true" />
+                <span
+                  className={cn(
+                    'mx-2 hidden h-0.5 flex-1 rounded-full sm:block',
+                    index < current ? 'bg-primary' : 'bg-border',
+                  )}
+                  aria-hidden="true"
+                />
               )}
             </div>
             <div className="min-w-0">
@@ -63,7 +82,9 @@ export function StatusTimeline({ campaign }: { campaign: CampaignSummary }) {
                       : 'Paused by you'
                     : step.hint}
               </p>
-              {step.status === 'draft' && <p className="mt-0.5 text-xs text-fg-subtle">Created {formatDate(campaign.createdAt)}</p>}
+              {step.status === 'draft' && (
+                <p className="mt-0.5 text-xs text-fg-subtle">Created {formatDate(campaign.createdAt)}</p>
+              )}
             </div>
           </li>
         );

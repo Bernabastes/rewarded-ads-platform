@@ -45,9 +45,19 @@ describe('wizard machine', () => {
   });
 
   it('BACK never goes before the first step and GOTO respects completion', () => {
-    const state: WizardState = { step: 'details', campaignId: null, completed: [], targetActionType: 'video_view' };
+    const state: WizardState = {
+      step: 'details',
+      campaignId: null,
+      completed: [],
+      targetActionType: 'video_view',
+    };
     expect(wizardReducer(state, { type: 'BACK' }).step).toBe('details');
-    const later: WizardState = { ...state, step: 'review', campaignId: 'c', completed: ['details', 'budget', 'creative'] };
+    const later: WizardState = {
+      ...state,
+      step: 'review',
+      campaignId: 'c',
+      completed: ['details', 'budget', 'creative'],
+    };
     expect(wizardReducer(later, { type: 'BACK' }).step).toBe('creative');
     expect(wizardReducer(later, { type: 'GOTO', step: 'budget' }).step).toBe('budget');
   });
@@ -55,16 +65,28 @@ describe('wizard machine', () => {
   it('derives completed steps from an existing campaign', () => {
     expect(deriveCompletedSteps(campaignDetailFixture)).toEqual(['details', 'budget', 'creative']);
     expect(deriveCompletedSteps(emptyDraft)).toEqual(['details', 'budget']);
-    expect(deriveCompletedSteps({ ...emptyDraft, targetActionType: 'survey' })).toEqual(['details', 'budget', 'creative']);
+    expect(deriveCompletedSteps({ ...emptyDraft, targetActionType: 'survey' })).toEqual([
+      'details',
+      'budget',
+      'creative',
+    ]);
   });
 
   it('hydrates from a campaign and lands on the requested or first incomplete step', () => {
-    const hydrated = wizardReducer(initialWizardState, { type: 'HYDRATE', campaign: emptyDraft, step: 'review' });
+    const hydrated = wizardReducer(initialWizardState, {
+      type: 'HYDRATE',
+      campaign: emptyDraft,
+      step: 'review',
+    });
     expect(hydrated.campaignId).toBe(emptyDraft.id);
     // review is not reachable without a creative on a video campaign → first incomplete step
     expect(hydrated.step).toBe('creative');
 
-    const withAds = wizardReducer(initialWizardState, { type: 'HYDRATE', campaign: campaignDetailFixture, step: 'review' });
+    const withAds = wizardReducer(initialWizardState, {
+      type: 'HYDRATE',
+      campaign: campaignDetailFixture,
+      step: 'review',
+    });
     expect(withAds.step).toBe('review');
     expect(firstIncomplete(withAds)).toBe('review');
   });

@@ -26,7 +26,11 @@ export function Progress({ value, className, tone = 'primary', size = 'md', labe
       aria-valuemax={100}
       aria-valuenow={Math.round(clamped * 100)}
       aria-label={label}
-      className={cn('w-full overflow-hidden rounded-full bg-surface-muted', size === 'sm' ? 'h-1.5' : 'h-2.5', className)}
+      className={cn(
+        'w-full overflow-hidden rounded-full bg-surface-muted',
+        size === 'sm' ? 'h-1.5' : 'h-2.5',
+        className,
+      )}
     >
       <div
         className={cn('h-full rounded-full transition-[width] duration-500 ease-out', TONES[tone])}

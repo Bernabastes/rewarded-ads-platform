@@ -24,12 +24,24 @@ const TONES = {
   success: 'bg-success/10 text-success',
 };
 
-export function StatCard({ label, value, format, icon: Icon, hint, tone = 'primary', className, extra }: StatCardProps) {
+export function StatCard({
+  label,
+  value,
+  format,
+  icon: Icon,
+  hint,
+  tone = 'primary',
+  className,
+  extra,
+}: StatCardProps) {
   return (
     <StaggerItem className={cn('card-surface flex flex-col gap-3 p-5', className)}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-medium text-fg-muted">{label}</p>
-        <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md', TONES[tone])} aria-hidden="true">
+        <span
+          className={cn('flex size-9 shrink-0 items-center justify-center rounded-md', TONES[tone])}
+          aria-hidden="true"
+        >
           <Icon className="size-[18px]" />
         </span>
       </div>

@@ -9,7 +9,8 @@ export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
     'bg-primary text-primary-fg shadow-soft hover:bg-primary-hover active:translate-y-px disabled:hover:bg-primary',
-  accent: 'bg-accent text-accent-fg shadow-soft hover:bg-accent-hover active:translate-y-px disabled:hover:bg-accent',
+  accent:
+    'bg-accent text-accent-fg shadow-soft hover:bg-accent-hover active:translate-y-px disabled:hover:bg-accent',
   secondary: 'bg-primary-soft text-primary hover:bg-forest-100 dark:hover:bg-forest-900/60',
   outline: 'border border-border-strong bg-surface text-fg hover:bg-surface-muted',
   ghost: 'text-fg-muted hover:bg-surface-muted hover:text-fg',
@@ -48,7 +49,19 @@ export const buttonClasses = ({
   );
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = 'primary', size = 'md', loading = false, asChild = false, leadingIcon, trailingIcon, className, children, disabled, type, ...props },
+  {
+    variant = 'primary',
+    size = 'md',
+    loading = false,
+    asChild = false,
+    leadingIcon,
+    trailingIcon,
+    className,
+    children,
+    disabled,
+    type,
+    ...props
+  },
   ref,
 ) {
   const Comp = asChild ? Slot.Root : 'button';

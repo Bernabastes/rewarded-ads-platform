@@ -7,17 +7,40 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils/cn';
 import { formatEtb, formatEtbNumber, formatNumber, formatPercent } from '@/lib/utils/format';
 
-export const TARGET_ACTION_META: Record<TargetActionType, { label: string; icon: LucideIcon; description: string }> = {
-  video_view: { label: 'Video view', icon: PlayCircle, description: 'Viewers watch your video ad to the end and pass an attention check.' },
-  survey: { label: 'Survey', icon: ClipboardList, description: 'Viewers answer a short questionnaire — higher reward, richer insight.' },
-  app_install: { label: 'App install', icon: AppWindow, description: 'Viewers install and open your app; verified before payout.' },
+export const TARGET_ACTION_META: Record<
+  TargetActionType,
+  { label: string; icon: LucideIcon; description: string }
+> = {
+  video_view: {
+    label: 'Video view',
+    icon: PlayCircle,
+    description: 'Viewers watch your video ad to the end and pass an attention check.',
+  },
+  survey: {
+    label: 'Survey',
+    icon: ClipboardList,
+    description: 'Viewers answer a short questionnaire — higher reward, richer insight.',
+  },
+  app_install: {
+    label: 'App install',
+    icon: AppWindow,
+    description: 'Viewers install and open your app; verified before payout.',
+  },
 };
 
 export function budgetProgress(campaign: Pick<CampaignSummary, 'budgetEtb' | 'spentEtb'>): number {
   return campaign.budgetEtb > 0 ? Math.min(1, campaign.spentEtb / campaign.budgetEtb) : 0;
 }
 
-export function CampaignCard({ campaign, className, animated = true }: { campaign: CampaignSummary; className?: string; animated?: boolean }) {
+export function CampaignCard({
+  campaign,
+  className,
+  animated = true,
+}: {
+  campaign: CampaignSummary;
+  className?: string;
+  animated?: boolean;
+}) {
   const meta = TARGET_ACTION_META[campaign.targetActionType];
   const progress = budgetProgress(campaign);
   const Wrapper = animated ? StaggerItem : 'div';
@@ -32,7 +55,9 @@ export function CampaignCard({ campaign, className, animated = true }: { campaig
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="line-clamp-2 text-base leading-snug font-semibold text-fg group-hover:text-primary">{campaign.title}</h3>
+            <h3 className="line-clamp-2 text-base leading-snug font-semibold text-fg group-hover:text-primary">
+              {campaign.title}
+            </h3>
             <p className="mt-1 flex items-start gap-1.5 text-xs text-fg-subtle">
               <meta.icon className="mt-0.5 size-3.5 shrink-0" />
               <span>
@@ -47,10 +72,16 @@ export function CampaignCard({ campaign, className, animated = true }: { campaig
           <div className="flex items-baseline justify-between gap-3 text-sm">
             <span className="text-fg-muted">Spent</span>
             <span className="font-medium tabular-nums text-fg">
-              ETB {formatEtbNumber(campaign.spentEtb, 0)} <span className="text-fg-subtle">/ {formatEtbNumber(campaign.budgetEtb, 0)}</span>
+              ETB {formatEtbNumber(campaign.spentEtb, 0)}{' '}
+              <span className="text-fg-subtle">/ {formatEtbNumber(campaign.budgetEtb, 0)}</span>
             </span>
           </div>
-          <Progress value={progress} size="sm" tone={progress >= 0.9 ? 'accent' : 'primary'} label="Budget spent" />
+          <Progress
+            value={progress}
+            size="sm"
+            tone={progress >= 0.9 ? 'accent' : 'primary'}
+            label="Budget spent"
+          />
         </div>
 
         <dl className="mt-auto grid grid-cols-3 gap-3 border-t border-border pt-4 text-sm">
@@ -60,11 +91,15 @@ export function CampaignCard({ campaign, className, animated = true }: { campaig
           </div>
           <div>
             <dt className="text-xs text-fg-subtle">Raw</dt>
-            <dd className="font-semibold tabular-nums text-fg-muted">{formatNumber(campaign.rawCompletions)}</dd>
+            <dd className="font-semibold tabular-nums text-fg-muted">
+              {formatNumber(campaign.rawCompletions)}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-fg-subtle">Pass rate</dt>
-            <dd className="font-semibold tabular-nums text-fg">{validRate === null ? '—' : formatPercent(validRate, 0)}</dd>
+            <dd className="font-semibold tabular-nums text-fg">
+              {validRate === null ? '—' : formatPercent(validRate, 0)}
+            </dd>
           </div>
         </dl>
       </Link>

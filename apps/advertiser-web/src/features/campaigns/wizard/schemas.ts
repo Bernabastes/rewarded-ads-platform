@@ -8,9 +8,17 @@ const isoDate = z
 
 export const detailsSchema = z
   .object({
-    title: z.string().trim().min(3, 'Give the campaign a title of at least 3 characters').max(160, 'Keep the title under 160 characters'),
+    title: z
+      .string()
+      .trim()
+      .min(3, 'Give the campaign a title of at least 3 characters')
+      .max(160, 'Keep the title under 160 characters'),
     description: z.string().trim().max(2000, 'Keep the description under 2000 characters'),
-    targetActionType: z.enum([TargetActionType.video_view, TargetActionType.survey, TargetActionType.app_install]),
+    targetActionType: z.enum([
+      TargetActionType.video_view,
+      TargetActionType.survey,
+      TargetActionType.app_install,
+    ]),
     startDate: isoDate,
     endDate: isoDate,
     attentionCheckEnabled: z.boolean(),
@@ -35,7 +43,10 @@ export const budgetSchema = z
       .max(MAX_BUDGET_ETB, 'That budget is above the platform maximum'),
     costPerActionEtb: z
       .number({ error: 'Enter a cost per action' })
-      .min(MIN_COST_PER_ACTION_ETB, `The minimum cost per action is ETB ${MIN_COST_PER_ACTION_ETB.toFixed(2)}`)
+      .min(
+        MIN_COST_PER_ACTION_ETB,
+        `The minimum cost per action is ETB ${MIN_COST_PER_ACTION_ETB.toFixed(2)}`,
+      )
       .max(MAX_COST_PER_ACTION_ETB, 'That cost per action is above the platform maximum')
       .refine((v) => Math.round(v * 100) === v * 100, 'Use at most two decimals'),
   })
@@ -55,7 +66,12 @@ export const attentionQuestionSchema = z
   })
   .superRefine((q, ctx) => {
     q.options.forEach((option, index) => {
-      if (!option) ctx.addIssue({ code: 'custom', path: ['options', index], message: 'Fill in this option or remove it' });
+      if (!option)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['options', index],
+          message: 'Fill in this option or remove it',
+        });
     });
     if (!q.options[q.correctIndex]) {
       ctx.addIssue({ code: 'custom', path: ['correctIndex'], message: 'Choose which option is correct' });

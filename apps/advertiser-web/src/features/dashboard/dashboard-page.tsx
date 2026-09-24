@@ -35,7 +35,8 @@ export function DashboardPage() {
   const isNewAccount = overview.data && overview.data.totalCampaigns === 0;
   const fraudRate =
     overview.data && overview.data.totalValidCompletions + overview.data.totalFlaggedCompletions > 0
-      ? overview.data.totalFlaggedCompletions / (overview.data.totalValidCompletions + overview.data.totalFlaggedCompletions)
+      ? overview.data.totalFlaggedCompletions /
+        (overview.data.totalValidCompletions + overview.data.totalFlaggedCompletions)
       : 0;
 
   return (
@@ -109,7 +110,8 @@ export function DashboardPage() {
               hint={
                 <span className="inline-flex items-center gap-1">
                   <ShieldCheck className="size-3.5 text-success" />
-                  {formatNumber(overview.data.totalFlaggedCompletions)} filtered ({formatPercent(fraudRate, 0)})
+                  {formatNumber(overview.data.totalFlaggedCompletions)} filtered (
+                  {formatPercent(fraudRate, 0)})
                 </span>
               }
             />
@@ -157,10 +159,14 @@ export function DashboardPage() {
                 </Card>
               ) : recent.length === 0 ? (
                 <Card>
-                  <EmptyState compact title="No campaigns yet" description="Create your first campaign to start reaching verified viewers." />
+                  <EmptyState
+                    compact
+                    title="No campaigns yet"
+                    description="Create your first campaign to start reaching verified viewers."
+                  />
                 </Card>
               ) : (
-                <Stagger className="grid gap-4 md:grid-cols-3">
+                <Stagger className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {recent.map((campaign) => (
                     <CampaignCard key={campaign.id} campaign={campaign} />
                   ))}
@@ -184,7 +190,9 @@ function WalletCard({ balanceEtb }: { balanceEtb: number }) {
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0"
-            style={{ background: 'radial-gradient(70% 60% at 100% 0%, rgb(230 123 65 / 0.35), transparent 60%)' }}
+            style={{
+              background: 'radial-gradient(70% 60% at 100% 0%, rgb(230 123 65 / 0.35), transparent 60%)',
+            }}
           />
           <CardContent className="relative flex flex-col gap-5">
             <div className="flex items-center gap-2 text-sm text-forest-100">
@@ -194,7 +202,8 @@ function WalletCard({ balanceEtb }: { balanceEtb: number }) {
               <CountUp value={balanceEtb} format={(v) => formatEtb(v)} />
             </p>
             <p className="text-sm leading-relaxed text-forest-100/85">
-              Budgets are reserved from this balance when you submit a campaign. Keep it topped up so approvals go live immediately.
+              Budgets are reserved from this balance when you submit a campaign. Keep it topped up so
+              approvals go live immediately.
             </p>
             <Button asChild variant="accent" className="w-full">
               <Link to="/billing?topup=start">
@@ -217,8 +226,8 @@ function NewAccountState({ walletBalanceEtb }: { walletBalanceEtb: number }) {
           title="Launch your first campaign"
           description={
             <>
-              Upload a video or image creative, set a budget and cost per view, and our team reviews it within a working day. You
-              only pay for completions that pass our fraud checks.
+              Upload a video or image creative, set a budget and cost per view, and our team reviews it within
+              a working day. You only pay for completions that pass our fraud checks.
             </>
           }
           action={

@@ -20,7 +20,15 @@ import { DescriptionList } from '@/components/ui/table';
 import { isApiError } from '@/lib/api/errors';
 import { toastApiError } from '@/lib/forms';
 import { computeBudgetSplit } from '@/lib/utils/budget';
-import { formatDate, formatDateTime, formatDuration, formatEtb, formatNumber, formatPercent, formatRelative } from '@/lib/utils/format';
+import {
+  formatDate,
+  formatDateTime,
+  formatDuration,
+  formatEtb,
+  formatNumber,
+  formatPercent,
+  formatRelative,
+} from '@/lib/utils/format';
 import { budgetProgress, TARGET_ACTION_META } from './campaign-card';
 import { AdPreview } from './creative-preview';
 import { useCampaign, useDeleteCampaign, usePauseCampaign, useRemoveAd, useResumeCampaign } from './hooks';
@@ -40,7 +48,8 @@ export function CampaignDetailPage() {
   const [adToDelete, setAdToDelete] = useState<AdSummary | null>(null);
 
   if (campaign.isError) {
-    if (isApiError(campaign.error) && campaign.error.code === ErrorCode.NOT_FOUND) return <NotFoundPage embedded />;
+    if (isApiError(campaign.error) && campaign.error.code === ErrorCode.NOT_FOUND)
+      return <NotFoundPage embedded />;
     return (
       <Card>
         <ErrorState error={campaign.error} onRetry={() => void campaign.refetch()} />
@@ -66,7 +75,9 @@ export function CampaignDetailPage() {
     try {
       if (kind === 'pause') {
         await pause.mutateAsync(data.id);
-        toast.success('Campaign paused', { description: 'Viewers will stop seeing this campaign within a minute.' });
+        toast.success('Campaign paused', {
+          description: 'Viewers will stop seeing this campaign within a minute.',
+        });
       } else if (kind === 'resume') {
         await resume.mutateAsync(data.id);
         toast.success('Campaign resumed');
@@ -124,28 +135,58 @@ export function CampaignDetailPage() {
               </Button>
             )}
             {data.status === 'draft' && (
-              <Button variant="ghost" className="text-danger hover:bg-danger/10 hover:text-danger" onClick={() => setConfirm('delete')} leadingIcon={<Trash2 className="size-4" />}>
+              <Button
+                variant="ghost"
+                className="text-danger hover:bg-danger/10 hover:text-danger"
+                onClick={() => setConfirm('delete')}
+                leadingIcon={<Trash2 className="size-4" />}
+              >
                 Delete
               </Button>
             )}
             {canPause && (
-              <Button variant="outline" onClick={() => setConfirm('pause')} leadingIcon={<Pause className="size-4" />}>
+              <Button
+                variant="outline"
+                onClick={() => setConfirm('pause')}
+                leadingIcon={<Pause className="size-4" />}
+              >
                 Pause
               </Button>
             )}
             {data.status === 'paused' && (
-              <Tooltip content={canResume ? 'Resume delivery' : data.pausedReason === 'admin_paused' ? 'Paused by the platform team — contact support' : 'Budget exhausted — increase the budget to resume'}>
+              <Tooltip
+                content={
+                  canResume
+                    ? 'Resume delivery'
+                    : data.pausedReason === 'admin_paused'
+                      ? 'Paused by the platform team — contact support'
+                      : 'Budget exhausted — increase the budget to resume'
+                }
+              >
                 <span>
-                  <Button onClick={() => setConfirm('resume')} disabled={!canResume} leadingIcon={<Play className="size-4" />}>
+                  <Button
+                    onClick={() => setConfirm('resume')}
+                    disabled={!canResume}
+                    leadingIcon={<Play className="size-4" />}
+                  >
                     Resume
                   </Button>
                 </span>
               </Tooltip>
             )}
             {editable && (
-              <Tooltip content={canSubmit ? 'Reserve the budget and send for review' : 'Upload at least one creative first'}>
+              <Tooltip
+                content={
+                  canSubmit ? 'Reserve the budget and send for review' : 'Upload at least one creative first'
+                }
+              >
                 <span>
-                  <Button onClick={() => void submitFlow.submit(data)} disabled={!canSubmit} loading={submitFlow.isSubmitting} leadingIcon={<Send className="size-4" />}>
+                  <Button
+                    onClick={() => void submitFlow.submit(data)}
+                    disabled={!canSubmit}
+                    loading={submitFlow.isSubmitting}
+                    leadingIcon={<Send className="size-4" />}
+                  >
                     Submit for review
                   </Button>
                 </span>
@@ -157,12 +198,14 @@ export function CampaignDetailPage() {
 
       {data.status === 'rejected' && (
         <Alert tone="danger" title="This campaign was not approved">
-          {data.rejectionReason ?? 'The review team did not leave a reason.'} Update the campaign or its creatives and submit again.
+          {data.rejectionReason ?? 'The review team did not leave a reason.'} Update the campaign or its
+          creatives and submit again.
         </Alert>
       )}
       {data.status === 'paused' && data.pausedReason === 'admin_paused' && (
         <Alert tone="warning" title="Paused by the platform team">
-          Delivery was paused during a review. Contact support if you believe this was a mistake; you cannot resume it yourself.
+          Delivery was paused during a review. Contact support if you believe this was a mistake; you cannot
+          resume it yourself.
         </Alert>
       )}
       {data.status === 'paused' && data.pausedReason !== 'admin_paused' && data.remainingEtb <= 0 && (
@@ -172,8 +215,8 @@ export function CampaignDetailPage() {
       )}
       {data.status === 'pending_review' && (
         <Alert tone="info" title="In review">
-          Our team is checking the creatives against the advertising guidelines. {formatEtb(data.budgetEtb)} is reserved from your wallet;
-          it is refunded in full if the campaign is rejected.
+          Our team is checking the creatives against the advertising guidelines. {formatEtb(data.budgetEtb)}{' '}
+          is reserved from your wallet; it is refunded in full if the campaign is rejected.
         </Alert>
       )}
 
@@ -197,24 +240,32 @@ export function CampaignDetailPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-fg-muted">Remaining</p>
-                  <p className="text-display text-2xl font-semibold text-fg">{formatEtb(data.remainingEtb)}</p>
+                  <p className="text-display text-2xl font-semibold text-fg">
+                    {formatEtb(data.remainingEtb)}
+                  </p>
                 </div>
               </div>
               <Progress value={progress} tone={progress >= 0.9 ? 'accent' : 'primary'} label="Budget spent" />
               <p className="text-xs text-fg-subtle">
-                {formatPercent(progress, 0)} of {formatEtb(data.budgetEtb)} used · roughly {formatNumber(split.estimatedCompletions)} more verified
-                completions at {formatEtb(data.costPerActionEtb)} each
+                {formatPercent(progress, 0)} of {formatEtb(data.budgetEtb)} used · roughly{' '}
+                {formatNumber(split.estimatedCompletions)} more verified completions at{' '}
+                {formatEtb(data.costPerActionEtb)} each
               </p>
               <dl className="grid gap-4 border-t border-border pt-4 text-sm sm:grid-cols-3">
                 <div>
                   <dt className="text-fg-subtle">Viewer receives</dt>
                   <dd className="font-semibold text-fg">
-                    {formatEtb(data.rewardPerActionEtb)} <span className="font-normal text-fg-subtle">({formatNumber(data.rewardCoins)} coins)</span>
+                    {formatEtb(data.rewardPerActionEtb)}{' '}
+                    <span className="font-normal text-fg-subtle">
+                      ({formatNumber(data.rewardCoins)} coins)
+                    </span>
                   </dd>
                 </div>
                 <div>
                   <dt className="text-fg-subtle">Platform fee</dt>
-                  <dd className="font-semibold text-fg">{formatEtb(data.costPerActionEtb - data.rewardPerActionEtb)}</dd>
+                  <dd className="font-semibold text-fg">
+                    {formatEtb(data.costPerActionEtb - data.rewardPerActionEtb)}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-fg-subtle">Attention check</dt>
@@ -242,7 +293,9 @@ export function CampaignDetailPage() {
                 </div>
                 <div>
                   <p className="text-fg-subtle">Pass rate</p>
-                  <p className="font-semibold tabular-nums text-fg">{passRate === null ? '—' : formatPercent(passRate, 0)}</p>
+                  <p className="font-semibold tabular-nums text-fg">
+                    {passRate === null ? '—' : formatPercent(passRate, 0)}
+                  </p>
                 </div>
               </div>
               <Button asChild variant="secondary" size="sm" className="mt-auto self-start">
@@ -272,7 +325,10 @@ export function CampaignDetailPage() {
             <div className="rounded-md border border-dashed border-border-strong px-6 py-10 text-center text-sm text-fg-muted">
               No creatives yet.{' '}
               {canAddAd && (
-                <Link to={`/campaigns/${data.id}/edit?step=creative`} className="font-medium text-primary underline-offset-4 hover:underline">
+                <Link
+                  to={`/campaigns/${data.id}/edit?step=creative`}
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                >
                   Upload a video or image
                 </Link>
               )}
@@ -286,7 +342,8 @@ export function CampaignDetailPage() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-fg">{ad.title}</p>
                       <p className="text-xs text-fg-subtle">
-                        {ad.mediaType === 'video' ? 'Video' : 'Image'} · {formatDuration(ad.durationSeconds)} · {ad.attentionQuestionsCount} attention question
+                        {ad.mediaType === 'video' ? 'Video' : 'Image'} · {formatDuration(ad.durationSeconds)}{' '}
+                        · {ad.attentionQuestionsCount} attention question
                         {ad.attentionQuestionsCount === 1 ? '' : 's'}
                       </p>
                     </div>
@@ -298,9 +355,18 @@ export function CampaignDetailPage() {
                     </Alert>
                   )}
                   <div className="flex items-center justify-between text-xs text-fg-subtle">
-                    <span>{ad.reviewedAt ? `Reviewed ${formatDateTime(ad.reviewedAt)}` : `Added ${formatDate(ad.createdAt)}`}</span>
+                    <span>
+                      {ad.reviewedAt
+                        ? `Reviewed ${formatDateTime(ad.reviewedAt)}`
+                        : `Added ${formatDate(ad.createdAt)}`}
+                    </span>
                     {ad.reviewStatus !== 'approved' && (
-                      <Button variant="ghost" size="sm" className="text-danger hover:bg-danger/10 hover:text-danger" onClick={() => setAdToDelete(ad)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-danger hover:bg-danger/10 hover:text-danger"
+                        onClick={() => setAdToDelete(ad)}
+                      >
                         <Trash2 className="size-3.5" /> Remove
                       </Button>
                     )}
@@ -317,9 +383,15 @@ export function CampaignDetailPage() {
         <CardContent>
           <DescriptionList
             items={[
-              { term: 'Description', detail: data.description || <span className="text-fg-subtle">None</span> },
+              {
+                term: 'Description',
+                detail: data.description || <span className="text-fg-subtle">None</span>,
+              },
               { term: 'Target action', detail: meta.label },
-              { term: 'Schedule', detail: `${data.startDate ? formatDate(data.startDate) : 'On approval'} → ${data.endDate ? formatDate(data.endDate) : 'Until budget is spent'}` },
+              {
+                term: 'Schedule',
+                detail: `${data.startDate ? formatDate(data.startDate) : 'On approval'} → ${data.endDate ? formatDate(data.endDate) : 'Until budget is spent'}`,
+              },
               { term: 'Created', detail: formatDateTime(data.createdAt) },
               { term: 'Campaign ID', detail: <code className="text-xs">{data.id}</code> },
             ]}

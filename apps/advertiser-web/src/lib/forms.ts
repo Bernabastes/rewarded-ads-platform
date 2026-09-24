@@ -24,7 +24,11 @@ export function applyApiErrorToForm<T extends FieldValues>(
 }
 
 /** Standard mutation error handler: map to the form when possible, otherwise toast on the error code. */
-export function handleFormError<T extends FieldValues>(error: unknown, form: UseFormReturn<T>, fieldMap?: Record<string, Path<T>>) {
+export function handleFormError<T extends FieldValues>(
+  error: unknown,
+  form: UseFormReturn<T>,
+  fieldMap?: Record<string, Path<T>>,
+) {
   if (applyApiErrorToForm(error, form, fieldMap)) return;
   const { title, description } = describeApiError(error);
   form.setError('root.server', { type: 'server', message: description ? `${title}. ${description}` : title });

@@ -86,5 +86,9 @@ export const billingApi = {
   invoice: (id: string) => apiClient.get<InvoiceItem>(API_ROUTES.billing.invoice(id)),
   /** Dev/demo only: settles a mock-gateway payment (public endpoint that exists only in mock mode). */
   mockCheckoutPay: (txRef: string, outcome: 'success' | 'failed') =>
-    apiClient.post<{ status: PaymentStatus }>(API_ROUTES.billing.mockCheckoutPay(txRef), { outcome }, { auth: false }),
+    apiClient.post<{ status: PaymentStatus }>(
+      API_ROUTES.billing.mockCheckoutPay(txRef),
+      { outcome },
+      { auth: false },
+    ),
 };

@@ -8,12 +8,34 @@ import { EASE_OUT } from '@/components/motion/motion';
 import { BRAND_NAME, BRAND_NAME_AM, BRAND_TAGLINE } from '@/config/brand';
 
 const POINTS = [
-  { icon: Eye, title: 'Real attention, verified server-side', text: 'Every view is timed and checked before you pay a single birr.' },
-  { icon: ShieldCheck, title: 'Fraud filtered out, transparently', text: 'See raw versus verified completions side by side in your analytics.' },
-  { icon: Timer, title: 'Live in a day', text: 'Upload a creative, set a budget, and our team reviews it within 24 hours.' },
+  {
+    icon: Eye,
+    title: 'Real attention, verified server-side',
+    text: 'Every view is timed and checked before you pay a single birr.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Fraud filtered out, transparently',
+    text: 'See raw versus verified completions side by side in your analytics.',
+  },
+  {
+    icon: Timer,
+    title: 'Live in a day',
+    text: 'Upload a creative, set a budget, and our team reviews it within 24 hours.',
+  },
 ];
 
-export function AuthLayout({ title, subtitle, children, footer }: { title: ReactNode; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode }) {
+export function AuthLayout({
+  title,
+  subtitle,
+  children,
+  footer,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
   const reduce = useReducedMotion();
   return (
     <div className="grid min-h-full lg:grid-cols-[1.05fr_1fr]">
@@ -48,8 +70,8 @@ export function AuthLayout({ title, subtitle, children, footer }: { title: React
           </p>
           <h2 className="text-display mt-5 text-4xl leading-tight font-bold text-white">{BRAND_TAGLINE}</h2>
           <p className="mt-4 text-base leading-relaxed text-forest-100/90">
-            Your budget is only spent on completions that were watched, verified and passed our fraud checks. Everything else is
-            filtered out — and we show you exactly how much.
+            Your budget is only spent on completions that were watched, verified and passed our fraud checks.
+            Everything else is filtered out — and we show you exactly how much.
           </p>
           <ul className="mt-8 flex flex-col gap-5">
             {POINTS.map((point, i) => (
@@ -72,7 +94,10 @@ export function AuthLayout({ title, subtitle, children, footer }: { title: React
           </ul>
         </motion.div>
         <p className="relative text-xs text-forest-200/70">
-          Sample campaign title rendered in Ethiopic: <span lang="am" className="text-forest-50">“ቡና ታይም — የጠዋት ቅልቅል”</span>
+          Sample campaign title rendered in Ethiopic:{' '}
+          <span lang="am" className="text-forest-50">
+            “ቡና ታይም — የጠዋት ቅልቅል”
+          </span>
         </p>
       </aside>
 

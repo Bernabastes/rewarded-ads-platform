@@ -25,7 +25,12 @@ interface NotificationPrefs {
 }
 
 const PREFS_KEY = 'gize.notification-prefs';
-const DEFAULT_PREFS: NotificationPrefs = { campaignReviews: true, budgetAlerts: true, paymentReceipts: true, weeklyDigest: false };
+const DEFAULT_PREFS: NotificationPrefs = {
+  campaignReviews: true,
+  budgetAlerts: true,
+  paymentReceipts: true,
+  weeklyDigest: false,
+};
 const prefListeners = new Set<() => void>();
 let prefsCache: NotificationPrefs | null = null;
 
@@ -33,7 +38,9 @@ function readPrefs(): NotificationPrefs {
   if (prefsCache) return prefsCache;
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
-    prefsCache = raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<NotificationPrefs>) } : DEFAULT_PREFS;
+    prefsCache = raw
+      ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<NotificationPrefs>) }
+      : DEFAULT_PREFS;
   } catch {
     prefsCache = DEFAULT_PREFS;
   }
@@ -63,10 +70,26 @@ function useNotificationPrefs() {
 }
 
 const PREF_ITEMS: Array<{ key: keyof NotificationPrefs; label: string; description: string }> = [
-  { key: 'campaignReviews', label: 'Campaign review decisions', description: 'When a campaign or creative is approved or rejected.' },
-  { key: 'budgetAlerts', label: 'Budget alerts', description: 'When a campaign has spent 80% of its budget or is paused for lack of funds.' },
-  { key: 'paymentReceipts', label: 'Payment receipts', description: 'Confirmation and invoice for every wallet top-up.' },
-  { key: 'weeklyDigest', label: 'Weekly performance digest', description: 'A Monday summary of verified views, spend and filtered fraud.' },
+  {
+    key: 'campaignReviews',
+    label: 'Campaign review decisions',
+    description: 'When a campaign or creative is approved or rejected.',
+  },
+  {
+    key: 'budgetAlerts',
+    label: 'Budget alerts',
+    description: 'When a campaign has spent 80% of its budget or is paused for lack of funds.',
+  },
+  {
+    key: 'paymentReceipts',
+    label: 'Payment receipts',
+    description: 'Confirmation and invoice for every wallet top-up.',
+  },
+  {
+    key: 'weeklyDigest',
+    label: 'Weekly performance digest',
+    description: 'A Monday summary of verified views, spend and filtered fraud.',
+  },
 ];
 
 export function SettingsPage() {
@@ -77,7 +100,10 @@ export function SettingsPage() {
 
   return (
     <PageTransition className="flex flex-col gap-6">
-      <PageHeader title="Account settings" description="Your business profile, verification status, notifications and appearance." />
+      <PageHeader
+        title="Account settings"
+        description="Your business profile, verification status, notifications and appearance."
+      />
       <VerificationBanner />
 
       <Stagger className="grid gap-4 lg:grid-cols-3">
@@ -104,7 +130,10 @@ export function SettingsPage() {
               />
               <Alert tone="info">
                 Profile changes are verified manually to keep the marketplace trustworthy. Email{' '}
-                <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                <a
+                  href={`mailto:${SUPPORT_EMAIL}`}
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                >
                   {SUPPORT_EMAIL}
                 </a>{' '}
                 from your registered address and we will update them within one working day.
@@ -123,7 +152,10 @@ export function SettingsPage() {
               }
             />
             <CardContent className="flex flex-col items-center gap-4 text-center">
-              <VerificationIllustration verified={profile.verificationStatus === 'verified'} className="h-auto w-40" />
+              <VerificationIllustration
+                verified={profile.verificationStatus === 'verified'}
+                className="h-auto w-40"
+              />
               <VerificationBadge status={profile.verificationStatus} />
               <p className="text-sm text-fg-muted">
                 {profile.verificationStatus === 'verified'
@@ -132,7 +164,11 @@ export function SettingsPage() {
                     ? 'We are checking your registration against the business registry. Drafts and top-ups are available now; submitting unlocks after approval. Sign in again to refresh your status.'
                     : 'Your registration could not be verified. Contact support to correct your details.'}
               </p>
-              {profile.verificationNote && <p className="rounded-md bg-surface-muted px-3 py-2 text-xs text-fg-muted">Note from our team: {profile.verificationNote}</p>}
+              {profile.verificationNote && (
+                <p className="rounded-md bg-surface-muted px-3 py-2 text-xs text-fg-muted">
+                  Note from our team: {profile.verificationNote}
+                </p>
+              )}
             </CardContent>
           </Card>
         </StaggerItem>
@@ -152,7 +188,10 @@ export function SettingsPage() {
             <CardContent>
               <ul className="flex flex-col divide-y divide-border">
                 {PREF_ITEMS.map((item) => (
-                  <li key={item.key} className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0">
+                  <li
+                    key={item.key}
+                    className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
+                  >
                     <div>
                       <p id={`pref-${item.key}`} className="text-sm font-medium text-fg">
                         {item.label}
@@ -198,8 +237,9 @@ export function SettingsPage() {
             />
             <CardContent className="flex flex-col gap-4">
               <p className="text-sm text-fg-muted">
-                Self-service password changes are not available yet. To reset your password, email {SUPPORT_EMAIL} from your registered contact
-                address. Sessions expire after 15 minutes of inactivity unless you chose “Keep me signed in”.
+                Self-service password changes are not available yet. To reset your password, email{' '}
+                {SUPPORT_EMAIL} from your registered contact address. Sessions expire after 15 minutes of
+                inactivity unless you chose “Keep me signed in”.
               </p>
               <Button
                 variant="outline"

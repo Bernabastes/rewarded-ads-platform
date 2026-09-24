@@ -1,4 +1,15 @@
-import { BarChart3, CreditCard, LayoutDashboard, LogOut, Megaphone, Menu, Plus, Search, Settings, Wallet } from 'lucide-react';
+import {
+  BarChart3,
+  CreditCard,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  Menu,
+  Plus,
+  Search,
+  Settings,
+  Wallet,
+} from 'lucide-react';
 import { Dialog as RadixDialog } from 'radix-ui';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
@@ -8,7 +19,15 @@ import { cn } from '@/lib/utils/cn';
 import { formatEtb } from '@/lib/utils/format';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/primitives';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Tooltip,
+} from '../ui/primitives';
 import { Skeleton } from '../ui/skeleton';
 import { BrandLogo } from './brand-logo';
 import { CommandPalette } from './command-palette';
@@ -42,7 +61,12 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
         >
           {({ isActive }) => (
             <>
-              <item.icon className={cn('size-5 shrink-0', isActive ? 'text-primary' : 'text-fg-subtle group-hover:text-fg')} />
+              <item.icon
+                className={cn(
+                  'size-5 shrink-0',
+                  isActive ? 'text-primary' : 'text-fg-subtle group-hover:text-fg',
+                )}
+              />
               {item.label}
             </>
           )}
@@ -105,8 +129,22 @@ function UserMenu() {
           <span className="block truncate font-normal">{profile.contactEmail}</span>
         </DropdownMenuLabel>
         <div className="px-2.5 pb-2">
-          <Badge tone={profile.verificationStatus === 'verified' ? 'success' : profile.verificationStatus === 'pending' ? 'warning' : 'danger'} dot size="sm">
-            {profile.verificationStatus === 'verified' ? 'Verified' : profile.verificationStatus === 'pending' ? 'Verification pending' : 'Verification rejected'}
+          <Badge
+            tone={
+              profile.verificationStatus === 'verified'
+                ? 'success'
+                : profile.verificationStatus === 'pending'
+                  ? 'warning'
+                  : 'danger'
+            }
+            dot
+            size="sm"
+          >
+            {profile.verificationStatus === 'verified'
+              ? 'Verified'
+              : profile.verificationStatus === 'pending'
+                ? 'Verification pending'
+                : 'Verification rejected'}
           </Badge>
         </div>
         <DropdownMenuSeparator />
@@ -189,7 +227,13 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-bg/85 px-4 backdrop-blur-md sm:px-6">
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open navigation"
+          >
             <Menu className="size-5" />
           </Button>
           <Link to="/" className="lg:hidden" aria-label="Dashboard">
@@ -202,9 +246,17 @@ export function AppShell({ children }: { children?: ReactNode }) {
           >
             <Search className="size-4" />
             <span className="flex-1 text-left">Search campaigns, pages…</span>
-            <kbd className="rounded-[6px] border border-border bg-surface-muted px-1.5 py-0.5 font-sans text-[11px] text-fg-subtle">Ctrl K</kbd>
+            <kbd className="rounded-[6px] border border-border bg-surface-muted px-1.5 py-0.5 font-sans text-[11px] text-fg-subtle">
+              Ctrl K
+            </kbd>
           </button>
-          <Button variant="ghost" size="icon" className="ml-auto md:ml-0 md:hidden" onClick={() => setPaletteOpen(true)} aria-label="Search">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-auto md:ml-0 md:hidden"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search"
+          >
             <Search className="size-5" />
           </Button>
           <WalletChip />

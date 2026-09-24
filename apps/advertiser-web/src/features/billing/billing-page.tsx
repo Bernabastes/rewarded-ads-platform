@@ -14,7 +14,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip } from '@/components/ui/primitives';
 import { Skeleton, TableSkeleton } from '@/components/ui/skeleton';
-import { Pagination, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Pagination,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { billingApi } from '@/lib/api';
 import { toastApiError } from '@/lib/forms';
 import { cn } from '@/lib/utils/cn';
@@ -36,7 +44,9 @@ export function BillingPage() {
   const navigate = useNavigate();
   const wallet = useWalletBalance();
 
-  const isReturn = location.pathname.endsWith('/return') || (params.get('topup') !== null && params.get('topup') !== 'start');
+  const isReturn =
+    location.pathname.endsWith('/return') ||
+    (params.get('topup') !== null && params.get('topup') !== 'start');
   const returnParams = parseReturnParams(params);
   const startTopup = params.get('topup') === 'start';
   const suggested = Number(params.get('amount'));
@@ -69,12 +79,24 @@ export function BillingPage() {
       />
       <VerificationBanner />
 
-      {isReturn && <TopupReturnPanel key={`${returnParams.txRef}-${returnParams.paymentId}`} params={returnParams} onDone={finishReturn} />}
+      {isReturn && (
+        <TopupReturnPanel
+          key={`${returnParams.txRef}-${returnParams.paymentId}`}
+          params={returnParams}
+          onDone={finishReturn}
+        />
+      )}
 
       <Stagger className="grid gap-4 lg:grid-cols-3">
         <StaggerItem className="lg:col-span-2">
           <Card className="relative h-full overflow-hidden bg-forest-800 text-forest-50 dark:bg-forest-900">
-            <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(70% 60% at 100% 0%, rgb(230 123 65 / 0.35), transparent 60%)' }} />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background: 'radial-gradient(70% 60% at 100% 0%, rgb(230 123 65 / 0.35), transparent 60%)',
+              }}
+            />
             <CardContent className="relative flex h-full flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="flex items-center gap-2 text-sm text-forest-100">
@@ -115,14 +137,16 @@ export function BillingPage() {
             <CardHeader title="How billing works" />
             <CardContent className="flex flex-col gap-3 pt-0 text-sm text-fg-muted">
               <p>
-                <strong className="font-medium text-fg">1. Add funds</strong> via Chapa — telebirr, CBE Birr, cards and bank transfer.
+                <strong className="font-medium text-fg">1. Add funds</strong> via Chapa — telebirr, CBE Birr,
+                cards and bank transfer.
               </p>
               <p>
-                <strong className="font-medium text-fg">2. Submit a campaign</strong> — its budget is reserved so approved ads can go live at once.
+                <strong className="font-medium text-fg">2. Submit a campaign</strong> — its budget is reserved
+                so approved ads can go live at once.
               </p>
               <p>
-                <strong className="font-medium text-fg">3. Pay per verified completion</strong> — flagged or rejected views are never charged;
-                unspent budget flows back.
+                <strong className="font-medium text-fg">3. Pay per verified completion</strong> — flagged or
+                rejected views are never charged; unspent budget flows back.
               </p>
             </CardContent>
           </Card>
@@ -168,13 +192,23 @@ function PaymentsTable({ onTopup }: { onTopup: () => void }) {
   });
   return (
     <Card>
-      <CardHeader title="Payment history" description="Every top-up attempt, including pending and failed ones." action={<RefreshButton onClick={() => void payments.refetch()} loading={payments.isFetching} />} />
+      <CardHeader
+        title="Payment history"
+        description="Every top-up attempt, including pending and failed ones."
+        action={<RefreshButton onClick={() => void payments.refetch()} loading={payments.isFetching} />}
+      />
       {payments.isPending ? (
         <TableSkeleton rows={4} columns={5} />
       ) : payments.isError ? (
         <ErrorState compact error={payments.error} onRetry={() => void payments.refetch()} />
       ) : payments.data.data.length === 0 ? (
-        <EmptyState compact illustration={<WalletIllustration className="h-auto w-full" />} title="No payments yet" description="Add funds to reserve budgets for your campaigns." action={<Button onClick={onTopup}>Add funds</Button>} />
+        <EmptyState
+          compact
+          illustration={<WalletIllustration className="h-auto w-full" />}
+          title="No payments yet"
+          description="Add funds to reserve budgets for your campaigns."
+          action={<Button onClick={onTopup}>Add funds</Button>}
+        />
       ) : (
         <>
           <Table>
@@ -190,7 +224,9 @@ function PaymentsTable({ onTopup }: { onTopup: () => void }) {
             <TableBody>
               {payments.data.data.map((payment) => (
                 <TableRow key={payment.id}>
-                  <TableCell className="whitespace-nowrap text-fg-muted">{formatDateTime(payment.paidAt ?? payment.createdAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-fg-muted">
+                    {formatDateTime(payment.paidAt ?? payment.createdAt)}
+                  </TableCell>
                   <TableCell>
                     <span className="font-medium text-fg">{payment.txRef}</span>
                     <span className="block text-xs text-fg-subtle capitalize">{payment.gateway}</span>
@@ -205,7 +241,12 @@ function PaymentsTable({ onTopup }: { onTopup: () => void }) {
                     {payment.status === 'pending' ? (
                       <div className="flex justify-end gap-2">
                         {isMockPayment(payment) ? (
-                          <Button variant="outline" size="sm" loading={settleMock.isPending && settleMock.variables === payment.txRef} onClick={() => settleMock.mutate(payment.txRef)}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            loading={settleMock.isPending && settleMock.variables === payment.txRef}
+                            onClick={() => settleMock.mutate(payment.txRef)}
+                          >
                             Complete test payment
                           </Button>
                         ) : (
@@ -218,7 +259,11 @@ function PaymentsTable({ onTopup }: { onTopup: () => void }) {
                           )
                         )}
                         <Button asChild variant="ghost" size="sm">
-                          <Link to={`/billing?topup=${encodeURIComponent(payment.txRef)}&paymentId=${payment.id}`}>Check status</Link>
+                          <Link
+                            to={`/billing?topup=${encodeURIComponent(payment.txRef)}&paymentId=${payment.id}`}
+                          >
+                            Check status
+                          </Link>
                         </Button>
                       </div>
                     ) : (
@@ -229,7 +274,13 @@ function PaymentsTable({ onTopup }: { onTopup: () => void }) {
               ))}
             </TableBody>
           </Table>
-          <Pagination page={payments.data.meta.page} limit={payments.data.meta.limit} total={payments.data.meta.total} onPageChange={setPage} itemLabel="payments" />
+          <Pagination
+            page={payments.data.meta.page}
+            limit={payments.data.meta.limit}
+            total={payments.data.meta.total}
+            onPageChange={setPage}
+            itemLabel="payments"
+          />
         </>
       )}
     </Card>
@@ -241,13 +292,20 @@ function InvoicesTable() {
   const invoices = useInvoices(page);
   return (
     <Card>
-      <CardHeader title="Invoices" description="Issued automatically for every successful top-up. Open one to print or save as PDF." />
+      <CardHeader
+        title="Invoices"
+        description="Issued automatically for every successful top-up. Open one to print or save as PDF."
+      />
       {invoices.isPending ? (
         <TableSkeleton rows={4} columns={4} />
       ) : invoices.isError ? (
         <ErrorState compact error={invoices.error} onRetry={() => void invoices.refetch()} />
       ) : invoices.data.data.length === 0 ? (
-        <EmptyState compact title="No invoices yet" description="Your first invoice is issued as soon as a top-up is confirmed." />
+        <EmptyState
+          compact
+          title="No invoices yet"
+          description="Your first invoice is issued as soon as a top-up is confirmed."
+        />
       ) : (
         <>
           <Table>
@@ -266,12 +324,17 @@ function InvoicesTable() {
               {invoices.data.data.map((invoice) => (
                 <TableRow key={invoice.id}>
                   <TableCell>
-                    <Link to={`/billing/invoices/${invoice.id}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                    <Link
+                      to={`/billing/invoices/${invoice.id}`}
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    >
                       {invoice.invoiceNumber}
                     </Link>
                     <span className="block text-xs text-fg-subtle">{invoice.lineItems[0]?.description}</span>
                   </TableCell>
-                  <TableCell className="whitespace-nowrap text-fg-muted">{formatDateTime(invoice.issuedAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-fg-muted">
+                    {formatDateTime(invoice.issuedAt)}
+                  </TableCell>
                   <TableCell>
                     <InvoiceStatusBadge status={invoice.status} />
                   </TableCell>
@@ -289,7 +352,13 @@ function InvoicesTable() {
               ))}
             </TableBody>
           </Table>
-          <Pagination page={invoices.data.meta.page} limit={invoices.data.meta.limit} total={invoices.data.meta.total} onPageChange={setPage} itemLabel="invoices" />
+          <Pagination
+            page={invoices.data.meta.page}
+            limit={invoices.data.meta.limit}
+            total={invoices.data.meta.total}
+            onPageChange={setPage}
+            itemLabel="invoices"
+          />
         </>
       )}
     </Card>
@@ -301,13 +370,20 @@ function LedgerTable() {
   const ledger = useLedger(page);
   return (
     <Card>
-      <CardHeader title="Wallet activity" description="Every movement on your wallet: top-ups in, budget reservations out, refunds back." />
+      <CardHeader
+        title="Wallet activity"
+        description="Every movement on your wallet: top-ups in, budget reservations out, refunds back."
+      />
       {ledger.isPending ? (
         <TableSkeleton rows={4} columns={4} />
       ) : ledger.isError ? (
         <ErrorState compact error={ledger.error} onRetry={() => void ledger.refetch()} />
       ) : ledger.data.data.length === 0 ? (
-        <EmptyState compact title="No wallet activity yet" description="Top-ups and budget reservations will show up here." />
+        <EmptyState
+          compact
+          title="No wallet activity yet"
+          description="Top-ups and budget reservations will show up here."
+        />
       ) : (
         <>
           <Table>
@@ -324,15 +400,31 @@ function LedgerTable() {
                 const credit = entry.amountEtb >= 0;
                 return (
                   <TableRow key={entry.id}>
-                    <TableCell className="whitespace-nowrap text-fg-muted">{formatDateTime(entry.createdAt)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-fg-muted">
+                      {formatDateTime(entry.createdAt)}
+                    </TableCell>
                     <TableCell>
                       <span className="flex items-center gap-2">
-                        <span className={cn('flex size-7 items-center justify-center rounded-full', credit ? 'bg-success/12 text-success' : 'bg-surface-muted text-fg-muted')} aria-hidden="true">
-                          {credit ? <ArrowDownLeft className="size-3.5" /> : <ArrowUpRight className="size-3.5" />}
+                        <span
+                          className={cn(
+                            'flex size-7 items-center justify-center rounded-full',
+                            credit ? 'bg-success/12 text-success' : 'bg-surface-muted text-fg-muted',
+                          )}
+                          aria-hidden="true"
+                        >
+                          {credit ? (
+                            <ArrowDownLeft className="size-3.5" />
+                          ) : (
+                            <ArrowUpRight className="size-3.5" />
+                          )}
                         </span>
                         <span>
-                          <span className="block font-medium text-fg">{LEDGER_LABEL[entry.entryType] ?? humanize(entry.entryType)}</span>
-                          {entry.description && <span className="block text-xs text-fg-subtle">{entry.description}</span>}
+                          <span className="block font-medium text-fg">
+                            {LEDGER_LABEL[entry.entryType] ?? humanize(entry.entryType)}
+                          </span>
+                          {entry.description && (
+                            <span className="block text-xs text-fg-subtle">{entry.description}</span>
+                          )}
                         </span>
                       </span>
                     </TableCell>
@@ -348,7 +440,13 @@ function LedgerTable() {
               })}
             </TableBody>
           </Table>
-          <Pagination page={ledger.data.meta.page} limit={ledger.data.meta.limit} total={ledger.data.meta.total} onPageChange={setPage} itemLabel="entries" />
+          <Pagination
+            page={ledger.data.meta.page}
+            limit={ledger.data.meta.limit}
+            total={ledger.data.meta.total}
+            onPageChange={setPage}
+            itemLabel="entries"
+          />
         </>
       )}
     </Card>

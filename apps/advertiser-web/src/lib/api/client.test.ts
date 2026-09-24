@@ -14,7 +14,12 @@ function envelope(status: number, code: string, message = code) {
 }
 
 function makeTokens(suffix: string): AuthTokens {
-  return { accessToken: `access-${suffix}`, refreshToken: `refresh-${suffix}`, expiresIn: 900, tokenType: 'Bearer' };
+  return {
+    accessToken: `access-${suffix}`,
+    refreshToken: `refresh-${suffix}`,
+    expiresIn: 900,
+    tokenType: 'Bearer',
+  };
 }
 
 function makeStore(initial: AuthTokens | null, expiry: number | null = null) {
@@ -36,7 +41,9 @@ function makeStore(initial: AuthTokens | null, expiry: number | null = null) {
 
 describe('buildQuery', () => {
   it('serialises defined params and skips empty ones', () => {
-    expect(buildQuery({ page: 2, limit: 20, status: undefined, q: '', flag: false })).toBe('?page=2&limit=20&flag=false');
+    expect(buildQuery({ page: 2, limit: 20, status: undefined, q: '', flag: false })).toBe(
+      '?page=2&limit=20&flag=false',
+    );
     expect(buildQuery()).toBe('');
   });
 });
@@ -47,16 +54,32 @@ describe('ApiClient', () => {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer access-1');
       return json({ ok: true });
     });
-    const client = new ApiClient({ baseUrl: BASE, tokens: makeStore(makeTokens('1')), fetchFn: fetchFn as typeof fetch });
+    const client = new ApiClient({
+      baseUrl: BASE,
+      tokens: makeStore(makeTokens('1')),
+      fetchFn: fetchFn as typeof fetch,
+    });
     await expect(client.get('/campaigns')).resolves.toEqual({ ok: true });
     expect(fetchFn).toHaveBeenCalledWith(`${BASE}/campaigns`, expect.anything());
   });
 
   it('throws an ApiError carrying the envelope code and validation details', async () => {
     const fetchFn = vi.fn(async () =>
-      json({ statusCode: 400, code: ErrorCode.VALIDATION_ERROR, message: 'Validation failed', details: [{ field: 'title', messages: ['too short'] }] }, 400),
+      json(
+        {
+          statusCode: 400,
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'Validation failed',
+          details: [{ field: 'title', messages: ['too short'] }],
+        },
+        400,
+      ),
     );
-    const client = new ApiClient({ baseUrl: BASE, tokens: makeStore(makeTokens('1')), fetchFn: fetchFn as typeof fetch });
+    const client = new ApiClient({
+      baseUrl: BASE,
+      tokens: makeStore(makeTokens('1')),
+      fetchFn: fetchFn as typeof fetch,
+    });
     const error = await client.post('/campaigns', {}).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).code).toBe(ErrorCode.VALIDATION_ERROR);
@@ -147,7 +170,13 @@ describe('ApiClient', () => {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer access-new');
       return json({ ok: true });
     });
-    const client = new ApiClient({ baseUrl: BASE, tokens: store, fetchFn: fetchFn as typeof fetch, now: () => now, refreshLeewayMs: 20_000 });
+    const client = new ApiClient({
+      baseUrl: BASE,
+      tokens: store,
+      fetchFn: fetchFn as typeof fetch,
+      now: () => now,
+      refreshLeewayMs: 20_000,
+    });
     await expect(client.get('/campaigns')).resolves.toEqual({ ok: true });
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
@@ -159,7 +188,9 @@ describe('ApiClient', () => {
       return envelope(401, ErrorCode.INVALID_CREDENTIALS);
     });
     const client = new ApiClient({ baseUrl: BASE, tokens: store, fetchFn: fetchFn as typeof fetch });
-    await expect(client.post('/auth/advertiser/login', { email: 'x', password: 'y' }, { auth: false })).rejects.toMatchObject({
+    await expect(
+      client.post('/auth/advertiser/login', { email: 'x', password: 'y' }, { auth: false }),
+    ).rejects.toMatchObject({
       code: ErrorCode.INVALID_CREDENTIALS,
     });
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -175,9 +206,16 @@ describe('ApiClient', () => {
         throw new TypeError('Failed to fetch');
       }) as typeof fetch,
     });
-    await expect(failing.get('/campaigns')).rejects.toMatchObject({ code: ClientErrorCode.NETWORK_ERROR, statusCode: 0 });
+    await expect(failing.get('/campaigns')).rejects.toMatchObject({
+      code: ClientErrorCode.NETWORK_ERROR,
+      statusCode: 0,
+    });
 
-    const ok = new ApiClient({ baseUrl: BASE, tokens: store, fetchFn: (async () => new Response(null, { status: 204 })) as typeof fetch });
+    const ok = new ApiClient({
+      baseUrl: BASE,
+      tokens: store,
+      fetchFn: (async () => new Response(null, { status: 204 })) as typeof fetch,
+    });
     await expect(ok.delete('/campaigns/1')).resolves.toBeUndefined();
   });
 });

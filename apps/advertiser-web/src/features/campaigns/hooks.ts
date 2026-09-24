@@ -1,4 +1,11 @@
-import type { CampaignDetail, CampaignStatus, CampaignSummary, CreateAdDto, CreateCampaignDto, UpdateCampaignDto } from '@rap/shared';
+import type {
+  CampaignDetail,
+  CampaignStatus,
+  CampaignSummary,
+  CreateAdDto,
+  CreateCampaignDto,
+  UpdateCampaignDto,
+} from '@rap/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { campaignsApi } from '@/lib/api';
 import { queryKeys } from '@/lib/query/keys';
@@ -75,18 +82,39 @@ function useCampaignMutation<TVars, TData extends CampaignSummary | CampaignDeta
   });
 }
 
-export const useCreateCampaign = () => useCampaignMutation((dto: CreateCampaignDto) => campaignsApi.create(dto));
+export const useCreateCampaign = () =>
+  useCampaignMutation((dto: CreateCampaignDto) => campaignsApi.create(dto));
 export const useUpdateCampaign = () =>
-  useCampaignMutation(({ id, dto }: { id: string; dto: UpdateCampaignDto }) => campaignsApi.update(id, dto), (v) => v.id);
-export const useSubmitCampaign = () => useCampaignMutation((id: string) => campaignsApi.submit(id), (id) => id);
-export const usePauseCampaign = () => useCampaignMutation((id: string) => campaignsApi.pause(id), (id) => id);
-export const useResumeCampaign = () => useCampaignMutation((id: string) => campaignsApi.resume(id), (id) => id);
-export const useDeleteCampaign = () => useCampaignMutation((id: string) => campaignsApi.remove(id), (id) => id);
+  useCampaignMutation(
+    ({ id, dto }: { id: string; dto: UpdateCampaignDto }) => campaignsApi.update(id, dto),
+    (v) => v.id,
+  );
+export const useSubmitCampaign = () =>
+  useCampaignMutation(
+    (id: string) => campaignsApi.submit(id),
+    (id) => id,
+  );
+export const usePauseCampaign = () =>
+  useCampaignMutation(
+    (id: string) => campaignsApi.pause(id),
+    (id) => id,
+  );
+export const useResumeCampaign = () =>
+  useCampaignMutation(
+    (id: string) => campaignsApi.resume(id),
+    (id) => id,
+  );
+export const useDeleteCampaign = () =>
+  useCampaignMutation(
+    (id: string) => campaignsApi.remove(id),
+    (id) => id,
+  );
 
 export function useAddAd() {
   const invalidate = useInvalidateCampaigns();
   return useMutation({
-    mutationFn: ({ campaignId, dto }: { campaignId: string; dto: CreateAdDto }) => campaignsApi.addAd(campaignId, dto),
+    mutationFn: ({ campaignId, dto }: { campaignId: string; dto: CreateAdDto }) =>
+      campaignsApi.addAd(campaignId, dto),
     onSuccess: (_data, vars) => invalidate(vars.campaignId),
   });
 }
@@ -94,7 +122,8 @@ export function useAddAd() {
 export function useRemoveAd() {
   const invalidate = useInvalidateCampaigns();
   return useMutation({
-    mutationFn: ({ campaignId, adId }: { campaignId: string; adId: string }) => campaignsApi.removeAd(campaignId, adId),
+    mutationFn: ({ campaignId, adId }: { campaignId: string; adId: string }) =>
+      campaignsApi.removeAd(campaignId, adId),
     onSuccess: (_data, vars) => invalidate(vars.campaignId),
   });
 }

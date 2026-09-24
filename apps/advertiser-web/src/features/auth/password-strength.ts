@@ -23,7 +23,8 @@ export function assessPassword(password: string): PasswordStrength {
   if (hasSymbol) points += 1;
   if (long) points += 1;
   // Common weak patterns
-  if (/^(.)\1+$/.test(password) || /^(1234|password|qwerty|abcd)/i.test(password)) points = Math.min(points, 1);
+  if (/^(.)\1+$/.test(password) || /^(1234|password|qwerty|abcd)/i.test(password))
+    points = Math.min(points, 1);
 
   const score = Math.max(1, Math.min(4, Math.ceil((points / 5) * 4))) as 1 | 2 | 3 | 4;
   const labels: Record<1 | 2 | 3 | 4, string> = { 1: 'Weak', 2: 'Fair', 3: 'Good', 4: 'Strong' };

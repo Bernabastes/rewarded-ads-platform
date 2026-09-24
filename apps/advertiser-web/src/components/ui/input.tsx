@@ -23,7 +23,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   ref,
 ) {
   if (!leading && !trailing) {
-    return <input ref={ref} aria-invalid={invalid || undefined} className={inputClasses(invalid, className)} {...props} />;
+    return (
+      <input
+        ref={ref}
+        aria-invalid={invalid || undefined}
+        className={inputClasses(invalid, className)}
+        {...props}
+      />
+    );
   }
   return (
     <div className="relative flex items-center">
@@ -38,7 +45,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         className={inputClasses(invalid, cn(leading && 'pl-10', trailing && 'pr-12', className))}
         {...props}
       />
-      {trailing && <span className="absolute right-2 flex items-center text-sm text-fg-subtle">{trailing}</span>}
+      {trailing && (
+        <span className="absolute right-2 flex items-center text-sm text-fg-subtle">{trailing}</span>
+      )}
     </div>
   );
 });

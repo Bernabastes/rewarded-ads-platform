@@ -201,7 +201,14 @@ export const invoiceFixture: InvoiceItem = {
   vatEtb: 0,
   totalEtb: 1000,
   currency: 'ETB',
-  lineItems: [{ description: 'Advertising wallet top-up (RAP-TEST-1)', quantity: 1, unitPriceEtb: 1000, totalEtb: 1000 }],
+  lineItems: [
+    {
+      description: 'Advertising wallet top-up (RAP-TEST-1)',
+      quantity: 1,
+      unitPriceEtb: 1000,
+      totalEtb: 1000,
+    },
+  ],
   paymentId: 'pay-1',
   issuedAt: '2026-09-24T09:05:00.000Z',
   paidAt: '2026-09-24T09:05:00.000Z',

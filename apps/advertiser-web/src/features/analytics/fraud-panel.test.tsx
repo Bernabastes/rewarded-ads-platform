@@ -16,7 +16,13 @@ describe('summarizeFraud', () => {
 
   it('is zero-safe when nothing has happened yet', () => {
     const summary = summarizeFraud(
-      { rawCompletions: 0, validCompletions: 0, flaggedCompletions: 0, rejectedCompletions: 0, fraudFilteredRate: 0 },
+      {
+        rawCompletions: 0,
+        validCompletions: 0,
+        flaggedCompletions: 0,
+        rejectedCompletions: 0,
+        fraudFilteredRate: 0,
+      },
       2,
     );
     expect(summary.rate).toBe(0);
@@ -26,9 +32,13 @@ describe('summarizeFraud', () => {
 
 describe('FraudFilterPanel', () => {
   it('makes the filtered completions and savings unmistakable', () => {
-    renderWithApp(<FraudFilterPanel summary={summarizeFraud(analyticsFixture.totals, 2)} campaignTitle="Morning Roast" />);
+    renderWithApp(
+      <FraudFilterPanel summary={summarizeFraud(analyticsFixture.totals, 2)} campaignTitle="Morning Roast" />,
+    );
     const heading = screen.getByRole('heading', { level: 2 });
-    expect(heading).toHaveTextContent('We filtered 75 suspicious completions so you only pay for real attention.');
+    expect(heading).toHaveTextContent(
+      'We filtered 75 suspicious completions so you only pay for real attention.',
+    );
     expect(screen.getByText(/Out of/)).toHaveTextContent('700');
     expect(screen.getByText('10.7%')).toBeInTheDocument();
     expect(screen.getByText('ETB 150.00')).toBeInTheDocument();
@@ -41,9 +51,20 @@ describe('FraudFilterPanel', () => {
   it('explains the protection before any data exists', () => {
     renderWithApp(
       <FraudFilterPanel
-        summary={summarizeFraud({ rawCompletions: 0, validCompletions: 0, flaggedCompletions: 0, rejectedCompletions: 0, fraudFilteredRate: 0 }, 2)}
+        summary={summarizeFraud(
+          {
+            rawCompletions: 0,
+            validCompletions: 0,
+            flaggedCompletions: 0,
+            rejectedCompletions: 0,
+            fraudFilteredRate: 0,
+          },
+          2,
+        )}
       />,
     );
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Every completion is checked before you pay.');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+      'Every completion is checked before you pay.',
+    );
   });
 });

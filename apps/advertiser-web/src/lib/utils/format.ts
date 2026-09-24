@@ -8,9 +8,10 @@ export function formatEtb(amount: number): string {
 
 /** "1,250.5" style ETB amount without the currency prefix (for tight table cells). */
 export function formatEtbNumber(amount: number, digits = 2): string {
-  return new Intl.NumberFormat(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(
-    amount,
-  );
+  return new Intl.NumberFormat(LOCALE, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(amount);
 }
 
 export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {

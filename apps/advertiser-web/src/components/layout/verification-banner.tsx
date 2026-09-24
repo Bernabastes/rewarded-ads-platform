@@ -10,11 +10,16 @@ export function VerificationBanner({ className }: { className?: string }) {
 
   if (profile.verificationStatus === 'rejected') {
     return (
-      <Alert tone="danger" icon={<ShieldX className="size-5" />} title="Your business verification was not approved" className={className}>
+      <Alert
+        tone="danger"
+        icon={<ShieldX className="size-5" />}
+        title="Your business verification was not approved"
+        className={className}
+      >
         {profile.verificationNote ? <p className="mb-1">Reason: {profile.verificationNote}</p> : null}
         <p>
-          Contact support to update your registration details. You can keep drafting campaigns, but they cannot be submitted
-          until verification is approved.
+          Contact support to update your registration details. You can keep drafting campaigns, but they
+          cannot be submitted until verification is approved.
         </p>
       </Alert>
     );
@@ -34,8 +39,9 @@ export function VerificationBanner({ className }: { className?: string }) {
     >
       <p>
         Our team checks every new business registration (usually within one working day). Meanwhile you can{' '}
-        <strong className="font-medium text-fg">add funds, build campaign drafts and upload creatives</strong>. Submitting a
-        campaign for review unlocks once you are verified — sign in again after approval to refresh your status.
+        <strong className="font-medium text-fg">add funds, build campaign drafts and upload creatives</strong>
+        . Submitting a campaign for review unlocks once you are verified — sign in again after approval to
+        refresh your status.
       </p>
     </Alert>
   );

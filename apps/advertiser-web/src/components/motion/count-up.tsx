@@ -24,7 +24,13 @@ function useMotionReduced(): boolean {
 }
 
 /** Animated number that eases from the previous value to the next; static under prefers-reduced-motion. */
-export function CountUp({ value, format = defaultFormat, duration = 1.1, className, inView = false }: CountUpProps) {
+export function CountUp({
+  value,
+  format = defaultFormat,
+  duration = 1.1,
+  className,
+  inView = false,
+}: CountUpProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const isInView = useInView(ref, { once: true, margin: '0px 0px -10% 0px' });
   const reduceMotion = useMotionReduced();

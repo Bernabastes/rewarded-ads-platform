@@ -14,11 +14,28 @@ export interface EmptyStateProps {
   compact?: boolean;
 }
 
-export function EmptyState({ title, description, illustration, action, className, compact }: EmptyStateProps) {
+export function EmptyState({
+  title,
+  description,
+  illustration,
+  action,
+  className,
+  compact,
+}: EmptyStateProps) {
   return (
-    <div className={cn('flex flex-col items-center justify-center text-center', compact ? 'px-6 py-10' : 'px-6 py-16', className)}>
-      <div className={cn('text-fg', compact ? 'w-40' : 'w-56')}>{illustration ?? <EmptyCampaignsIllustration className="h-auto w-full" />}</div>
-      <h3 className={cn('text-display mt-5 font-semibold text-fg', compact ? 'text-base' : 'text-lg')}>{title}</h3>
+    <div
+      className={cn(
+        'flex flex-col items-center justify-center text-center',
+        compact ? 'px-6 py-10' : 'px-6 py-16',
+        className,
+      )}
+    >
+      <div className={cn('text-fg', compact ? 'w-40' : 'w-56')}>
+        {illustration ?? <EmptyCampaignsIllustration className="h-auto w-full" />}
+      </div>
+      <h3 className={cn('text-display mt-5 font-semibold text-fg', compact ? 'text-base' : 'text-lg')}>
+        {title}
+      </h3>
       {description && <p className="mt-2 max-w-md text-sm leading-relaxed text-fg-muted">{description}</p>}
       {action && <div className="mt-6 flex flex-wrap items-center justify-center gap-3">{action}</div>}
     </div>

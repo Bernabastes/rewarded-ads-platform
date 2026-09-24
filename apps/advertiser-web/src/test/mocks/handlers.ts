@@ -33,7 +33,10 @@ export const handlers = [
   ),
   http.get(url(API_ROUTES.campaigns.overview), () => HttpResponse.json(overviewFixture)),
   http.get(url(API_ROUTES.campaigns.list), () =>
-    HttpResponse.json({ data: [campaignFixture, draftCampaignFixture], meta: { page: 1, limit: 100, total: 2 } }),
+    HttpResponse.json({
+      data: [campaignFixture, draftCampaignFixture],
+      meta: { page: 1, limit: 100, total: 2 },
+    }),
   ),
   http.get(url(API_ROUTES.campaigns.detail(':id')), () => HttpResponse.json(campaignDetailFixture)),
   http.get(url(API_ROUTES.campaigns.analytics(':id')), () => HttpResponse.json(analyticsFixture)),
@@ -45,7 +48,9 @@ export const handlers = [
   http.get(url(API_ROUTES.billing.invoices), () =>
     HttpResponse.json({ data: [invoiceFixture], meta: { page: 1, limit: 10, total: 1 } }),
   ),
-  http.get(url(API_ROUTES.billing.ledger), () => HttpResponse.json({ data: [], meta: { page: 1, limit: 10, total: 0 } })),
+  http.get(url(API_ROUTES.billing.ledger), () =>
+    HttpResponse.json({ data: [], meta: { page: 1, limit: 10, total: 0 } }),
+  ),
   http.post(url(API_ROUTES.billing.topups), async ({ request }) => {
     const body = (await request.json()) as { amountEtb: number };
     return HttpResponse.json(

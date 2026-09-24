@@ -6,7 +6,15 @@ import { Tooltip } from '@/components/ui/primitives';
 import { CreativeUploader, ExistingCreatives } from './creative-uploader';
 import { creativeRequired } from './machine';
 
-export function CreativeStep({ campaign, onBack, onContinue }: { campaign: CampaignDetail; onBack: () => void; onContinue: () => void }) {
+export function CreativeStep({
+  campaign,
+  onBack,
+  onContinue,
+}: {
+  campaign: CampaignDetail;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
   const required = creativeRequired(campaign.targetActionType);
   const hasAds = campaign.ads.length > 0;
   const canContinue = hasAds || !required;
@@ -15,8 +23,8 @@ export function CreativeStep({ campaign, onBack, onContinue }: { campaign: Campa
     <div className="flex flex-col gap-6">
       {!required && (
         <Alert tone="info" title="Creatives are optional for this campaign type">
-          Surveys and app-install offers are set up with our team after review. Attach a video or image only if you want viewers to see it
-          before they start.
+          Surveys and app-install offers are set up with our team after review. Attach a video or image only
+          if you want viewers to see it before they start.
         </Alert>
       )}
       {hasAds && (
@@ -37,9 +45,17 @@ export function CreativeStep({ campaign, onBack, onContinue }: { campaign: Campa
         <Button type="button" variant="ghost" onClick={onBack} leadingIcon={<ArrowLeft className="size-4" />}>
           Back
         </Button>
-        <Tooltip content={canContinue ? 'Review your campaign' : 'Video campaigns need at least one creative'}>
+        <Tooltip
+          content={canContinue ? 'Review your campaign' : 'Video campaigns need at least one creative'}
+        >
           <span>
-            <Button type="button" size="lg" onClick={onContinue} disabled={!canContinue} trailingIcon={<ArrowRight className="size-4" />}>
+            <Button
+              type="button"
+              size="lg"
+              onClick={onContinue}
+              disabled={!canContinue}
+              trailingIcon={<ArrowRight className="size-4" />}
+            >
               {hasAds || required ? 'Continue to review' : 'Skip and review'}
             </Button>
           </span>

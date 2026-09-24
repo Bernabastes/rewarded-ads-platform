@@ -16,7 +16,11 @@ export function NotFoundPage({ embedded }: { embedded?: boolean }) {
         description="The link may be out of date, or the campaign you are looking for may have been removed."
         action={
           <>
-            <Button variant="outline" onClick={() => navigate(-1)} leadingIcon={<ArrowLeft className="size-4" />}>
+            <Button
+              variant="outline"
+              onClick={() => navigate(-1)}
+              leadingIcon={<ArrowLeft className="size-4" />}
+            >
               Go back
             </Button>
             <Button asChild>
@@ -46,13 +50,19 @@ export function RouteErrorPage() {
           <>
             {described.description ?? 'An unexpected error interrupted this page.'}
             {import.meta.env.DEV && message ? (
-              <code className="mt-3 block rounded-sm bg-surface-muted p-2 text-left text-xs text-fg-muted">{message}</code>
+              <code className="mt-3 block rounded-sm bg-surface-muted p-2 text-left text-xs text-fg-muted">
+                {message}
+              </code>
             ) : null}
           </>
         }
         action={
           <>
-            <Button variant="outline" onClick={() => window.location.reload()} leadingIcon={<RefreshCw className="size-4" />}>
+            <Button
+              variant="outline"
+              onClick={() => window.location.reload()}
+              leadingIcon={<RefreshCw className="size-4" />}
+            >
               Reload
             </Button>
             <Button asChild>

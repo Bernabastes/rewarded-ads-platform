@@ -31,7 +31,8 @@ interface SelectedFile {
   detectedDurationSeconds: number | null;
 }
 
-type UploadPhase = { kind: 'idle' } | { kind: 'uploading'; progress: UploadProgress } | { kind: 'registering' };
+type UploadPhase =
+  { kind: 'idle' } | { kind: 'uploading'; progress: UploadProgress } | { kind: 'registering' };
 
 export function CreativeUploader({
   campaign,
@@ -77,7 +78,9 @@ export function CreativeUploader({
       try {
         detected = await readVideoDuration(file);
         if (detected > UPLOAD_LIMITS.video.maxDurationSeconds) {
-          setFileError(`This video is ${formatDuration(detected)} long. Creatives must be ${UPLOAD_LIMITS.video.maxDurationSeconds} seconds or shorter.`);
+          setFileError(
+            `This video is ${formatDuration(detected)} long. Creatives must be ${UPLOAD_LIMITS.video.maxDurationSeconds} seconds or shorter.`,
+          );
           return;
         }
         if (detected < 5) {
@@ -90,12 +93,24 @@ export function CreativeUploader({
       }
     }
     if (selected) URL.revokeObjectURL(selected.objectUrl);
-    setSelected({ file, mediaType: validation.mediaType, objectUrl: URL.createObjectURL(file), detectedDurationSeconds: detected });
+    setSelected({
+      file,
+      mediaType: validation.mediaType,
+      objectUrl: URL.createObjectURL(file),
+      detectedDurationSeconds: detected,
+    });
     reset({
-      title: file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim().slice(0, 160) || 'Creative',
+      title:
+        file.name
+          .replace(/\.[^.]+$/, '')
+          .replace(/[-_]+/g, ' ')
+          .trim()
+          .slice(0, 160) || 'Creative',
       description: '',
       durationSeconds: detected ?? 10,
-      attentionQuestion: campaign.attentionCheckEnabled ? { prompt: '', promptAm: '', options: ['', ''], correctIndex: 0 } : null,
+      attentionQuestion: campaign.attentionCheckEnabled
+        ? { prompt: '', promptAm: '', options: ['', ''], correctIndex: 0 }
+        : null,
     });
   };
 
@@ -147,7 +162,9 @@ export function CreativeUploader({
             : undefined,
         },
       });
-      toast.success('Creative added', { description: `“${ad.title}” is queued for review with the campaign.` });
+      toast.success('Creative added', {
+        description: `“${ad.title}” is queued for review with the campaign.`,
+      });
       onAdded?.(ad);
       cancel();
     } catch (error) {
@@ -175,19 +192,24 @@ export function CreativeUploader({
           onDrop={onDrop}
           className={cn(
             'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors',
-            dragging ? 'border-primary bg-primary-soft' : 'border-border-strong bg-surface-muted/40 hover:border-primary/60 hover:bg-surface-muted',
+            dragging
+              ? 'border-primary bg-primary-soft'
+              : 'border-border-strong bg-surface-muted/40 hover:border-primary/60 hover:bg-surface-muted',
           )}
         >
           <UploadIllustration className="h-auto w-36" />
           <span className="text-base font-semibold text-fg">
-            Drag & drop your creative, or <span className="text-primary underline-offset-4 hover:underline">browse</span>
+            Drag & drop your creative, or{' '}
+            <span className="text-primary underline-offset-4 hover:underline">browse</span>
           </span>
           <span className="max-w-md text-sm text-fg-muted">
-            Video: MP4 or WebM, up to {VIDEO_MAX_MB} MB and {UPLOAD_LIMITS.video.maxDurationSeconds} seconds. Image: JPEG, PNG or WebP up to{' '}
-            {IMAGE_MAX_MB} MB. Vertical 9:16 or square creatives perform best in the app.
+            Video: MP4 or WebM, up to {VIDEO_MAX_MB} MB and {UPLOAD_LIMITS.video.maxDurationSeconds} seconds.
+            Image: JPEG, PNG or WebP up to {IMAGE_MAX_MB} MB. Vertical 9:16 or square creatives perform best
+            in the app.
           </span>
           <span className="inline-flex items-center gap-2 text-xs text-fg-subtle">
-            <FileVideo className="size-4" /> mp4 · webm <span aria-hidden="true">·</span> <ImageIcon className="size-4" /> jpg · png · webp
+            <FileVideo className="size-4" /> mp4 · webm <span aria-hidden="true">·</span>{' '}
+            <ImageIcon className="size-4" /> jpg · png · webp
           </span>
           <input
             id={inputId}
@@ -209,14 +231,25 @@ export function CreativeUploader({
   return (
     <form onSubmit={submit} noValidate className="grid gap-6 lg:grid-cols-5" aria-label="Creative details">
       <div className="flex flex-col gap-3 lg:col-span-2">
-        <CreativePreview src={selected.objectUrl} mediaType={selected.mediaType} title={liveTitle || selected.file.name} />
+        <CreativePreview
+          src={selected.objectUrl}
+          mediaType={selected.mediaType}
+          title={liveTitle || selected.file.name}
+        />
         <div className="flex items-center justify-between gap-3 text-xs text-fg-subtle">
           <span className="truncate">
             {selected.file.name} · {formatBytes(selected.file.size)}
-            {selected.detectedDurationSeconds !== null && ` · ${formatDuration(selected.detectedDurationSeconds)}`}
+            {selected.detectedDurationSeconds !== null &&
+              ` · ${formatDuration(selected.detectedDurationSeconds)}`}
           </span>
           {!busy && (
-            <Button type="button" variant="ghost" size="sm" onClick={cancel} leadingIcon={<X className="size-4" />}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={cancel}
+              leadingIcon={<X className="size-4" />}
+            >
               Replace
             </Button>
           )}
@@ -224,10 +257,18 @@ export function CreativeUploader({
         {phase.kind !== 'idle' && (
           <div className="flex flex-col gap-2 rounded-md border border-border p-3" aria-live="polite">
             <div className="flex items-center justify-between text-sm">
-              <span className="font-medium text-fg">{phase.kind === 'uploading' ? 'Uploading to secure storage…' : 'Registering creative…'}</span>
-              <span className="tabular-nums text-fg-muted">{phase.kind === 'uploading' ? `${Math.round(phase.progress.ratio * 100)}%` : '100%'}</span>
+              <span className="font-medium text-fg">
+                {phase.kind === 'uploading' ? 'Uploading to secure storage…' : 'Registering creative…'}
+              </span>
+              <span className="tabular-nums text-fg-muted">
+                {phase.kind === 'uploading' ? `${Math.round(phase.progress.ratio * 100)}%` : '100%'}
+              </span>
             </div>
-            <Progress value={phase.kind === 'uploading' ? phase.progress.ratio : 1} size="sm" label="Upload progress" />
+            <Progress
+              value={phase.kind === 'uploading' ? phase.progress.ratio : 1}
+              size="sm"
+              label="Upload progress"
+            />
             {phase.kind === 'uploading' && (
               <Button type="button" variant="ghost" size="sm" className="self-end" onClick={cancel}>
                 Cancel upload
@@ -239,11 +280,41 @@ export function CreativeUploader({
 
       <div className="flex flex-col gap-5 lg:col-span-3">
         {formState.errors.root?.server && <Alert tone="danger">{formState.errors.root.server.message}</Alert>}
-        <Field label="Creative title" required error={formState.errors.title?.message} hint="Internal name, also used as the accessible description of the media.">
-          {({ id, describedBy, invalid }) => <Input id={id} aria-describedby={describedBy} invalid={invalid} disabled={busy} {...register('title')} />}
+        <Field
+          label="Creative title"
+          required
+          error={formState.errors.title?.message}
+          hint="Internal name, also used as the accessible description of the media."
+        >
+          {({ id, describedBy, invalid }) => (
+            <Input
+              id={id}
+              aria-describedby={describedBy}
+              invalid={invalid}
+              disabled={busy}
+              {...register('title')}
+            />
+          )}
         </Field>
-        <Field label="Description" error={formState.errors.description?.message} hint={selected.mediaType === 'image' ? 'Describe the image for viewers who use a screen reader.' : 'Optional notes for the reviewers.'}>
-          {({ id, describedBy, invalid }) => <Textarea id={id} rows={2} aria-describedby={describedBy} invalid={invalid} disabled={busy} {...register('description')} />}
+        <Field
+          label="Description"
+          error={formState.errors.description?.message}
+          hint={
+            selected.mediaType === 'image'
+              ? 'Describe the image for viewers who use a screen reader.'
+              : 'Optional notes for the reviewers.'
+          }
+        >
+          {({ id, describedBy, invalid }) => (
+            <Textarea
+              id={id}
+              rows={2}
+              aria-describedby={describedBy}
+              invalid={invalid}
+              disabled={busy}
+              {...register('description')}
+            />
+          )}
         </Field>
         <Field
           label={selected.mediaType === 'video' ? 'Duration (seconds)' : 'Viewing time (seconds)'}
@@ -275,18 +346,47 @@ export function CreativeUploader({
         {campaign.attentionCheckEnabled && question && (
           <fieldset className="flex flex-col gap-4 rounded-md border border-border p-4">
             <legend className="px-1 text-sm font-semibold text-fg">Attention question</legend>
-            <p className="-mt-2 text-sm text-fg-muted">Asked right after the ad. Only viewers who answer correctly are counted — and charged.</p>
-            <Field label="Question (English)" required error={formState.errors.attentionQuestion?.prompt?.message}>
+            <p className="-mt-2 text-sm text-fg-muted">
+              Asked right after the ad. Only viewers who answer correctly are counted — and charged.
+            </p>
+            <Field
+              label="Question (English)"
+              required
+              error={formState.errors.attentionQuestion?.prompt?.message}
+            >
               {({ id, describedBy, invalid }) => (
-                <Input id={id} placeholder="Which product was shown in the video?" aria-describedby={describedBy} invalid={invalid} disabled={busy} {...register('attentionQuestion.prompt')} />
+                <Input
+                  id={id}
+                  placeholder="Which product was shown in the video?"
+                  aria-describedby={describedBy}
+                  invalid={invalid}
+                  disabled={busy}
+                  {...register('attentionQuestion.prompt')}
+                />
               )}
             </Field>
-            <Field label="Question (Amharic)" error={formState.errors.attentionQuestion?.promptAm?.message} hint="Optional but recommended — most viewers use the app in Amharic.">
+            <Field
+              label="Question (Amharic)"
+              error={formState.errors.attentionQuestion?.promptAm?.message}
+              hint="Optional but recommended — most viewers use the app in Amharic."
+            >
               {({ id, describedBy, invalid }) => (
-                <Input id={id} lang="am" placeholder="በቪዲዮው ላይ የታየው ምርት ምንድን ነው?" aria-describedby={describedBy} invalid={invalid} disabled={busy} {...register('attentionQuestion.promptAm')} />
+                <Input
+                  id={id}
+                  lang="am"
+                  placeholder="በቪዲዮው ላይ የታየው ምርት ምንድን ነው?"
+                  aria-describedby={describedBy}
+                  invalid={invalid}
+                  disabled={busy}
+                  {...register('attentionQuestion.promptAm')}
+                />
               )}
             </Field>
-            <div className="flex flex-col gap-2" role="radiogroup" aria-label="Answer options; select the correct one">
+            <div
+              className="flex flex-col gap-2"
+              role="radiogroup"
+              aria-label="Answer options; select the correct one"
+            >
               <p className="text-sm font-medium text-fg">
                 Answers <span className="font-normal text-fg-subtle">— select the correct one</span>
               </p>
@@ -299,7 +399,9 @@ export function CreativeUploader({
                       name="correctIndex"
                       className="mt-3 size-4 accent-[var(--primary)]"
                       checked={question.correctIndex === index}
-                      onChange={() => setValue('attentionQuestion.correctIndex', index, { shouldValidate: true })}
+                      onChange={() =>
+                        setValue('attentionQuestion.correctIndex', index, { shouldValidate: true })
+                      }
                       aria-label={`Option ${index + 1} is the correct answer`}
                       disabled={busy}
                     />
@@ -327,7 +429,8 @@ export function CreativeUploader({
                         onClick={() => {
                           const next = question.options.filter((_, i) => i !== index);
                           setValue('attentionQuestion.options', next, { shouldValidate: true });
-                          if (question.correctIndex >= next.length) setValue('attentionQuestion.correctIndex', 0);
+                          if (question.correctIndex >= next.length)
+                            setValue('attentionQuestion.correctIndex', 0);
                         }}
                       >
                         <Trash2 className="size-4" />
@@ -342,7 +445,15 @@ export function CreativeUploader({
                 </p>
               )}
               {question.options.length < 4 && (
-                <Button type="button" variant="outline" size="sm" className="self-start" disabled={busy} onClick={() => setValue('attentionQuestion.options', [...question.options, ''])} leadingIcon={<Plus className="size-4" />}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  disabled={busy}
+                  onClick={() => setValue('attentionQuestion.options', [...question.options, ''])}
+                  leadingIcon={<Plus className="size-4" />}
+                >
                   Add option
                 </Button>
               )}
@@ -379,7 +490,8 @@ export function ExistingCreatives({ campaign }: { campaign: CampaignDetail }) {
               <ReviewStatusBadge status={ad.reviewStatus} />
             </div>
             <p className="text-xs text-fg-subtle">
-              {formatDuration(ad.durationSeconds)} · {ad.attentionQuestionsCount} question{ad.attentionQuestionsCount === 1 ? '' : 's'}
+              {formatDuration(ad.durationSeconds)} · {ad.attentionQuestionsCount} question
+              {ad.attentionQuestionsCount === 1 ? '' : 's'}
             </p>
             {ad.rejectionReason && <p className="text-xs text-danger">{ad.rejectionReason}</p>}
             {ad.reviewStatus === 'approved' ? (

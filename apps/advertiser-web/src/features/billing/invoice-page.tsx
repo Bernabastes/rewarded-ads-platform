@@ -23,7 +23,8 @@ export function InvoicePage() {
   const { profile } = useAuth();
 
   if (invoice.isError) {
-    if (isApiError(invoice.error) && invoice.error.code === ErrorCode.NOT_FOUND) return <NotFoundPage embedded />;
+    if (isApiError(invoice.error) && invoice.error.code === ErrorCode.NOT_FOUND)
+      return <NotFoundPage embedded />;
     return (
       <Card>
         <ErrorState error={invoice.error} onRetry={() => void invoice.refetch()} />
@@ -45,7 +46,11 @@ export function InvoicePage() {
                   <ArrowLeft className="size-4" /> Billing
                 </Link>
               </Button>
-              <Button onClick={() => window.print()} disabled={!invoice.data} leadingIcon={<Printer className="size-4" />}>
+              <Button
+                onClick={() => window.print()}
+                disabled={!invoice.data}
+                leadingIcon={<Printer className="size-4" />}
+              >
                 Print / save PDF
               </Button>
             </>
@@ -79,7 +84,9 @@ export function InvoicePage() {
                   <p className="text-xs font-medium tracking-wide text-fg-subtle uppercase">Invoice</p>
                   <p className="text-display text-2xl font-bold text-fg">{invoice.data.invoiceNumber}</p>
                   <p className="mt-1 text-sm text-fg-muted">Issued {formatDateTime(invoice.data.issuedAt)}</p>
-                  {invoice.data.paidAt && <p className="text-sm text-fg-muted">Paid {formatDateTime(invoice.data.paidAt)}</p>}
+                  {invoice.data.paidAt && (
+                    <p className="text-sm text-fg-muted">Paid {formatDateTime(invoice.data.paidAt)}</p>
+                  )}
                 </div>
               </header>
 
@@ -95,7 +102,9 @@ export function InvoicePage() {
                   <p className="text-xs font-medium tracking-wide text-fg-subtle uppercase">Status</p>
                   <p className="mt-1 font-semibold text-fg capitalize">{invoice.data.status}</p>
                   <p className="text-sm text-fg-muted">Currency: {invoice.data.currency}</p>
-                  {invoice.data.paymentId && <p className="text-sm text-fg-muted">Payment ref. {invoice.data.paymentId}</p>}
+                  {invoice.data.paymentId && (
+                    <p className="text-sm text-fg-muted">Payment ref. {invoice.data.paymentId}</p>
+                  )}
                 </div>
               </section>
 
@@ -135,13 +144,16 @@ export function InvoicePage() {
                 </div>
                 <div className="flex justify-between border-t border-border pt-2 text-base">
                   <dt className="font-semibold text-fg">Total</dt>
-                  <dd className="text-display font-bold text-fg tabular-nums">{formatEtb(invoice.data.totalEtb)}</dd>
+                  <dd className="text-display font-bold text-fg tabular-nums">
+                    {formatEtb(invoice.data.totalEtb)}
+                  </dd>
                 </div>
               </dl>
 
               <footer className="border-t border-border pt-6 text-xs leading-relaxed text-fg-subtle">
-                Thank you for advertising with {BRAND_NAME}. Funds are held as advertising credit in your wallet and consumed only by verified
-                completions. This document was generated electronically and is valid without a signature.
+                Thank you for advertising with {BRAND_NAME}. Funds are held as advertising credit in your
+                wallet and consumed only by verified completions. This document was generated electronically
+                and is valid without a signature.
               </footer>
             </>
           )}

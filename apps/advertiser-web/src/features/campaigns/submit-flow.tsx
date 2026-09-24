@@ -48,7 +48,8 @@ export function useSubmitCampaignFlow(options: { onSubmitted?: (campaign: Campai
           return null;
         }
         if (isApiError(error) && error.code === ErrorCode.ADVERTISER_NOT_VERIFIED) {
-          if (profile && profile.verificationStatus === 'verified') updateProfile({ verificationStatus: 'pending' });
+          if (profile && profile.verificationStatus === 'verified')
+            updateProfile({ verificationStatus: 'pending' });
           setBlocker({ kind: 'verification' });
           return null;
         }
@@ -96,7 +97,9 @@ export function useSubmitCampaignFlow(options: { onSubmitted?: (campaign: Campai
             </div>
             <div>
               <dt className="text-fg-subtle">Wallet balance</dt>
-              <dd className="font-semibold tabular-nums text-fg">{formatEtb(wallet.data?.balanceEtb ?? 0)}</dd>
+              <dd className="font-semibold tabular-nums text-fg">
+                {formatEtb(wallet.data?.balanceEtb ?? 0)}
+              </dd>
             </div>
             <div>
               <dt className="text-fg-subtle">Shortfall</dt>
@@ -120,11 +123,12 @@ export function useSubmitCampaignFlow(options: { onSubmitted?: (campaign: Campai
         >
           <div className="flex flex-col gap-3 text-sm leading-relaxed text-fg-muted">
             <p>
-              Our team checks every new registration against the business registry — usually within one working day. Your draft,
-              creatives and wallet are all saved.
+              Our team checks every new registration against the business registry — usually within one
+              working day. Your draft, creatives and wallet are all saved.
             </p>
             <p>
-              Once approved, sign in again to refresh your status and submit from the campaign page. Nothing else is needed from you.
+              Once approved, sign in again to refresh your status and submit from the campaign page. Nothing
+              else is needed from you.
             </p>
           </div>
         </DialogContent>

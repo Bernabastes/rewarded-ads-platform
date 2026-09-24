@@ -15,7 +15,14 @@ import { Select, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
 import { ChartSkeleton, LoadingAnnouncer, Skeleton, StatCardSkeleton } from '@/components/ui/skeleton';
 import { useCampaignAnalytics, useCampaigns, useOverview } from '@/features/campaigns/hooks';
 import { downloadCsv, slugify, toCsv } from '@/lib/utils/csv';
-import { addDaysIso, formatEtb, formatEtbNumber, formatNumber, formatPercent, todayIsoDate } from '@/lib/utils/format';
+import {
+  addDaysIso,
+  formatEtb,
+  formatEtbNumber,
+  formatNumber,
+  formatPercent,
+  todayIsoDate,
+} from '@/lib/utils/format';
 import { SpendChart, ViewsChart } from '@/features/dashboard/dashboard-charts';
 import { AnalyticsSpendChart, CompletionsChart, Funnel } from './analytics-charts';
 import { FraudFilterPanel, summarizeFraud } from './fraud-panel';
@@ -42,7 +49,11 @@ export function AnalyticsPage() {
   const options = useMemo(
     () => [
       { value: ALL, label: 'All campaigns (overview)' },
-      ...(campaigns.data?.data ?? []).map((c) => ({ value: c.id, label: c.title, description: c.status.replace('_', ' ') })),
+      ...(campaigns.data?.data ?? []).map((c) => ({
+        value: c.id,
+        label: c.title,
+        description: c.status.replace('_', ' '),
+      })),
     ],
     [campaigns.data],
   );
@@ -64,14 +75,28 @@ export function AnalyticsPage() {
   return (
     <PageTransition className="flex flex-col gap-6">
       <PageHeader
-        crumbs={routeId && selectedCampaign ? [{ label: 'Campaigns', to: '/campaigns' }, { label: selectedCampaign.title, to: `/campaigns/${routeId}` }, { label: 'Analytics' }] : undefined}
+        crumbs={
+          routeId && selectedCampaign
+            ? [
+                { label: 'Campaigns', to: '/campaigns' },
+                { label: selectedCampaign.title, to: `/campaigns/${routeId}` },
+                { label: 'Analytics' },
+              ]
+            : undefined
+        }
         title="Analytics"
         meta={selectedCampaign && <CampaignStatusBadge status={selectedCampaign.status} />}
         description="Raw numbers next to verified numbers, always. Verified completions are the only ones you are ever charged for."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <div className="w-64">
-              <Select value={selectedId} onValueChange={onSelectCampaign} options={options} aria-label="Choose campaign" disabled={campaigns.isPending} />
+              <Select
+                value={selectedId}
+                onValueChange={onSelectCampaign}
+                options={options}
+                aria-label="Choose campaign"
+                disabled={campaigns.isPending}
+              />
             </div>
             {routeId && (
               <Tabs value={range} onValueChange={onRange}>
@@ -87,12 +112,24 @@ export function AnalyticsPage() {
           </div>
         }
       />
-      {routeId ? <CampaignAnalyticsView campaignId={routeId} campaign={selectedCampaign} rangeDays={Number(range)} /> : <OverviewAnalyticsView />}
+      {routeId ? (
+        <CampaignAnalyticsView campaignId={routeId} campaign={selectedCampaign} rangeDays={Number(range)} />
+      ) : (
+        <OverviewAnalyticsView />
+      )}
     </PageTransition>
   );
 }
 
-function CampaignAnalyticsView({ campaignId, campaign, rangeDays }: { campaignId: string; campaign?: CampaignSummary; rangeDays: number }) {
+function CampaignAnalyticsView({
+  campaignId,
+  campaign,
+  rangeDays,
+}: {
+  campaignId: string;
+  campaign?: CampaignSummary;
+  rangeDays: number;
+}) {
   const today = todayIsoDate();
   const from = addDaysIso(today, -(rangeDays - 1));
   const analytics = useCampaignAnalytics(campaignId, { from, to: today });
@@ -125,7 +162,9 @@ function CampaignAnalyticsView({ campaignId, campaign, rangeDays }: { campaignId
   }
 
   const data = analytics.data;
-  const costPerAction = campaign?.costPerActionEtb ?? (data.totals.validCompletions > 0 ? data.totals.spendEtb / data.totals.validCompletions : 0);
+  const costPerAction =
+    campaign?.costPerActionEtb ??
+    (data.totals.validCompletions > 0 ? data.totals.spendEtb / data.totals.validCompletions : 0);
   const fraud = summarizeFraud(data.totals, costPerAction);
   const hasData = data.totals.rawViews > 0 || data.totals.rawCompletions > 0;
 
@@ -148,15 +187,43 @@ function CampaignAnalyticsView({ campaignId, campaign, rangeDays }: { campaignId
       ) : (
         <>
           <Stagger className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Raw views" value={data.totals.rawViews} icon={Eye} tone="neutral" hint="Every watch session started" />
-            <StatCard label="Verified completions" value={data.totals.validCompletions} icon={Layers} hint={`${formatNumber(data.totals.rawCompletions)} raw completions`} />
-            <StatCard label="Unique viewers" value={data.totals.uniqueUsers} icon={Users} tone="info" hint="Distinct people reached" />
-            <StatCard label="Spend" value={data.totals.spendEtb} format={(v) => `ETB ${formatEtbNumber(v, 0)}`} icon={Wallet} tone="accent" hint={`${formatEtb(data.totals.remainingEtb)} remaining of ${formatEtb(data.totals.budgetEtb)}`} />
+            <StatCard
+              label="Raw views"
+              value={data.totals.rawViews}
+              icon={Eye}
+              tone="neutral"
+              hint="Every watch session started"
+            />
+            <StatCard
+              label="Verified completions"
+              value={data.totals.validCompletions}
+              icon={Layers}
+              hint={`${formatNumber(data.totals.rawCompletions)} raw completions`}
+            />
+            <StatCard
+              label="Unique viewers"
+              value={data.totals.uniqueUsers}
+              icon={Users}
+              tone="info"
+              hint="Distinct people reached"
+            />
+            <StatCard
+              label="Spend"
+              value={data.totals.spendEtb}
+              format={(v) => `ETB ${formatEtbNumber(v, 0)}`}
+              icon={Wallet}
+              tone="accent"
+              hint={`${formatEtb(data.totals.remainingEtb)} remaining of ${formatEtb(data.totals.budgetEtb)}`}
+            />
           </Stagger>
 
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2">
-              <CardHeader title="Completions per day" description="Verified completions are billed; flagged and rejected ones are filtered before billing." action={<ExportButton analytics={data} title={campaign?.title ?? campaignId} />} />
+              <CardHeader
+                title="Completions per day"
+                description="Verified completions are billed; flagged and rejected ones are filtered before billing."
+                action={<ExportButton analytics={data} title={campaign?.title ?? campaignId} />}
+              />
               <CardContent>
                 <CompletionsChart data={data.daily} />
               </CardContent>
@@ -167,8 +234,18 @@ function CampaignAnalyticsView({ campaignId, campaign, rangeDays }: { campaignId
                 <Funnel
                   stages={[
                     { label: 'Views started', value: data.totals.rawViews, tone: 'neutral' },
-                    { label: 'Completed', value: data.totals.rawCompletions, tone: 'soft', hint: 'Watched to the end and submitted' },
-                    { label: 'Verified & billed', value: data.totals.validCompletions, tone: 'primary', hint: `${formatPercent(fraud.rate, 1)} filtered out by fraud checks` },
+                    {
+                      label: 'Completed',
+                      value: data.totals.rawCompletions,
+                      tone: 'soft',
+                      hint: 'Watched to the end and submitted',
+                    },
+                    {
+                      label: 'Verified & billed',
+                      value: data.totals.validCompletions,
+                      tone: 'primary',
+                      hint: `${formatPercent(fraud.rate, 1)} filtered out by fraud checks`,
+                    },
                   ]}
                 />
               </CardContent>
@@ -186,12 +263,14 @@ function CampaignAnalyticsView({ campaignId, campaign, rangeDays }: { campaignId
               <CardHeader title="What we do not show" />
               <CardContent className="flex flex-col gap-3 text-sm text-fg-muted">
                 <p>
-                  <strong className="font-medium text-fg">Demographics</strong> — the platform only collects a phone number and date of birth for
-                  age verification, so we do not estimate audience demographics. We would rather show nothing than made-up numbers.
+                  <strong className="font-medium text-fg">Demographics</strong> — the platform only collects a
+                  phone number and date of birth for age verification, so we do not estimate audience
+                  demographics. We would rather show nothing than made-up numbers.
                 </p>
                 <p>
-                  <strong className="font-medium text-fg">Attention pass-rate</strong> — wrong answers are counted inside “rejected” above; a
-                  separate breakdown will appear here once the API exposes it.
+                  <strong className="font-medium text-fg">Attention pass-rate</strong> — wrong answers are
+                  counted inside “rejected” above; a separate breakdown will appear here once the API exposes
+                  it.
                 </p>
               </CardContent>
             </Card>
@@ -263,14 +342,38 @@ function OverviewAnalyticsView() {
     <>
       <FraudFilterPanel summary={fraud} />
       <Alert tone="info">
-        The overview aggregates the last 30 days across all campaigns. Select a single campaign above for the full flagged/rejected breakdown,
-        funnel and CSV export.
+        The overview aggregates the last 30 days across all campaigns. Select a single campaign above for the
+        full flagged/rejected breakdown, funnel and CSV export.
       </Alert>
       <Stagger className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Raw views" value={data.totalRawViews} icon={Eye} tone="neutral" hint="All campaigns, all time" />
-        <StatCard label="Verified completions" value={data.totalValidCompletions} icon={Layers} hint={`${formatNumber(data.totalFlaggedCompletions)} flagged`} />
-        <StatCard label="Estimated reach" value={data.estimatedReach} icon={Users} tone="info" hint="Distinct people reached" />
-        <StatCard label="Total spend" value={data.totalSpendEtb} format={(v) => `ETB ${formatEtbNumber(v, 0)}`} icon={Wallet} tone="accent" hint="Verified completions only" />
+        <StatCard
+          label="Raw views"
+          value={data.totalRawViews}
+          icon={Eye}
+          tone="neutral"
+          hint="All campaigns, all time"
+        />
+        <StatCard
+          label="Verified completions"
+          value={data.totalValidCompletions}
+          icon={Layers}
+          hint={`${formatNumber(data.totalFlaggedCompletions)} flagged`}
+        />
+        <StatCard
+          label="Estimated reach"
+          value={data.estimatedReach}
+          icon={Users}
+          tone="info"
+          hint="Distinct people reached"
+        />
+        <StatCard
+          label="Total spend"
+          value={data.totalSpendEtb}
+          format={(v) => `ETB ${formatEtbNumber(v, 0)}`}
+          icon={Wallet}
+          tone="accent"
+          hint="Verified completions only"
+        />
       </Stagger>
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-3">

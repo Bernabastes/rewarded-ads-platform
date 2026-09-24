@@ -1,5 +1,16 @@
 import type { CampaignAnalyticsDailyPoint } from '@rap/shared';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { AXIS_PROPS, CHART_COLORS, ChartLegend, dateTick, makeTooltip } from '@/components/charts/chart-kit';
 import { ChartReveal } from '@/components/motion/motion';
 import { cn } from '@/lib/utils/cn';
@@ -29,12 +40,44 @@ export function CompletionsChart({ data }: { data: CampaignAnalyticsDailyPoint[]
           <BarChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }} barGap={2}>
             <CartesianGrid vertical={false} strokeDasharray="3 6" />
             <XAxis dataKey="date" tickFormatter={dateTick} minTickGap={28} {...AXIS_PROPS} />
-            <YAxis tickFormatter={(v: number) => formatCompact(v)} width={56} allowDecimals={false} {...AXIS_PROPS} />
+            <YAxis
+              tickFormatter={(v: number) => formatCompact(v)}
+              width={56}
+              allowDecimals={false}
+              {...AXIS_PROPS}
+            />
             <Tooltip content={<CompletionsTooltip />} cursor={{ fill: 'var(--surface-muted)' }} />
-            <Bar dataKey="validCompletions" stackId="c" fill={CHART_COLORS.primary} maxBarSize={32} animationDuration={800} />
-            <Bar dataKey="flaggedCompletions" stackId="c" fill={CHART_COLORS.warning} maxBarSize={32} animationDuration={800} />
-            <Bar dataKey="rejectedCompletions" stackId="c" fill={CHART_COLORS.danger} radius={[4, 4, 0, 0]} maxBarSize={32} animationDuration={800} />
-            <Line type="monotone" dataKey="rawViews" stroke={CHART_COLORS.neutral} strokeDasharray="4 4" strokeWidth={2} dot={false} animationDuration={900} />
+            <Bar
+              dataKey="validCompletions"
+              stackId="c"
+              fill={CHART_COLORS.primary}
+              maxBarSize={32}
+              animationDuration={800}
+            />
+            <Bar
+              dataKey="flaggedCompletions"
+              stackId="c"
+              fill={CHART_COLORS.warning}
+              maxBarSize={32}
+              animationDuration={800}
+            />
+            <Bar
+              dataKey="rejectedCompletions"
+              stackId="c"
+              fill={CHART_COLORS.danger}
+              radius={[4, 4, 0, 0]}
+              maxBarSize={32}
+              animationDuration={800}
+            />
+            <Line
+              type="monotone"
+              dataKey="rawViews"
+              stroke={CHART_COLORS.neutral}
+              strokeDasharray="4 4"
+              strokeWidth={2}
+              dot={false}
+              animationDuration={900}
+            />
           </BarChart>
         </ResponsiveContainer>
       </ChartReveal>
@@ -59,7 +102,16 @@ export function AnalyticsSpendChart({ data }: { data: Array<{ date: string; spen
           <XAxis dataKey="date" tickFormatter={dateTick} minTickGap={28} {...AXIS_PROPS} />
           <YAxis tickFormatter={(v: number) => formatCompact(v)} width={56} {...AXIS_PROPS} />
           <Tooltip content={<SpendTooltip />} cursor={{ stroke: 'var(--border-strong)' }} />
-          <Area type="monotone" dataKey="spendEtb" stroke={CHART_COLORS.accent} strokeWidth={2.5} fill="url(#analyticsSpendFill)" dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--surface)' }} animationDuration={900} />
+          <Area
+            type="monotone"
+            dataKey="spendEtb"
+            stroke={CHART_COLORS.accent}
+            strokeWidth={2.5}
+            fill="url(#analyticsSpendFill)"
+            dot={false}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--surface)' }}
+            animationDuration={900}
+          />
         </AreaChart>
       </ResponsiveContainer>
     </ChartReveal>
@@ -73,7 +125,11 @@ export interface FunnelStage {
   tone: 'neutral' | 'soft' | 'primary';
 }
 
-const FUNNEL_TONES = { neutral: 'bg-stone-400/70 dark:bg-stone-500/70', soft: 'bg-forest-300 dark:bg-forest-700', primary: 'bg-primary' };
+const FUNNEL_TONES = {
+  neutral: 'bg-stone-400/70 dark:bg-stone-500/70',
+  soft: 'bg-forest-300 dark:bg-forest-700',
+  primary: 'bg-primary',
+};
 
 /** Horizontal funnel: each stage is sized relative to the first; conversion shown against the previous stage. */
 export function Funnel({ stages }: { stages: FunnelStage[] }) {
@@ -90,11 +146,21 @@ export function Funnel({ stages }: { stages: FunnelStage[] }) {
               <span className="font-medium text-fg">{stage.label}</span>
               <span className="tabular-nums text-fg">
                 <span className="font-semibold">{formatNumber(stage.value)}</span>
-                {conversion !== null && <span className="ml-2 text-xs text-fg-subtle">{formatPercent(conversion, 0)} of previous</span>}
+                {conversion !== null && (
+                  <span className="ml-2 text-xs text-fg-subtle">
+                    {formatPercent(conversion, 0)} of previous
+                  </span>
+                )}
               </span>
             </div>
             <div className="h-8 w-full overflow-hidden rounded-md bg-surface-muted">
-              <div className={cn('h-full rounded-md transition-[width] duration-700 ease-out', FUNNEL_TONES[stage.tone])} style={{ width: `${width}%` }} />
+              <div
+                className={cn(
+                  'h-full rounded-md transition-[width] duration-700 ease-out',
+                  FUNNEL_TONES[stage.tone],
+                )}
+                style={{ width: `${width}%` }}
+              />
             </div>
             {stage.hint && <p className="text-xs text-fg-subtle">{stage.hint}</p>}
           </li>

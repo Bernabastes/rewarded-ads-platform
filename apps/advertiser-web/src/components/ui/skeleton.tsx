@@ -42,7 +42,11 @@ export function TableSkeleton({ rows = 5, columns = 4 }: { rows?: number; column
   return (
     <div className="flex flex-col divide-y divide-border" aria-hidden="true">
       {Array.from({ length: rows }, (_, r) => (
-        <div key={r} className="grid gap-4 px-5 py-4" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+        <div
+          key={r}
+          className="grid gap-4 px-5 py-4"
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        >
           {Array.from({ length: columns }, (_, c) => (
             <Skeleton key={c} className={cn('h-4', c === 0 ? 'w-3/4' : 'w-1/2')} />
           ))}

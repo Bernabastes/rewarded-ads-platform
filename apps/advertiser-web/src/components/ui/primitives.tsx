@@ -1,5 +1,13 @@
 import { Check, ChevronDown } from 'lucide-react';
-import { DropdownMenu as RadixDropdown, Select as RadixSelect, Tooltip as RadixTooltip, Tabs as RadixTabs, Switch as RadixSwitch, Checkbox as RadixCheckbox, Popover as RadixPopover } from 'radix-ui';
+import {
+  DropdownMenu as RadixDropdown,
+  Select as RadixSelect,
+  Tooltip as RadixTooltip,
+  Tabs as RadixTabs,
+  Switch as RadixSwitch,
+  Checkbox as RadixCheckbox,
+  Popover as RadixPopover,
+} from 'radix-ui';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils/cn';
 
@@ -7,7 +15,15 @@ import { cn } from '@/lib/utils/cn';
 
 export const TooltipProvider = RadixTooltip.Provider;
 
-export function Tooltip({ content, children, side = 'top' }: { content: ReactNode; children: ReactNode; side?: 'top' | 'bottom' | 'left' | 'right' }) {
+export function Tooltip({
+  content,
+  children,
+  side = 'top',
+}: {
+  content: ReactNode;
+  children: ReactNode;
+  side?: 'top' | 'bottom' | 'left' | 'right';
+}) {
   return (
     <RadixTooltip.Root delayDuration={200}>
       <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
@@ -33,7 +49,11 @@ export const DropdownMenuSeparator = ({ className }: { className?: string }) => 
   <RadixDropdown.Separator className={cn('my-1 h-px bg-border', className)} />
 );
 
-export function DropdownMenuContent({ className, children, ...props }: RadixDropdown.DropdownMenuContentProps) {
+export function DropdownMenuContent({
+  className,
+  children,
+  ...props
+}: RadixDropdown.DropdownMenuContentProps) {
   return (
     <RadixDropdown.Portal>
       <RadixDropdown.Content
@@ -51,7 +71,11 @@ export function DropdownMenuContent({ className, children, ...props }: RadixDrop
   );
 }
 
-export function DropdownMenuItem({ className, destructive, ...props }: RadixDropdown.DropdownMenuItemProps & { destructive?: boolean }) {
+export function DropdownMenuItem({
+  className,
+  destructive,
+  ...props
+}: RadixDropdown.DropdownMenuItemProps & { destructive?: boolean }) {
   return (
     <RadixDropdown.Item
       className={cn(
@@ -65,7 +89,12 @@ export function DropdownMenuItem({ className, destructive, ...props }: RadixDrop
 }
 
 export function DropdownMenuLabel({ className, ...props }: RadixDropdown.DropdownMenuLabelProps) {
-  return <RadixDropdown.Label className={cn('px-2.5 py-1.5 text-xs font-medium text-fg-subtle', className)} {...props} />;
+  return (
+    <RadixDropdown.Label
+      className={cn('px-2.5 py-1.5 text-xs font-medium text-fg-subtle', className)}
+      {...props}
+    />
+  );
 }
 
 /* ---------------------------------- Popover --------------------------------- */
@@ -77,7 +106,10 @@ export function PopoverContent({ className, ...props }: RadixPopover.PopoverCont
     <RadixPopover.Portal>
       <RadixPopover.Content
         sideOffset={6}
-        className={cn('z-50 w-72 animate-slide-up rounded-md border border-border bg-surface-elevated p-4 shadow-pop outline-none', className)}
+        className={cn(
+          'z-50 w-72 animate-slide-up rounded-md border border-border bg-surface-elevated p-4 shadow-pop outline-none',
+          className,
+        )}
         {...props}
       />
     </RadixPopover.Portal>

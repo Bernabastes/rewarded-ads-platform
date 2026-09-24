@@ -25,7 +25,16 @@ export interface FieldProps {
 }
 
 /** Label + control + hint/error scaffold with the aria wiring done once. */
-export function Field({ label, hint, error, required, id: givenId, className, children, inline }: FieldProps) {
+export function Field({
+  label,
+  hint,
+  error,
+  required,
+  id: givenId,
+  className,
+  children,
+  inline,
+}: FieldProps) {
   const generated = useId();
   const id = givenId ?? generated;
   const hintId = hint ? `${id}-hint` : undefined;

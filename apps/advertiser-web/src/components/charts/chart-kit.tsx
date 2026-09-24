@@ -34,7 +34,9 @@ export function ChartTooltipCard({ title, rows }: { title: ReactNode; rows: Tool
         {rows.map((row) => (
           <li key={row.name} className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-2 text-fg-muted">
-              {row.color && <span className="size-2 rounded-full" style={{ background: row.color }} aria-hidden="true" />}
+              {row.color && (
+                <span className="size-2 rounded-full" style={{ background: row.color }} aria-hidden="true" />
+              )}
               {row.name}
             </span>
             <span className="font-semibold tabular-nums text-fg">{row.value}</span>
@@ -48,11 +50,21 @@ export function ChartTooltipCard({ title, rows }: { title: ReactNode; rows: Tool
 interface RechartsTooltipProps {
   active?: boolean;
   label?: string | number;
-  payload?: Array<{ name?: string; value?: number | string; color?: string; dataKey?: string | number; stroke?: string; fill?: string }>;
+  payload?: Array<{
+    name?: string;
+    value?: number | string;
+    color?: string;
+    dataKey?: string | number;
+    stroke?: string;
+    fill?: string;
+  }>;
 }
 
 /** Adapter so Recharts' `content` prop renders our card. */
-export function makeTooltip(format: (key: string, value: number) => ReactNode, labels: Record<string, string>) {
+export function makeTooltip(
+  format: (key: string, value: number) => ReactNode,
+  labels: Record<string, string>,
+) {
   return function ChartTooltip({ active, label, payload }: RechartsTooltipProps) {
     if (!active || !payload?.length) return null;
     return (
@@ -78,7 +90,11 @@ export function ChartLegend({ items }: { items: Array<{ label: string; color: st
         <li key={item.label} className="flex items-center gap-1.5">
           <span
             className="inline-block h-0.5 w-4 rounded-full"
-            style={{ background: item.dashed ? `repeating-linear-gradient(90deg, ${item.color} 0 4px, transparent 4px 7px)` : item.color }}
+            style={{
+              background: item.dashed
+                ? `repeating-linear-gradient(90deg, ${item.color} 0 4px, transparent 4px 7px)`
+                : item.color,
+            }}
             aria-hidden="true"
           />
           {item.label}

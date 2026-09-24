@@ -26,7 +26,10 @@ const schema = z
     contactPhone: z
       .string()
       .trim()
-      .refine((v) => ETHIOPIAN_PHONE_REGEX.test(v.replace(/[\s\-()]/g, '')), 'Enter an Ethiopian mobile number, e.g. 0911 000 000'),
+      .refine(
+        (v) => ETHIOPIAN_PHONE_REGEX.test(v.replace(/[\s\-()]/g, '')),
+        'Enter an Ethiopian mobile number, e.g. 0911 000 000',
+      ),
     password: z
       .string()
       .min(8, 'Use at least 8 characters')
@@ -35,7 +38,10 @@ const schema = z
     confirmPassword: z.string(),
     acceptTerms: z.boolean().refine((v) => v, 'You need to accept the advertiser terms to continue'),
   })
-  .refine((v) => v.password === v.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' });
+  .refine((v) => v.password === v.confirmPassword, {
+    path: ['confirmPassword'],
+    message: 'Passwords do not match',
+  });
 
 type RegisterValues = z.infer<typeof schema>;
 
@@ -98,27 +104,68 @@ export function RegisterPage() {
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5" aria-label="Registration form">
         {formState.errors.root?.server && <Alert tone="danger">{formState.errors.root.server.message}</Alert>}
 
-        <Field label="Business name" error={formState.errors.businessName?.message} required hint="As written on your trade licence — Amharic names render fine.">
+        <Field
+          label="Business name"
+          error={formState.errors.businessName?.message}
+          required
+          hint="As written on your trade licence — Amharic names render fine."
+        >
           {({ id, describedBy, invalid }) => (
-            <Input id={id} autoComplete="organization" placeholder="e.g. Habesha Coffee Roasters PLC" aria-describedby={describedBy} invalid={invalid} autoFocus {...register('businessName')} />
+            <Input
+              id={id}
+              autoComplete="organization"
+              placeholder="e.g. Habesha Coffee Roasters PLC"
+              aria-describedby={describedBy}
+              invalid={invalid}
+              autoFocus
+              {...register('businessName')}
+            />
           )}
         </Field>
 
-        <Field label="Business registration number" error={formState.errors.businessRegistrationNumber?.message} required>
+        <Field
+          label="Business registration number"
+          error={formState.errors.businessRegistrationNumber?.message}
+          required
+        >
           {({ id, describedBy, invalid }) => (
-            <Input id={id} placeholder="e.g. MT/AA/2/0012345/2015" aria-describedby={describedBy} invalid={invalid} {...register('businessRegistrationNumber')} />
+            <Input
+              id={id}
+              placeholder="e.g. MT/AA/2/0012345/2015"
+              aria-describedby={describedBy}
+              invalid={invalid}
+              {...register('businessRegistrationNumber')}
+            />
           )}
         </Field>
 
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Contact email" error={formState.errors.contactEmail?.message} required>
             {({ id, describedBy, invalid }) => (
-              <Input id={id} type="email" autoComplete="email" inputMode="email" placeholder="you@business.et" aria-describedby={describedBy} invalid={invalid} {...register('contactEmail')} />
+              <Input
+                id={id}
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+                placeholder="you@business.et"
+                aria-describedby={describedBy}
+                invalid={invalid}
+                {...register('contactEmail')}
+              />
             )}
           </Field>
           <Field label="Contact phone" error={formState.errors.contactPhone?.message} required>
             {({ id, describedBy, invalid }) => (
-              <Input id={id} type="tel" autoComplete="tel" inputMode="tel" placeholder="0911 000 000" aria-describedby={describedBy} invalid={invalid} {...register('contactPhone')} />
+              <Input
+                id={id}
+                type="tel"
+                autoComplete="tel"
+                inputMode="tel"
+                placeholder="0911 000 000"
+                aria-describedby={describedBy}
+                invalid={invalid}
+                {...register('contactPhone')}
+              />
             )}
           </Field>
         </div>
@@ -134,7 +181,14 @@ export function RegisterPage() {
                 aria-describedby={`${describedBy ?? ''} ${id}-strength`.trim()}
                 invalid={invalid}
                 trailing={
-                  <Button type="button" variant="ghost" size="icon-sm" onClick={() => setShowPassword((s) => !s)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setShowPassword((s) => !s)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                  >
                     {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                   </Button>
                 }
@@ -143,7 +197,13 @@ export function RegisterPage() {
               <div id={`${id}-strength`} className="flex flex-col gap-1.5" aria-live="polite">
                 <div className="flex gap-1.5" aria-hidden="true">
                   {[1, 2, 3, 4].map((step) => (
-                    <span key={step} className={cn('h-1.5 flex-1 rounded-full transition-colors', step <= strength.score ? STRENGTH_COLORS[strength.score] : 'bg-border')} />
+                    <span
+                      key={step}
+                      className={cn(
+                        'h-1.5 flex-1 rounded-full transition-colors',
+                        step <= strength.score ? STRENGTH_COLORS[strength.score] : 'bg-border',
+                      )}
+                    />
                   ))}
                 </div>
                 <p className="text-xs text-fg-subtle">
@@ -163,7 +223,14 @@ export function RegisterPage() {
 
         <Field label="Confirm password" error={formState.errors.confirmPassword?.message} required>
           {({ id, describedBy, invalid }) => (
-            <Input id={id} type={showPassword ? 'text' : 'password'} autoComplete="new-password" aria-describedby={describedBy} invalid={invalid} {...register('confirmPassword')} />
+            <Input
+              id={id}
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              aria-describedby={describedBy}
+              invalid={invalid}
+              {...register('confirmPassword')}
+            />
           )}
         </Field>
 
@@ -172,13 +239,22 @@ export function RegisterPage() {
           error={formState.errors.acceptTerms?.message}
           label={
             <span className="text-sm leading-relaxed text-fg-muted">
-              I confirm this business is legally registered in Ethiopia and I accept the {BRAND_NAME} advertiser terms, including the ban
-              on alcohol, gambling, political and restricted-medicine advertising.
+              I confirm this business is legally registered in Ethiopia and I accept the {BRAND_NAME}{' '}
+              advertiser terms, including the ban on alcohol, gambling, political and restricted-medicine
+              advertising.
             </span>
           }
         >
           {({ id, invalid }) => (
-            <Checkbox id={id} checked={acceptTerms} aria-invalid={invalid || undefined} onCheckedChange={(checked) => setValue('acceptTerms', checked === true, { shouldValidate: true })} className="mt-0.5 self-start" />
+            <Checkbox
+              id={id}
+              checked={acceptTerms}
+              aria-invalid={invalid || undefined}
+              onCheckedChange={(checked) =>
+                setValue('acceptTerms', checked === true, { shouldValidate: true })
+              }
+              className="mt-0.5 self-start"
+            />
           )}
         </Field>
 

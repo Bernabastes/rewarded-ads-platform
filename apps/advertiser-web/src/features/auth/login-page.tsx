@@ -103,14 +103,19 @@ export function LoginPage() {
         </Field>
         <Field label="Keep me signed in on this device" inline>
           {({ id }) => (
-            <Checkbox id={id} checked={remember} onCheckedChange={(checked) => setValue('remember', checked === true)} />
+            <Checkbox
+              id={id}
+              checked={remember}
+              onCheckedChange={(checked) => setValue('remember', checked === true)}
+            />
           )}
         </Field>
         <Button type="submit" size="lg" loading={formState.isSubmitting} className="mt-1 w-full">
           Sign in
         </Button>
         <p className="text-center text-xs text-fg-subtle">
-          Forgot your password? Password reset is not self-service yet — email support and we will help you within a working day.
+          Forgot your password? Password reset is not self-service yet — email support and we will help you
+          within a working day.
         </p>
       </form>
     </AuthLayout>

@@ -1,5 +1,16 @@
 import type { AdvertiserOverview } from '@rap/shared';
-import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { AXIS_PROPS, CHART_COLORS, ChartLegend, dateTick, makeTooltip } from '@/components/charts/chart-kit';
 import { ChartReveal } from '@/components/motion/motion';
 import { formatCompact, formatEtb, formatNumber } from '@/lib/utils/format';
@@ -58,9 +69,20 @@ export function ViewsChart({ data }: { data: Point[] }) {
           <ComposedChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
             <CartesianGrid vertical={false} strokeDasharray="3 6" />
             <XAxis dataKey="date" tickFormatter={dateTick} minTickGap={28} {...AXIS_PROPS} />
-            <YAxis tickFormatter={(v: number) => formatCompact(v)} width={56} allowDecimals={false} {...AXIS_PROPS} />
+            <YAxis
+              tickFormatter={(v: number) => formatCompact(v)}
+              width={56}
+              allowDecimals={false}
+              {...AXIS_PROPS}
+            />
             <Tooltip content={<ViewsTooltip />} cursor={{ fill: 'var(--surface-muted)' }} />
-            <Bar dataKey="rawViews" fill={CHART_COLORS.primarySoft} radius={[4, 4, 0, 0]} maxBarSize={28} animationDuration={800} />
+            <Bar
+              dataKey="rawViews"
+              fill={CHART_COLORS.primarySoft}
+              radius={[4, 4, 0, 0]}
+              maxBarSize={28}
+              animationDuration={800}
+            />
             <Line
               type="monotone"
               dataKey="validCompletions"

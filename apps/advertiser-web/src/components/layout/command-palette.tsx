@@ -17,7 +17,13 @@ interface PaletteItem {
   group: 'Pages' | 'Actions' | 'Campaigns';
 }
 
-export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function CommandPalette({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const navigate = useNavigate();
@@ -33,8 +39,20 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       group: 'Pages',
     }));
     const actions: PaletteItem[] = [
-      { id: 'action:new', label: 'Create a new campaign', icon: Plus, to: '/campaigns/new', group: 'Actions' },
-      { id: 'action:topup', label: 'Add funds to wallet', icon: ArrowRight, to: '/billing?topup=start', group: 'Actions' },
+      {
+        id: 'action:new',
+        label: 'Create a new campaign',
+        icon: Plus,
+        to: '/campaigns/new',
+        group: 'Actions',
+      },
+      {
+        id: 'action:topup',
+        label: 'Add funds to wallet',
+        icon: ArrowRight,
+        to: '/billing?topup=start',
+        group: 'Actions',
+      },
     ];
     const campaigns: PaletteItem[] = (data?.data ?? []).map((c) => ({
       id: `campaign:${c.id}`,
@@ -117,10 +135,19 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               aria-activedescendant={filtered[active] ? `palette-${filtered[active].id}` : undefined}
               aria-autocomplete="list"
             />
-            <kbd className="hidden rounded-[6px] border border-border bg-surface-muted px-1.5 py-0.5 font-sans text-[11px] text-fg-subtle sm:block">Esc</kbd>
+            <kbd className="hidden rounded-[6px] border border-border bg-surface-muted px-1.5 py-0.5 font-sans text-[11px] text-fg-subtle sm:block">
+              Esc
+            </kbd>
           </div>
-          <ul ref={listRef} id="command-palette-list" role="listbox" className="scrollbar-thin max-h-[50vh] overflow-y-auto p-2">
-            {filtered.length === 0 && <li className="px-3 py-8 text-center text-sm text-fg-muted">No matches for “{query}”.</li>}
+          <ul
+            ref={listRef}
+            id="command-palette-list"
+            role="listbox"
+            className="scrollbar-thin max-h-[50vh] overflow-y-auto p-2"
+          >
+            {filtered.length === 0 && (
+              <li className="px-3 py-8 text-center text-sm text-fg-muted">No matches for “{query}”.</li>
+            )}
             {groups.map((group) => {
               const groupItems = filtered.filter((i) => i.group === group);
               if (groupItems.length === 0) return null;
