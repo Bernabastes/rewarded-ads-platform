@@ -52,7 +52,7 @@ export class NotificationService {
     });
     if (this.config.env.QUEUES_ENABLED && !this.config.isTest) {
       this.queue
-        .add('push', { notificationId: notification.id }, { jobId: `push:${notification.id}` })
+        .add('push', { notificationId: notification.id }, { jobId: `push-${notification.id}` })
         .catch((err) => this.logger.warn(`Could not enqueue push for ${notification.id}: ${err.message}`));
     }
     return notification;

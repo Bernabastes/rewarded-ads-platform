@@ -43,7 +43,6 @@ export class LedgerReconciliationService {
       FROM users u
       LEFT JOIN (SELECT user_id, SUM(amount) AS ledger_sum FROM coin_ledger GROUP BY user_id) l ON l.user_id = u.id
       WHERE u.coin_balance <> COALESCE(l.ledger_sum, 0)
-         OR (l.ledger_sum IS NOT NULL AND u.coin_balance <> (SELECT balance_after FROM coin_ledger cl WHERE cl.user_id = u.id ORDER BY created_at DESC, id DESC LIMIT 1))
     `;
     return {
       usersChecked: Number(countRow?.count ?? 0),

@@ -70,7 +70,7 @@ export class PayoutProcessor extends WorkerHost {
   private async schedulePoll(data: PollJob) {
     await this.queue.add('poll', data, {
       delay: this.config.env.PAYOUT_STATUS_POLL_SECONDS * 1000,
-      jobId: `poll:${data.withdrawalId}:${data.polls}`,
+      jobId: `poll-${data.withdrawalId}-${data.polls}`,
       attempts: 5,
     });
   }

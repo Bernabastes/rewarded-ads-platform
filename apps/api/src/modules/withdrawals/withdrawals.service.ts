@@ -338,7 +338,7 @@ export class WithdrawalsService {
   private async enqueuePayout(withdrawalId: string) {
     if (!this.config.env.QUEUES_ENABLED || this.config.isTest) return;
     try {
-      await this.payoutQueue.add('initiate', { withdrawalId }, { jobId: `initiate:${withdrawalId}:${Date.now()}` });
+      await this.payoutQueue.add('initiate', { withdrawalId }, { jobId: `initiate-${withdrawalId}-${Date.now()}` });
     } catch (err) {
       this.logger.error(`Could not enqueue payout for ${withdrawalId}: ${(err as Error).message}`);
     }

@@ -4,6 +4,13 @@
  *
  *   pnpm --filter api openapi:export
  */
+import { loadDotenv } from './config/dotenv';
+
+loadDotenv();
+process.env.QUEUES_ENABLED = 'false';
+process.env.RECONCILIATION_ENABLED = 'false';
+process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'warn';
+
 import { NestFactory } from '@nestjs/core';
 import { type NestExpressApplication } from '@nestjs/platform-express';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -11,10 +18,6 @@ import path from 'node:path';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { buildOpenApiDocument } from './swagger';
-
-process.env.QUEUES_ENABLED = 'false';
-process.env.RECONCILIATION_ENABLED = 'false';
-process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'warn';
 
 async function main() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn'] });
