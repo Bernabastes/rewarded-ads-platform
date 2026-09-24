@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, View, type TextInput } from 'react-native';
 
 import { Input } from '@/components/ui/Input';
 import { Text } from '@/components/ui/Text';

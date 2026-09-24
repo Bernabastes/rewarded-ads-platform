@@ -1,12 +1,13 @@
 import type { DevicePlatform } from '@rap/shared';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import type * as ExpoNotifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import { usersApi } from '@/api/endpoints/users';
 import { EAS_PROJECT_ID } from '@/config';
 
-type NotificationsModule = typeof import('expo-notifications');
+type NotificationsModule = typeof ExpoNotifications;
 
 let cachedModule: NotificationsModule | null | undefined;
 

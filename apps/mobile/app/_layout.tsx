@@ -2,7 +2,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -79,14 +79,14 @@ export default function RootLayout() {
   const prefsHydrated = usePrefsStore((s) => s.hydrated);
   const language = usePrefsStore((s) => s.language);
   const authStatus = useAuthStore((s) => s.status);
-  const [authStarted, setAuthStarted] = useState(false);
+  const authStarted = useRef(false);
 
   useEffect(() => {
-    if (!authStarted) {
-      setAuthStarted(true);
+    if (!authStarted.current) {
+      authStarted.current = true;
       void hydrateAuth();
     }
-  }, [authStarted]);
+  }, []);
 
   useEffect(() => {
     if (prefsHydrated && i18n.language !== language) void i18n.changeLanguage(language);
