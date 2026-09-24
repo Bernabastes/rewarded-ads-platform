@@ -201,7 +201,7 @@ export default function WithdrawScreen() {
             autoFocus
             errorText={amountError}
             helperText={t('withdraw.available', { coins: formatCoins(balanceCoins, language), etb: formatEtb(balance.data?.etbEquivalent ?? 0, t, language) })}
-            testID="withdraw-amount"
+            testID="withdraw-amount-input"
             suffix={
               <Text variant="body" weight="semibold" tone="secondary">
                 {t('money.etbLabel')}
@@ -306,7 +306,7 @@ export default function WithdrawScreen() {
             inputMode={destinationKind === 'phone' ? 'tel' : 'numeric'}
             autoFocus
             errorText={destination.length > 0 && !destinationValid ? t('withdraw.destinationInvalid') : null}
-            testID="withdraw-destination"
+            testID="withdraw-destination-input"
           />
           {methodRequiresName(method.method) ? (
             <>

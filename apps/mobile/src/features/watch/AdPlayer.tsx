@@ -72,10 +72,14 @@ export function AdPlayer({
   const endedRef = useRef(false);
   const imageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const player = useVideoPlayer(null, (p) => {
+  // The player is created with the source (paused) so the <video> element's src is stable from the
+  // first render. Swapping the source later via replace() on web re-renders the src attribute, which
+  // interrupts play() ("play() request was interrupted by a new load request").
+  const player = useVideoPlayer(isImage ? null : { uri: ad.mediaUrl }, (p) => {
     p.timeUpdateEventInterval = 0.5;
     p.loop = false;
     p.staysActiveInBackground = false;
+    p.pause();
   });
   const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
   const { status } = useEvent(player, 'statusChange', { status: player.status });
@@ -123,22 +127,19 @@ export function AdPlayer({
       }, 250);
       return;
     }
-    (async () => {
-      try {
-        await player.replaceAsync({ uri: ad.mediaUrl });
-        if (resumeAtSeconds && resumeAtSeconds > 0) player.currentTime = resumeAtSeconds;
-        player.play();
-        // Browsers may refuse autoplay with sound: offer an explicit tap after a short grace period.
-        if (Platform.OS === 'web') {
-          setTimeout(() => {
-            if (!player.playing && !endedRef.current) setNeedsTap(true);
-          }, 1500);
-        }
-      } catch {
-        setPlaybackError(true);
+    try {
+      if (resumeAtSeconds && resumeAtSeconds > 0) player.currentTime = resumeAtSeconds;
+      player.play();
+      // Browsers may refuse autoplay with sound: offer an explicit tap after a short grace period.
+      if (Platform.OS === 'web') {
+        setTimeout(() => {
+          if (!player.playing && !endedRef.current) setNeedsTap(true);
+        }, 1500);
       }
-    })();
-  }, [ad.durationSeconds, ad.mediaUrl, isImage, onPlaybackEnded, player, positionRef, resumeAtSeconds, state.phase, state.session]);
+    } catch {
+      setPlaybackError(true);
+    }
+  }, [ad.durationSeconds, isImage, onPlaybackEnded, player, positionRef, resumeAtSeconds, state.phase, state.session]);
 
   useEffect(() => () => {
     if (imageTimer.current) clearInterval(imageTimer.current);
