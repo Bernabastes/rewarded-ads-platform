@@ -1,0 +1,69 @@
+import { AdminRole } from '@rap/shared';
+
+export type Role = AdminRole;
+
+export const ALL_ROLES: readonly Role[] = [
+  AdminRole.super_admin,
+  AdminRole.ad_reviewer,
+  AdminRole.support,
+  AdminRole.finance,
+];
+
+/**
+ * Mirror of the server-side @Roles() matrix in apps/api/src/modules/admin/controllers/admin.controllers.ts.
+ * The server is authoritative; this only decides what to render / enable.
+ */
+export const ACCESS = {
+  overview: ALL_ROLES,
+  config: ALL_ROLES,
+
+  reviewQueue: ['super_admin', 'ad_reviewer'],
+  adDetail: ['super_admin', 'ad_reviewer', 'support'],
+  adDecide: ['super_admin', 'ad_reviewer'],
+
+  campaigns: ['super_admin', 'ad_reviewer', 'support', 'finance'],
+  campaignDecide: ['super_admin', 'ad_reviewer'],
+  campaignPauseResume: ['super_admin', 'ad_reviewer', 'support'],
+
+  adReports: ['super_admin', 'ad_reviewer', 'support'],
+
+  users: ['super_admin', 'support', 'finance'],
+  usersModerate: ['super_admin', 'support'],
+
+  advertisers: ['super_admin', 'support', 'finance', 'ad_reviewer'],
+  advertisersDecide: ['super_admin', 'support'],
+
+  fraud: ['super_admin', 'support', 'finance'],
+
+  withdrawals: ['super_admin', 'finance'],
+  adjustments: ['super_admin', 'finance'],
+  revenue: ['super_admin', 'finance'],
+
+  audit: ['super_admin', 'finance', 'support'],
+  appInstalls: ['super_admin', 'support'],
+} as const satisfies Record<string, readonly Role[]>;
+
+export type AccessKey = keyof typeof ACCESS;
+
+export function can(role: Role | null | undefined, key: AccessKey): boolean {
+  if (!role) return false;
+  return (ACCESS[key] as readonly Role[]).includes(role);
+}
+
+export function rolesFor(key: AccessKey): readonly Role[] {
+  return ACCESS[key];
+}
+
+export const ROLE_LABEL: Record<Role, string> = {
+  super_admin: 'Super admin',
+  ad_reviewer: 'Ad reviewer',
+  support: 'Support',
+  finance: 'Finance',
+};
+
+export const ROLE_DESCRIPTION: Record<Role, string> = {
+  super_admin: 'Full access to every queue and setting.',
+  ad_reviewer: 'Reviews creatives, moderates campaigns and ad reports.',
+  support: 'Handles users, advertiser verification, fraud flags and reports.',
+  finance: 'Decides withdrawals and coin adjustments, monitors revenue and fraud.',
+};
