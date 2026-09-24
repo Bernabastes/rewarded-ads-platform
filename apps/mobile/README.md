@@ -20,21 +20,21 @@ pnpm web                              # Expo web on http://localhost:8081
 
 The API must be running (`docker start rap-api` or `pnpm dev:api` at the root) — see the root README.
 
-| Script                                                    | What it does                                                                |
-| --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `pnpm --filter @rap/mobile typecheck`                     | `tsc --noEmit` (strict, typed routes)                                       |
-| `pnpm --filter @rap/mobile lint`                          | ESLint 10 flat config + `react-hooks` + the local **no hardcoded JSX text** rule |
-| `pnpm --filter @rap/mobile test`                          | Jest (`jest-expo`) — 78 unit/component tests                                |
-| `pnpm --filter @rap/mobile build`                         | `expo export --platform web` → `dist/` (static web build, ~5.5 MB with fonts) |
+| Script                                | What it does                                                                     |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| `pnpm --filter @rap/mobile typecheck` | `tsc --noEmit` (strict, typed routes)                                            |
+| `pnpm --filter @rap/mobile lint`      | ESLint 10 flat config + `react-hooks` + the local **no hardcoded JSX text** rule |
+| `pnpm --filter @rap/mobile test`      | Jest (`jest-expo`) — 78 unit/component tests                                     |
+| `pnpm --filter @rap/mobile build`     | `expo export --platform web` → `dist/` (static web build, ~5.5 MB with fonts)    |
 
 ### Environment variables (`.env`, only `EXPO_PUBLIC_*` reach the bundle)
 
-| Variable                       | Default                     | Notes                                                                                   |
-| ------------------------------ | --------------------------- | --------------------------------------------------------------------------------------- |
-| `EXPO_PUBLIC_API_URL`          | `http://localhost:3000`     | API origin **without** `/api/v1`. On a **physical device use your computer's LAN IP** (`http://192.168.x.y:3000`); `localhost` on the phone is the phone. The API's `CORS_ORIGINS` must include the Expo web origin (`http://localhost:8081` is already allowed). |
-| `EXPO_PUBLIC_SUPPORT_TELEGRAM` | `SUPPORT_CONTACT_DEFAULTS`  | Telegram support link shown in Profile / blocked screens.                                |
-| `EXPO_PUBLIC_SUPPORT_PHONE`    | `SUPPORT_CONTACT_DEFAULTS`  | Support phone (`tel:` link).                                                             |
-| `EXPO_PUBLIC_EAS_PROJECT_ID`   | _(empty)_                   | Needed for Expo push tokens on real devices. Empty → push registration silently no-ops.  |
+| Variable                       | Default                    | Notes                                                                                                                                                                                                                                                             |
+| ------------------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXPO_PUBLIC_API_URL`          | `http://localhost:3000`    | API origin **without** `/api/v1`. On a **physical device use your computer's LAN IP** (`http://192.168.x.y:3000`); `localhost` on the phone is the phone. The API's `CORS_ORIGINS` must include the Expo web origin (`http://localhost:8081` is already allowed). |
+| `EXPO_PUBLIC_SUPPORT_TELEGRAM` | `SUPPORT_CONTACT_DEFAULTS` | Telegram support link shown in Profile / blocked screens.                                                                                                                                                                                                         |
+| `EXPO_PUBLIC_SUPPORT_PHONE`    | `SUPPORT_CONTACT_DEFAULTS` | Support phone (`tel:` link).                                                                                                                                                                                                                                      |
+| `EXPO_PUBLIC_EAS_PROJECT_ID`   | _(empty)_                  | Needed for Expo push tokens on real devices. Empty → push registration silently no-ops.                                                                                                                                                                           |
 
 ### Demo credentials
 
@@ -176,7 +176,12 @@ Not verified here: real device playback/push, landscape on device, SMS autofill,
   `resolveNotificationTarget` (withdrawal → its status screen, rewards → wallet, offers → the offer).
 - **Web** is a development/demo target only (SecureStore falls back to `localStorage`).
 
-## API notes / gaps (worked around client-side — the API was not changed)
+## API notes / gaps (worked around client-side during Phase 2)
+
+> Status after the Phase 3 integration: seeded media is now self-hosted on MinIO (no third-party CDN);
+> `GET /users/me/recently-watched` exists (the report-an-ad screen still uses the on-device list; wiring the endpoint is a
+> follow-up); `reviewReasons` is typed as `WithdrawalReviewReason | string` in `@rap/shared` and the API value
+> `low_trust_score` now has its own translation.
 
 - Seeded ad thumbnails and most seeded video URLs point at Google's public sample bucket, which returns **403 from
   this network** (Chrome reports `ERR_BLOCKED_BY_ORB`). Cards fall back to a placeholder when a thumbnail fails;

@@ -30,19 +30,19 @@ The API must be running (Docker container `rap-api`, or `pnpm dev:api`) at `VITE
 
 ### Environment variables
 
-| Variable       | Default                 | Purpose                                                              |
-| -------------- | ----------------------- | -------------------------------------------------------------------- |
+| Variable       | Default                 | Purpose                                                                        |
+| -------------- | ----------------------- | ------------------------------------------------------------------------------ |
 | `VITE_API_URL` | `http://localhost:3000` | Origin of the API. `API_BASE_PATH` (`/api/v1`) from `@rap/shared` is appended. |
 
 ### Demo accounts (seeded; password `Admin123!`)
 
-| Email              | Role          | What you can do in the console                                         |
-| ------------------ | ------------- | ---------------------------------------------------------------------- |
-| `super@rap.et`     | `super_admin` | Everything                                                             |
-| `reviewer@rap.et`  | `ad_reviewer` | Ad review queue, campaign moderation, ad reports                       |
-| `support@rap.et`   | `support`     | Users (suspend/ban/reinstate), advertiser verification, fraud, reports, app installs, audit |
-| `finance@rap.et`   | `finance`     | Withdrawals, coin adjustments, revenue, fraud, audit (users/campaigns read-only) |
-| `finance2@rap.et`  | `finance`     | Second finance account — use it to give the *second* approval          |
+| Email             | Role          | What you can do in the console                                                              |
+| ----------------- | ------------- | ------------------------------------------------------------------------------------------- |
+| `super@rap.et`    | `super_admin` | Everything                                                                                  |
+| `reviewer@rap.et` | `ad_reviewer` | Ad review queue, campaign moderation, ad reports                                            |
+| `support@rap.et`  | `support`     | Users (suspend/ban/reinstate), advertiser verification, fraud, reports, app installs, audit |
+| `finance@rap.et`  | `finance`     | Withdrawals, coin adjustments, revenue, fraud, audit (users/campaigns read-only)            |
+| `finance2@rap.et` | `finance`     | Second finance account — use it to give the _second_ approval                               |
 
 ---
 
@@ -104,23 +104,23 @@ tabs and pagination live in the query string (`useListParams`) so views are shar
 The server is authoritative (`403 ROLE_NOT_ALLOWED`). The UI mirrors the matrix in `src/lib/auth/rbac.ts`
 (copied from `apps/api/src/modules/admin/controllers/admin.controllers.ts`):
 
-| Area                                        | super_admin | ad_reviewer | support | finance |
-| ------------------------------------------- | :---------: | :---------: | :-----: | :-----: |
-| Overview, platform config                   | ✓           | ✓           | ✓       | ✓       |
-| Ad review queue, approve/reject ads         | ✓           | ✓           |         |         |
-| Ad detail (read)                            | ✓           | ✓           | ✓       |         |
-| Campaign lists & detail                     | ✓           | ✓           | ✓       | ✓       |
-| Campaign approve/reject                     | ✓           | ✓           |         |         |
-| Campaign pause/resume                       | ✓           | ✓           | ✓       |         |
-| Ad reports                                  | ✓           | ✓           | ✓       |         |
-| Users (list/detail)                         | ✓           |             | ✓       | ✓       |
-| Users suspend/ban/reinstate                 | ✓           |             | ✓       |         |
-| Advertisers (list/detail)                   | ✓           | ✓           | ✓       | ✓       |
-| Advertiser verify/reject                    | ✓           |             | ✓       |         |
-| Fraud dashboard + actions                   | ✓           |             | ✓       | ✓       |
-| Withdrawals, coin adjustments, revenue      | ✓           |             |         | ✓       |
-| Audit log                                   | ✓           |             | ✓       | ✓       |
-| App-install verification                    | ✓           |             | ✓       |         |
+| Area                                   | super_admin | ad_reviewer | support | finance |
+| -------------------------------------- | :---------: | :---------: | :-----: | :-----: |
+| Overview, platform config              |      ✓      |      ✓      |    ✓    |    ✓    |
+| Ad review queue, approve/reject ads    |      ✓      |      ✓      |         |         |
+| Ad detail (read)                       |      ✓      |      ✓      |    ✓    |         |
+| Campaign lists & detail                |      ✓      |      ✓      |    ✓    |    ✓    |
+| Campaign approve/reject                |      ✓      |      ✓      |         |         |
+| Campaign pause/resume                  |      ✓      |      ✓      |    ✓    |         |
+| Ad reports                             |      ✓      |      ✓      |    ✓    |         |
+| Users (list/detail)                    |      ✓      |             |    ✓    |    ✓    |
+| Users suspend/ban/reinstate            |      ✓      |             |    ✓    |         |
+| Advertisers (list/detail)              |      ✓      |      ✓      |    ✓    |    ✓    |
+| Advertiser verify/reject               |      ✓      |             |    ✓    |         |
+| Fraud dashboard + actions              |      ✓      |             |    ✓    |    ✓    |
+| Withdrawals, coin adjustments, revenue |      ✓      |             |         |    ✓    |
+| Audit log                              |      ✓      |             |    ✓    |    ✓    |
+| App-install verification               |      ✓      |             |    ✓    |         |
 
 `can(role, key)` drives: which sidebar sections / palette items render, `<RequireRole>` on every route (renders a
 designed "no access" state instead of the page), and per-action buttons inside pages (e.g. finance sees users but
@@ -168,22 +168,22 @@ reason dialogs.
 
 ## What each page does
 
-| Route              | Highlights                                                                                                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/login`           | Email + password, field-level validation, explains expired / revoked sessions, silent restore on reload.                                                                                     |
-| `/`                | Count-up metrics for every queue the role can act on, today's completions / flagged share / revenue, 7-day fraud filter chart, shortcuts. Refreshes every 30 s.                                |
-| `/review`          | Split pane: pending / approved / rejected tabs, list with thumbnails and open-report markers, media player, campaign + advertiser (verification) context, attention questions with `correctIndex`, **banned-topics checklist rendered from `BANNED_TOPICS` — Approve stays disabled until 8/8**, "Flag" marks a topic as present (blocks approval, pre-fills the reject category), structured reject dialog with stored-reason preview, optimistic queue removal, decision record + checklist snapshot on history tabs. |
-| `/campaigns`       | Status tabs, spend/budget progress, valid vs raw completions; detail with 30-day chart, fraud-filtered rate, creatives table, approve / reject (refund) / pause / resume with reasons.        |
-| `/ad-reports`      | Open / reviewed / dismissed; close a report with a note and optionally pull the ad (reason required).                                                                                        |
-| `/app-installs`    | Verify (credits the user) or reject install claims.                                                                                                                                          |
-| `/users`           | Search by phone / name, status and trust-score filters, "has open flags" (current page), dense table. Detail: profile, stats, ledger (with highlight from adjustment links), withdrawals, fraud flags, devices / shared-device evidence, audit trail with JSON diffs; suspend / ban / reinstate with mandatory reason. |
-| `/advertisers`     | Pending verification / verified / rejected; detail with registration details, wallet + lifetime spend, campaigns; verify / reject with reason.                                               |
-| `/fraud`           | Weekly flagged %, open flags by severity (donut), by rule (bars), daily trend; virtualised flags table with severity colouring and filters (state, severity, rule, user); drawer with metadata JSON, sibling-flag awareness — **the dismiss confirmation states when dismissing will credit the completion**; escalate (−10 trust) / suspend user (reason). |
-| `/withdrawals`     | Tabs per status; first-withdrawal marker, dual-approval progress; drawer with user, masked destination (reveal toggle), approvals list, provider info; **Approve disabled when the current admin is already in `approvals[]`**, "1 of 2" progress with explanation, reject (refund) with reason, retry failed payouts (≤ 3 attempts). |
-| `/adjustments`     | Two-step workflow: create (user combobox, ± coins with ETB preview and balance-after, reason, reference), list by status; drawer with decision trail; **Approve disabled for the requester**, cancel own pending request, executed requests link to the ledger entry and audit rows. |
-| `/revenue`         | Presets / custom UTC range, revenue-over-time area chart, take-rate donut, top advertisers, by action type, daily table, CSV export (daily + advertisers).                                    |
-| `/audit`           | Filters (search, action prefix, actor type / id, target type / id, date range), virtualised table, expandable rows with before/after diff (changed keys highlighted) + raw JSON + metadata, CSV export of the page. Target ids link to their record. |
-| `/config`          | Read-only effective platform config with `@rap/shared` defaults for comparison, mock-provider flags, fraud thresholds.                                                                        |
+| Route           | Highlights                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`        | Email + password, field-level validation, explains expired / revoked sessions, silent restore on reload.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `/`             | Count-up metrics for every queue the role can act on, today's completions / flagged share / revenue, 7-day fraud filter chart, shortcuts. Refreshes every 30 s.                                                                                                                                                                                                                                                                                                                                                         |
+| `/review`       | Split pane: pending / approved / rejected tabs, list with thumbnails and open-report markers, media player, campaign + advertiser (verification) context, attention questions with `correctIndex`, **banned-topics checklist rendered from `BANNED_TOPICS` — Approve stays disabled until 8/8**, "Flag" marks a topic as present (blocks approval, pre-fills the reject category), structured reject dialog with stored-reason preview, optimistic queue removal, decision record + checklist snapshot on history tabs. |
+| `/campaigns`    | Status tabs, spend/budget progress, valid vs raw completions; detail with 30-day chart, fraud-filtered rate, creatives table, approve / reject (refund) / pause / resume with reasons.                                                                                                                                                                                                                                                                                                                                  |
+| `/ad-reports`   | Open / reviewed / dismissed; close a report with a note and optionally pull the ad (reason required).                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `/app-installs` | Verify (credits the user) or reject install claims.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `/users`        | Search by phone / name, status and trust-score filters, "has open flags" (current page), dense table. Detail: profile, stats, ledger (with highlight from adjustment links), withdrawals, fraud flags, devices / shared-device evidence, audit trail with JSON diffs; suspend / ban / reinstate with mandatory reason.                                                                                                                                                                                                  |
+| `/advertisers`  | Pending verification / verified / rejected; detail with registration details, wallet + lifetime spend, campaigns; verify / reject with reason.                                                                                                                                                                                                                                                                                                                                                                          |
+| `/fraud`        | Weekly flagged %, open flags by severity (donut), by rule (bars), daily trend; virtualised flags table with severity colouring and filters (state, severity, rule, user); drawer with metadata JSON, sibling-flag awareness — **the dismiss confirmation states when dismissing will credit the completion**; escalate (−10 trust) / suspend user (reason).                                                                                                                                                             |
+| `/withdrawals`  | Tabs per status; first-withdrawal marker, dual-approval progress; drawer with user, masked destination (reveal toggle), approvals list, provider info; **Approve disabled when the current admin is already in `approvals[]`**, "1 of 2" progress with explanation, reject (refund) with reason, retry failed payouts (≤ 3 attempts).                                                                                                                                                                                   |
+| `/adjustments`  | Two-step workflow: create (user combobox, ± coins with ETB preview and balance-after, reason, reference), list by status; drawer with decision trail; **Approve disabled for the requester**, cancel own pending request, executed requests link to the ledger entry and audit rows.                                                                                                                                                                                                                                    |
+| `/revenue`      | Presets / custom UTC range, revenue-over-time area chart, take-rate donut, top advertisers, by action type, daily table, CSV export (daily + advertisers).                                                                                                                                                                                                                                                                                                                                                              |
+| `/audit`        | Filters (search, action prefix, actor type / id, target type / id, date range), virtualised table, expandable rows with before/after diff (changed keys highlighted) + raw JSON + metadata, CSV export of the page. Target ids link to their record.                                                                                                                                                                                                                                                                    |
+| `/config`       | Read-only effective platform config with `@rap/shared` defaults for comparison, mock-provider flags, fraud thresholds.                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ---
 
@@ -228,7 +228,12 @@ reason dialogs.
 - **Dates** are shown in the browser locale (en-GB style, 24 h) with UTC day keys for charts, matching the API's UTC
   day buckets.
 
-## API gaps & client-side workarounds (nothing in `apps/api` was changed)
+## API gaps found during Phase 2 (resolved in Phase 3 unless noted)
+
+> Status after the Phase 3 integration: items 1, 2, 3, 6 and 7 are **fixed in the API / `@rap/shared`**
+> (`ToBoolean` query transformer, widened shared types, `GET /admin/advertisers/:id/wallet`, `payoutMaxAttempts` in
+> `GET /admin/config`, `permissions` in the login response); item 9 is fixed (`msw: false` in `pnpm-workspace.yaml`).
+> Items 4, 5 and 8 remain as documented client-side behaviour.
 
 1. **`GET /admin/fraud/flags?resolved=false` returns resolved flags.** The DTO uses `@Type(() => Boolean)`, so the
    string `"false"` is coerced to `true`. The client sends `resolved=` (empty string → `false`) for the "open" filter

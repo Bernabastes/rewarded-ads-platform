@@ -24,22 +24,22 @@ Contents
 
 ## 1. Stack: as-is vs substituted
 
-| Layer            | Spec recommendation                        | Used                                                              | Note                                                                                                                                                                                                          |
-| ---------------- | ------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend          | Node + TypeScript + NestJS                 | **As-is** – NestJS 12.1, TypeScript 5.9 strict, Express adapter   | Nest 12 ships ESM-only packages; the app stays CommonJS via Node's `require(esm)` (Node ≥ 24.9 required, Jest runs with `--experimental-vm-modules`).                                                         |
-| Database         | PostgreSQL                                 | **As-is** – PostgreSQL 16                                         | Two deliberate bits of vendor SQL: append-only triggers and `SELECT … FOR UPDATE` row locks (both documented below).                                                                                          |
-| ORM              | Prisma                                     | **As-is** – Prisma **6.19** (not 7)                               | Prisma 7 requires driver adapters + `prisma.config.ts` and changes the generated client layout; 6.x is the stable line every team member knows. Upgrading is a mechanical change isolated to `PrismaService`. |
-| Cache/queues     | Redis + BullMQ                             | **As-is** – Redis 7, ioredis 5, BullMQ 6 via `@nestjs/bullmq`     | Workers are registered manually so API-only processes can run without workers.                                                                                                                                |
-| Auth             | JWT access + refresh, OTP users, email/pwd | **As-is**                                                         | HS256 access tokens (15 min), opaque rotating refresh tokens stored hashed with family-based reuse detection. `@nestjs/jwt` directly (no Passport – one guard is simpler and fully typed).                    |
-| Password hashing | –                                          | bcryptjs (pure JS)                                                | Avoids native build steps in Docker/Windows; argon2 is a drop-in swap (`AuthService.hashPassword`).                                                                                                           |
-| Object storage   | S3-compatible (MinIO dev)                  | **As-is** – AWS SDK v3 + MinIO                                    | Browser → storage presigned PUT; the API never proxies media bytes.                                                                                                                                           |
-| Payments in      | Chapa checkout                             | **As-is** shape, mocked without credentials                       | `PaymentGateway` interface; `ChapaGateway` calls the real initialize/verify endpoints when `CHAPA_SECRET_KEY` is set.                                                                                         |
-| Payouts          | telebirr + Chapa behind `PayoutProvider`   | **As-is** shape, mocked without credentials                       | Interface matches the spec signature exactly (plus optional metadata argument); registry with failover.                                                                                                       |
-| Push             | Firebase Cloud Messaging                   | FCM HTTP v1 via `fetch` (no firebase-admin SDK), mocked w/o creds | Smaller image; `firebase-admin` can replace `FcmPushAdapter` without touching callers.                                                                                                                        |
-| Validation       | –                                          | class-validator/class-transformer + zod for env                   | class-validator DTOs feed the Swagger CLI plugin so the OpenAPI file is generated from code.                                                                                                                  |
-| Logging          | structured, security separation            | pino via nestjs-pino + separate `SecurityLogger` pino instance    | Security events are a separate stream (`channel: "security"`, optional file destination).                                                                                                                     |
-| Package manager  | –                                          | pnpm 11 workspaces, `nodeLinker: hoisted`                         | Flat `node_modules` is required by Expo/Metro in Phase 2. pnpm ≥ 10 reads settings from `pnpm-workspace.yaml`, so `.npmrc` only mirrors the setting for older tooling.                                        |
-| Hosting          | Docker Compose                             | **As-is**                                                         | `docker compose up -d --build` runs postgres, redis, minio (+bucket init) and the API (migrations applied on start).                                                                                          |
+| Layer            | Spec recommendation                        | Used                                                              | Note                                                                                                                                                                                                                       |
+| ---------------- | ------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend          | Node + TypeScript + NestJS                 | **As-is** – NestJS 12.1, TypeScript 5.9 strict, Express adapter   | Nest 12 ships ESM-only packages; the app stays CommonJS via Node's `require(esm)` (Node ≥ 24.9 required, Jest runs with `--experimental-vm-modules`).                                                                      |
+| Database         | PostgreSQL                                 | **As-is** – PostgreSQL 16                                         | Two deliberate bits of vendor SQL: append-only triggers and `SELECT … FOR UPDATE` row locks (both documented below).                                                                                                       |
+| ORM              | Prisma                                     | **As-is** – Prisma **6.19** (not 7)                               | Prisma 7 requires driver adapters + `prisma.config.ts` and changes the generated client layout; 6.x is the stable line every team member knows. Upgrading is a mechanical change isolated to `PrismaService`.              |
+| Cache/queues     | Redis + BullMQ                             | **As-is** – Redis 7, ioredis 5, BullMQ 6 via `@nestjs/bullmq`     | Workers are registered manually so API-only processes can run without workers.                                                                                                                                             |
+| Auth             | JWT access + refresh, OTP users, email/pwd | **As-is**                                                         | HS256 access tokens (15 min), opaque rotating refresh tokens stored hashed with family-based reuse detection. `@nestjs/jwt` directly (no Passport – one guard is simpler and fully typed).                                 |
+| Password hashing | –                                          | bcryptjs (pure JS)                                                | Avoids native build steps in Docker/Windows; argon2 is a drop-in swap (`AuthService.hashPassword`).                                                                                                                        |
+| Object storage   | S3-compatible (MinIO dev)                  | **As-is** – AWS SDK v3 + MinIO                                    | Browser → storage presigned PUT; the API never proxies media bytes. Presigned URLs are signed for the browser-reachable `S3_PUBLIC_ENDPOINT` (the host is part of a SigV4 signature); server-side calls use `S3_ENDPOINT`. |
+| Payments in      | Chapa checkout                             | **As-is** shape, mocked without credentials                       | `PaymentGateway` interface; `ChapaGateway` calls the real initialize/verify endpoints when `CHAPA_SECRET_KEY` is set.                                                                                                      |
+| Payouts          | telebirr + Chapa behind `PayoutProvider`   | **As-is** shape, mocked without credentials                       | Interface matches the spec signature exactly (plus optional metadata argument); registry with failover.                                                                                                                    |
+| Push             | Firebase Cloud Messaging                   | FCM HTTP v1 via `fetch` (no firebase-admin SDK), mocked w/o creds | Smaller image; `firebase-admin` can replace `FcmPushAdapter` without touching callers.                                                                                                                                     |
+| Validation       | –                                          | class-validator/class-transformer + zod for env                   | class-validator DTOs feed the Swagger CLI plugin so the OpenAPI file is generated from code.                                                                                                                               |
+| Logging          | structured, security separation            | pino via nestjs-pino + separate `SecurityLogger` pino instance    | Security events are a separate stream (`channel: "security"`, optional file destination).                                                                                                                                  |
+| Package manager  | –                                          | pnpm 11 workspaces, `nodeLinker: hoisted`                         | Flat `node_modules` is required by Expo/Metro in Phase 2. pnpm ≥ 10 reads settings from `pnpm-workspace.yaml`, so `.npmrc` only mirrors the setting for older tooling.                                                     |
+| Hosting          | Docker Compose                             | **As-is**                                                         | `docker compose up -d --build` runs postgres, redis, minio (+bucket init) and the API (migrations applied on start).                                                                                                       |
 
 ## 2. System layout
 
@@ -83,9 +83,9 @@ required columns; supporting tables and additions:
 | `otp_codes`                                     | Hashed code (`sha256(phone:code)`), expiry, attempt counter, consumed_at, requesting IP.                                                                                                                                                                                             |
 | `refresh_tokens`                                | Hashed, single-use rotating tokens with `family_id`; presenting a revoked token revokes the whole family. Works for users, advertisers and admins (`subject_type`).                                                                                                                  |
 | `admin_users`                                   | Spec fields + `full_name`, `active` (deactivation without deletion).                                                                                                                                                                                                                 |
-| `advertisers`                                   | Spec fields + `password_hash`, verification metadata, cached `wallet_balance_etb`.                                                                                                                                                                                                   |
+| `advertisers`                                   | Spec fields + `password_hash`, verification metadata, cached `wallet_balance_etb`, `notification_prefs` JSON (editable via `PATCH /advertisers/me`).                                                                                                                                 |
 | `advertiser_wallet_ledger`                      | **Append-only ETB ledger** of advertiser prepaid funds: `topup`, `campaign_budget_reservation`, `campaign_budget_refund`, `adjustment`. Advertiser balances are a normal B2B prepayment/receivable – distinct from user funds, which the platform never holds.                       |
-| `advertiser_payments`, `invoices`               | Gateway checkout records (`tx_ref` unique → webhook idempotency) and JSON invoices issued per completed top-up.                                                                                                                                                                      |
+| `advertiser_payments`, `invoices`               | Gateway checkout records (`tx_ref` unique → webhook idempotency; `return_url` stored so the mock checkout and real gateways send the browser back to the caller with `paymentId` + `txRef`) and JSON invoices issued per completed top-up.                                           |
 | `campaigns`                                     | Spec fields + `cost_per_action_etb`, `take_rate_snapshot`, `attention_check_enabled`, review/pause metadata, `budget_reserved_etb`. `reward_per_action_etb = cost × (1 − take rate)` is snapshotted at creation so config changes never alter live campaigns.                        |
 | `ads`                                           | Spec fields + `title`, `storage_key`, `thumbnail_url`, `banned_topics_checklist` JSON (structured reviewer checklist), `review_note`.                                                                                                                                                |
 | `attention_questions`                           | Per-ad one-question checks (`prompt`, `prompt_am`, options JSON, `correct_index`); asked when the campaign has `attention_check_enabled`.                                                                                                                                            |
@@ -106,8 +106,10 @@ required columns; supporting tables and additions:
 Types: ETB amounts are `Decimal(12,2)`; coins are `Int` (a single user would need > 21 million ETB to overflow –
 documented upgrade path is `BigInt`). Ids are UUIDs; timestamps are UTC.
 
-Migrations: `prisma/migrations/*_init` (generated) and `*_append_only_guards` (hand-written triggers + CHECK
-constraints). Triggers are the only non-portable SQL; they are documented here as deliberate.
+Migrations: `prisma/migrations/*_init` (generated), `*_append_only_guards` (hand-written triggers + CHECK constraints)
+and `*_payment_return_url_and_advertiser_prefs` (Phase 3 additive columns). Triggers are the only non-portable SQL;
+they are documented here as deliberate. Prisma interactive transactions run with a 20 s budget (`transactionOptions`
+in `PrismaService`) because cold Docker volumes exceeded the 5 s default on the first admin decision after start-up.
 
 ## 4. Money & coin model
 
@@ -318,6 +320,27 @@ rejected`, all sessions revoked, `403 AGE_RESTRICTED` on every subsequent reques
 | App-install attribution  | –                                                                                                                                                | Installs recorded as `pending_verification`; admin verifies                              | Integrate an attribution SDK/postback in Phase 3            |
 
 The effective mock flags are exposed at `GET /admin/config` (`mocks`) and logged at boot.
+
+## 12b. Phase 3 integration notes
+
+The three frontends (Expo mobile app, advertiser portal, admin dashboard) were built against the Phase 1 contract and
+merged into `main`. Gaps they reported were closed in the API rather than worked around:
+
+- `S3_PUBLIC_ENDPOINT` for presigned uploads (browser-reachable host in the signature); the portal's dev proxy is now opt-in.
+- Mock Chapa checkout: CSP-compliant external script (`/billing/mock-checkout/assets/checkout.js`), honours the caller's
+  `returnUrl` and appends `paymentId` + `txRef`.
+- Boolean query parameters are parsed with `ToBoolean` (`?resolved=false` used to coerce to `true`).
+- New endpoints: `GET/PATCH /advertisers/me`, `POST /auth/advertiser/change-password`, `GET /admin/advertisers/:id/wallet`,
+  `GET /users/me/recently-watched`; admin login returns `roles`/`permissions`; `/admin/config` exposes `payoutMaxAttempts`
+  and the campaign/top-up minimums.
+- `@rap/shared` is the single source of truth for minimums (`MIN_CAMPAIGN_BUDGET_ETB`, `MIN_COST_PER_ACTION_ETB`,
+  `MIN_TOPUP_ETB`, `PAYOUT_MAX_ATTEMPTS`) and declares every field the API returns (`PaymentItem.mock`, `TopupResponse.returnUrl`,
+  `AdReviewItem.reviewNote`/`bannedTopics`, withdrawal `bankCode`/`attempts`, user `lastIp`, `AdminCampaignDetail`).
+- Demo media is self-hosted: `prisma/seed-assets` (synthetic H.264 clips + PNG thumbnails, ~0.5 MB, regenerated with
+  `seed-assets/generate.ps1` in an ffmpeg container) is uploaded to the MinIO bucket by the seed.
+- Monorepo hygiene with a hoisted `node_modules`: the apps pin the same `react`/`react-dom` (19.2.3, required by Expo
+  SDK 57) and share one `vitest` major, otherwise singleton libraries resolve to different copies.
+- Docker compose now includes nginx-served static builds of both portals (`advertiser-web` :5173, `admin-web` :5174).
 
 ## 13. Assumptions
 

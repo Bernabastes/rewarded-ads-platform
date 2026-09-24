@@ -14,7 +14,8 @@ rewrite to reach tens of thousands of users; the pieces below change _where_ thi
 - **Workers are separable today**: `QUEUES_ENABLED=false` on API replicas; run the same image with
   `QUEUES_ENABLED=true` (and no public port) as the worker deployment. Payouts, notifications, reconciliation and fraud
   jobs already run through BullMQ.
-- **Media never flows through the API**: presigned uploads to object storage, public read via a CDN-able URL.
+- **Media never flows through the API**: presigned uploads to object storage (signed for the public S3_PUBLIC_ENDPOINT), public read via a CDN-able URL.
+- **Frontends are static**: the advertiser portal and admin dashboard are nginx-served Vite builds (docker compose services) that can move to any CDN/object-storage hosting; the mobile app talks to the API only.
 
 ## Growth path
 
