@@ -1,0 +1,326 @@
+@import 'tailwindcss';
+
+/* Self-hosted type: Inter (body), Manrope (display), Noto Sans Ethiopic (Ethiopic fallback). */
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/manrope/wght.css';
+@import '@fontsource/noto-sans-ethiopic/ethiopic-400.css';
+@import '@fontsource/noto-sans-ethiopic/ethiopic-500.css';
+@import '@fontsource/noto-sans-ethiopic/ethiopic-600.css';
+@import '@fontsource/noto-sans-ethiopic/ethiopic-700.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans:
+    'Inter Variable', 'Noto Sans Ethiopic', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display:
+    'Manrope Variable', 'Noto Sans Ethiopic', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Primary — forest */
+  --color-forest-50: #eef6f2;
+  --color-forest-100: #d7eae0;
+  --color-forest-200: #b0d5c2;
+  --color-forest-300: #7fb89d;
+  --color-forest-400: #4e9877;
+  --color-forest-500: #2e7d5b;
+  --color-forest-600: #1f6a4c;
+  --color-forest-700: #175540;
+  --color-forest-800: #124334;
+  --color-forest-900: #0c2f25;
+  --color-forest-950: #071c16;
+
+  /* Accent — terracotta */
+  --color-terracotta-50: #fdf3ec;
+  --color-terracotta-100: #fae2d1;
+  --color-terracotta-200: #f5c3a3;
+  --color-terracotta-300: #ee9e6e;
+  --color-terracotta-400: #e67b41;
+  --color-terracotta-500: #d9622b;
+  --color-terracotta-600: #b84d1f;
+  --color-terracotta-700: #933b1a;
+  --color-terracotta-800: #6e2c15;
+  --color-terracotta-900: #4a1e0f;
+
+  /* Neutral — warm stone (overrides Tailwind's default stone) */
+  --color-stone-50: #faf8f5;
+  --color-stone-100: #f3f0eb;
+  --color-stone-200: #e6e1d9;
+  --color-stone-300: #d1cac0;
+  --color-stone-400: #a69e93;
+  --color-stone-500: #7d756b;
+  --color-stone-600: #5c554d;
+  --color-stone-700: #463f39;
+  --color-stone-800: #2e2925;
+  --color-stone-900: #1d1a17;
+  --color-stone-950: #121010;
+
+  /* Semantic */
+  --color-success: #1e9e6a;
+  --color-warning: #e1a12e;
+  --color-danger: #d24b3f;
+  --color-info: #3b72e0;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-soft: 0 1px 2px rgb(29 26 23 / 0.04), 0 8px 24px -12px rgb(29 26 23 / 0.12);
+  --shadow-card: 0 1px 1px rgb(29 26 23 / 0.03), 0 12px 32px -16px rgb(29 26 23 / 0.16);
+  --shadow-pop: 0 2px 4px rgb(29 26 23 / 0.06), 0 24px 48px -16px rgb(29 26 23 / 0.24);
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-fade-out: fade-out 120ms ease-in forwards;
+  --animate-pop-in: pop-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-pop-out: pop-out 120ms ease-in forwards;
+  --animate-slide-up: slide-up 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-in-right: slide-in-right 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+  }
+  @keyframes pop-out {
+    from {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.97);
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+}
+
+/* Mode-aware semantic aliases (light / dark). Exposed as Tailwind colors via @theme inline. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-muted: var(--surface-muted);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+:root {
+  color-scheme: light;
+  --bg: #faf8f5;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-muted: #f3f0eb;
+  --fg: #1d1a17;
+  --fg-muted: #5c554d;
+  --fg-subtle: #7d756b;
+  --border: #e6e1d9;
+  --border-strong: #d1cac0;
+  --primary: #1f6a4c;
+  --primary-hover: #175540;
+  --primary-fg: #ffffff;
+  --primary-soft: #eef6f2;
+  --accent: #d9622b;
+  --accent-hover: #b84d1f;
+  --accent-fg: #ffffff;
+  --accent-soft: #fdf3ec;
+  --ring: #2e7d5b;
+  --chart-1: #2e7d5b;
+  --chart-2: #7fb89d;
+  --chart-3: #d9622b;
+  --chart-4: #a69e93;
+  --chart-5: #3b72e0;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #121010;
+  --surface: #1d1a17;
+  --surface-elevated: #2e2925;
+  --surface-muted: #2e2925;
+  --fg: #faf8f5;
+  --fg-muted: #d1cac0;
+  --fg-subtle: #a69e93;
+  --border: #2e2925;
+  --border-strong: #463f39;
+  --primary: #4e9877;
+  --primary-hover: #7fb89d;
+  --primary-fg: #071c16;
+  --primary-soft: rgb(78 152 119 / 0.16);
+  --accent: #e67b41;
+  --accent-hover: #ee9e6e;
+  --accent-fg: #1d1a17;
+  --accent-soft: rgb(230 123 65 / 0.16);
+  --ring: #4e9877;
+  --chart-1: #4e9877;
+  --chart-2: #b0d5c2;
+  --chart-3: #e67b41;
+  --chart-4: #a69e93;
+  --chart-5: #6f9af0;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-feature-settings:
+      'cv11' 1,
+      'ss01' 1;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  ::selection {
+    background: var(--primary-soft);
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@utility skeleton {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    100deg,
+    var(--surface-muted) 30%,
+    color-mix(in srgb, var(--surface-muted), var(--surface-elevated) 70%) 50%,
+    var(--surface-muted) 70%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@utility card-surface {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+@utility text-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@media print {
+  .print-hidden {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+}
+
+/* Recharts tooltip/cursor colours follow the theme. */
+.recharts-tooltip-cursor {
+  stroke: var(--border-strong);
+}
+.recharts-cartesian-grid line {
+  stroke: var(--border);
+}
+.recharts-text {
+  fill: var(--fg-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
