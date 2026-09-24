@@ -39,7 +39,7 @@ export function CreativePreview({ src, mediaType, title, poster, durationSeconds
           src={src}
           poster={poster ?? undefined}
           controls={!compact}
-          preload="metadata"
+          preload={compact ? 'auto' : 'metadata'}
           playsInline
           muted={compact}
           onError={() => setFailed(true)}

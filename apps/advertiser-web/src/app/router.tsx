@@ -1,12 +1,26 @@
 import { createBrowserRouter, type RouteObject } from 'react-router';
 import { AppShell } from '@/components/layout/app-shell';
+import { Skeleton } from '@/components/ui/skeleton';
 import { RedirectIfAuthenticated, RequireAuth } from './guards';
 import { NotFoundPage, RouteErrorPage } from './error-pages';
+
+function HydrateFallback() {
+  return (
+    <div className="flex min-h-full items-center justify-center p-6" aria-busy="true">
+      <div className="flex w-full max-w-md flex-col gap-4">
+        <Skeleton className="h-10 w-40" />
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-6 w-2/3" />
+      </div>
+    </div>
+  );
+}
 
 // Route-level code splitting: each page module is fetched on first navigation.
 export const routes: RouteObject[] = [
   {
     errorElement: <RouteErrorPage />,
+    hydrateFallbackElement: <HydrateFallback />,
     children: [
       {
         element: <RedirectIfAuthenticated />,

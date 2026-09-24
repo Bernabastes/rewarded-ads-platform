@@ -17,6 +17,7 @@ import {
   type InvoiceItem,
   type Paginated,
   type PaymentItem,
+  type PaymentStatus,
   type PresignUploadDto,
   type PresignUploadResponse,
   type TopupResponse,
@@ -83,4 +84,7 @@ export const billingApi = {
   invoices: (query: PageQuery = {}) =>
     apiClient.get<Paginated<InvoiceItem>>(API_ROUTES.billing.invoices, { query }),
   invoice: (id: string) => apiClient.get<InvoiceItem>(API_ROUTES.billing.invoice(id)),
+  /** Dev/demo only: settles a mock-gateway payment (public endpoint that exists only in mock mode). */
+  mockCheckoutPay: (txRef: string, outcome: 'success' | 'failed') =>
+    apiClient.post<{ status: PaymentStatus }>(API_ROUTES.billing.mockCheckoutPay(txRef), { outcome }, { auth: false }),
 };

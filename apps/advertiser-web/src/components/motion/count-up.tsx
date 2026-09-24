@@ -8,14 +8,14 @@ export interface CountUpProps {
   format?: (value: number) => string;
   duration?: number;
   className?: string;
-  /** Start animating only once scrolled into view (default true). */
+  /** Start animating only once scrolled into view (default false: animate on mount). */
   inView?: boolean;
 }
 
 const defaultFormat = (v: number) => new Intl.NumberFormat('en-ET', { maximumFractionDigits: 0 }).format(v);
 
 /** Animated number that eases from the previous value to the next; static under prefers-reduced-motion. */
-export function CountUp({ value, format = defaultFormat, duration = 1.1, className, inView = true }: CountUpProps) {
+export function CountUp({ value, format = defaultFormat, duration = 1.1, className, inView = false }: CountUpProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const isInView = useInView(ref, { once: true, margin: '0px 0px -10% 0px' });
   const reduceMotion = useReducedMotion();

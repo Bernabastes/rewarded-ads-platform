@@ -5,7 +5,7 @@ import { StaggerItem } from '@/components/motion/motion';
 import { CampaignStatusBadge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils/cn';
-import { formatEtb, formatNumber, formatPercent } from '@/lib/utils/format';
+import { formatEtb, formatEtbNumber, formatNumber, formatPercent } from '@/lib/utils/format';
 
 export const TARGET_ACTION_META: Record<TargetActionType, { label: string; icon: LucideIcon; description: string }> = {
   video_view: { label: 'Video view', icon: PlayCircle, description: 'Viewers watch your video ad to the end and pass an attention check.' },
@@ -32,19 +32,22 @@ export function CampaignCard({ campaign, className, animated = true }: { campaig
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold text-fg group-hover:text-primary">{campaign.title}</h3>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-fg-subtle">
-              <meta.icon className="size-3.5" /> {meta.label} · {formatEtb(campaign.costPerActionEtb)} per action
+            <h3 className="line-clamp-2 text-base leading-snug font-semibold text-fg group-hover:text-primary">{campaign.title}</h3>
+            <p className="mt-1 flex items-start gap-1.5 text-xs text-fg-subtle">
+              <meta.icon className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                {meta.label} · {formatEtb(campaign.costPerActionEtb)} per action
+              </span>
             </p>
           </div>
-          <CampaignStatusBadge status={campaign.status} />
+          <CampaignStatusBadge status={campaign.status} className="shrink-0" />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <div className="flex items-baseline justify-between text-sm">
+          <div className="flex items-baseline justify-between gap-3 text-sm">
             <span className="text-fg-muted">Spent</span>
             <span className="font-medium tabular-nums text-fg">
-              {formatEtb(campaign.spentEtb)} <span className="text-fg-subtle">/ {formatEtb(campaign.budgetEtb)}</span>
+              ETB {formatEtbNumber(campaign.spentEtb, 0)} <span className="text-fg-subtle">/ {formatEtbNumber(campaign.budgetEtb, 0)}</span>
             </span>
           </div>
           <Progress value={progress} size="sm" tone={progress >= 0.9 ? 'accent' : 'primary'} label="Budget spent" />

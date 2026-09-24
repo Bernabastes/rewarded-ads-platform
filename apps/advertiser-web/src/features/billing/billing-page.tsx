@@ -1,4 +1,5 @@
 import type { AdvertiserLedgerEntryType } from '@rap/shared';
+import { useMutation } from '@tanstack/react-query';
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, FileText, Plus, RefreshCw, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
@@ -14,11 +15,13 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip } from '@/components/ui/primitives';
 import { Skeleton, TableSkeleton } from '@/components/ui/skeleton';
 import { Pagination, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { billingApi } from '@/lib/api';
+import { toastApiError } from '@/lib/forms';
 import { cn } from '@/lib/utils/cn';
 import { formatDateTime, formatEtb, humanize } from '@/lib/utils/format';
 import { useInvoices, useLedger, usePayments, useWalletBalance } from './hooks';
-import { TopupDialog } from './topup-dialog';
-import { parseReturnParams, TopupReturnPanel } from './topup-return';
+import { TopupDialog, topupReturnPath } from './topup-dialog';
+import { isMockPayment, parseReturnParams, TopupReturnPanel } from './topup-return';
 
 const LEDGER_LABEL: Record<AdvertiserLedgerEntryType, string> = {
   topup: 'Top-up',
@@ -157,6 +160,12 @@ export function BillingPage() {
 function PaymentsTable({ onTopup }: { onTopup: () => void }) {
   const [page, setPage] = useState(1);
   const payments = usePayments(page);
+  const navigate = useNavigate();
+  const settleMock = useMutation({
+    mutationFn: (txRef: string) => billingApi.mockCheckoutPay(txRef, 'success'),
+    onSuccess: (_data, txRef) => navigate(topupReturnPath(txRef)),
+    onError: toastApiError,
+  });
   return (
     <Card>
       <CardHeader title="Payment history" description="Every top-up attempt, including pending and failed ones." action={<RefreshButton onClick={() => void payments.refetch()} loading={payments.isFetching} />} />
@@ -193,13 +202,21 @@ function PaymentsTable({ onTopup }: { onTopup: () => void }) {
                     {formatEtb(payment.amountEtb)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {payment.status === 'pending' && payment.checkoutUrl ? (
+                    {payment.status === 'pending' ? (
                       <div className="flex justify-end gap-2">
-                        <Button asChild variant="outline" size="sm">
-                          <a href={payment.checkoutUrl}>
-                            Resume <ExternalLink className="size-3.5" />
-                          </a>
-                        </Button>
+                        {isMockPayment(payment) ? (
+                          <Button variant="outline" size="sm" loading={settleMock.isPending && settleMock.variables === payment.txRef} onClick={() => settleMock.mutate(payment.txRef)}>
+                            Complete test payment
+                          </Button>
+                        ) : (
+                          payment.checkoutUrl && (
+                            <Button asChild variant="outline" size="sm">
+                              <a href={payment.checkoutUrl}>
+                                Resume <ExternalLink className="size-3.5" />
+                              </a>
+                            </Button>
+                          )
+                        )}
                         <Button asChild variant="ghost" size="sm">
                           <Link to={`/billing?topup=${encodeURIComponent(payment.txRef)}&paymentId=${payment.id}`}>Check status</Link>
                         </Button>

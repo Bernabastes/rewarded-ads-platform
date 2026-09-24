@@ -1,16 +1,22 @@
 import type { PaymentItem } from '@rap/shared';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, CheckCircle2, Clock, FileText, RefreshCw, XCircle } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ArrowRight, CheckCircle2, Clock, FileText, FlaskConical, RefreshCw, XCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { billingApi } from '@/lib/api';
+import { toastApiError } from '@/lib/forms';
 import { queryKeys } from '@/lib/query/keys';
 import { formatDateTime, formatEtb } from '@/lib/utils/format';
 import { useInvalidateBilling, useInvoices } from './hooks';
 import { topupContextStore, type TopupContext } from './topup-context';
+
+/** The API marks mock-gateway payments with `mock: true` (not yet part of the shared contract). */
+export function isMockPayment(payment: PaymentItem): boolean {
+  return (payment as PaymentItem & { mock?: boolean }).mock === true;
+}
 
 export interface ReturnParams {
   txRef: string | null;
@@ -32,7 +38,10 @@ const POLL_TIMEOUT_MS = 3 * 60_000;
  * txRef), polls until it leaves `pending`, then shows a receipt with the invoice link and a return action.
  */
 export function TopupReturnPanel({ params, onDone }: { params: ReturnParams; onDone: () => void }) {
-  const context = params.txRef ? topupContextStore.get(params.txRef) : topupContextStore.latest();
+  // Captured once: the stored context is cleared on settlement but the receipt still needs the return action.
+  const [context] = useState<TopupContext | null>(() =>
+    params.txRef ? topupContextStore.get(params.txRef) : topupContextStore.latest(),
+  );
   const paymentId = params.paymentId ?? context?.paymentId ?? null;
   const startedAt = useRef<number | null>(null);
   const [timedOut, setTimedOut] = useState(false);
@@ -62,6 +71,11 @@ export function TopupReturnPanel({ params, onDone }: { params: ReturnParams; onD
 
   const settled = payment.data && payment.data.status !== 'pending';
   const txRef = params.txRef;
+  const settleMock = useMutation({
+    mutationFn: (ref: string) => billingApi.mockCheckoutPay(ref, 'success'),
+    onSuccess: () => void payment.refetch(),
+    onError: toastApiError,
+  });
 
   useEffect(() => {
     if (!settled) return;
@@ -126,10 +140,21 @@ export function TopupReturnPanel({ params, onDone }: { params: ReturnParams; onD
               : `We are waiting for the payment provider to confirm ${formatEtb(data.amountEtb)} (reference ${data.txRef}). This usually takes a few seconds.`}
           </p>
           <div className="flex flex-wrap justify-center gap-3">
-            {data.checkoutUrl && (
-              <Button asChild variant="outline">
-                <a href={data.checkoutUrl}>Resume checkout</a>
+            {isMockPayment(data) ? (
+              <Button
+                variant="outline"
+                loading={settleMock.isPending}
+                onClick={() => settleMock.mutate(data.txRef)}
+                leadingIcon={<FlaskConical className="size-4" />}
+              >
+                Complete test payment
               </Button>
+            ) : (
+              data.checkoutUrl && (
+                <Button asChild variant="outline">
+                  <a href={data.checkoutUrl}>Resume checkout</a>
+                </Button>
+              )
             )}
             <Button variant="ghost" onClick={onDone}>
               Back to billing
