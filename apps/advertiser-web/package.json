@@ -1,0 +1,12 @@
+{
+  "name": "@rap/advertiser-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Advertiser web portal (React + Vite + Tailwind) - Phase 2 stub. See README.md.",
+  "scripts": {
+    "typecheck": "node -e \"console.log('[@rap/advertiser-web] typecheck: stub, nothing to do')\"",
+    "lint": "node -e \"console.log('[@rap/advertiser-web] lint: stub, nothing to do')\"",
+    "test": "node -e \"console.log('[@rap/advertiser-web] test: stub, nothing to do')\"",
+    "build": "node -e \"console.log('[@rap/advertiser-web] build: stub, nothing to do')\""
+  }
+}

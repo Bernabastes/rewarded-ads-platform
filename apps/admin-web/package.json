@@ -1,0 +1,12 @@
+{
+  "name": "@rap/admin-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Admin dashboard (React + Vite + Tailwind) - Phase 2 stub. See README.md.",
+  "scripts": {
+    "typecheck": "node -e \"console.log('[@rap/admin-web] typecheck: stub, nothing to do')\"",
+    "lint": "node -e \"console.log('[@rap/admin-web] lint: stub, nothing to do')\"",
+    "test": "node -e \"console.log('[@rap/admin-web] test: stub, nothing to do')\"",
+    "build": "node -e \"console.log('[@rap/admin-web] build: stub, nothing to do')\""
+  }
+}

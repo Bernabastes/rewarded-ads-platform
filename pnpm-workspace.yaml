@@ -1,0 +1,24 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm >= 10 reads all non-auth settings from this file (NOT from .npmrc).
+# A flat, npm-style node_modules is required for Expo/Metro (apps/mobile) to
+# resolve workspace packages and React Native peer deps correctly.
+nodeLinker: hoisted
+
+# Dependency build (postinstall) scripts are opt-in in pnpm >= 10.
+# Warn (instead of failing the install) on unreviewed scripts so frontend
+# sessions that add dependencies never need to edit this root file.
+strictDepBuilds: false
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  prisma: true
+  esbuild: true
+  '@swc/core': true
+  sharp: true
+  unrs-resolver: true
+  '@tailwindcss/oxide': true
+  core-js: true
+  core-js-pure: true

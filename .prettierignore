@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+coverage
+.expo
+pnpm-lock.yaml
+docs/openapi.json
+apps/api/prisma/migrations
+apps/api/generated

@@ -1,0 +1,885 @@
+// Rewarded Advertising Platform (Ethiopia) - PostgreSQL schema.
+// Naming: camelCase in the client, snake_case tables/columns in Postgres.
+// Money: ETB amounts are Decimal(12,2); coins are integers (1 ETB = COINS_PER_ETB coins).
+// Append-only tables (coin_ledger, advertiser_wallet_ledger, audit_log) are additionally protected
+// by Postgres triggers created in prisma/migrations (see ARCHITECTURE.md).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/* ------------------------------------------------------------------ */
+/* Enums                                                               */
+/* ------------------------------------------------------------------ */
+
+enum AgeVerificationStatus {
+  pending
+  verified_adult
+  rejected
+}
+
+enum UserStatus {
+  active
+  suspended
+  banned
+}
+
+enum Language {
+  am
+  en
+  om
+  ti
+}
+
+enum AdvertiserVerificationStatus {
+  pending
+  verified
+  rejected
+}
+
+enum CampaignStatus {
+  draft
+  pending_review
+  active
+  paused
+  completed
+  rejected
+}
+
+enum TargetActionType {
+  video_view
+  survey
+  app_install
+}
+
+enum MediaType {
+  video
+  image
+}
+
+enum ReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+enum WatchSessionStatus {
+  active
+  completed
+  rejected
+  abandoned
+  expired
+}
+
+enum CompletionStatus {
+  valid
+  flagged
+  rejected
+}
+
+enum LedgerSourceType {
+  ad_view
+  survey
+  app_install
+  withdrawal
+  withdrawal_reversal
+  admin_adjustment
+  reconciliation
+}
+
+enum PayoutMethod {
+  telebirr
+  bank
+  cbe_birr
+}
+
+enum WithdrawalStatus {
+  pending
+  processing
+  completed
+  failed
+  flagged_for_review
+  rejected
+}
+
+enum ApprovalDecision {
+  approved
+  rejected
+}
+
+enum FraudSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum FraudResolution {
+  dismissed
+  escalated
+  confirmed
+}
+
+enum AdminRole {
+  super_admin
+  ad_reviewer
+  support
+  finance
+}
+
+enum ActorType {
+  admin
+  system
+  user
+  advertiser
+}
+
+enum AuthSubjectType {
+  user
+  advertiser
+  admin
+}
+
+enum CoinAdjustmentStatus {
+  pending_approval
+  executed
+  rejected
+  cancelled
+}
+
+enum AdvertiserLedgerEntryType {
+  topup
+  campaign_budget_reservation
+  campaign_budget_refund
+  adjustment
+}
+
+enum PaymentStatus {
+  pending
+  completed
+  failed
+  cancelled
+}
+
+enum InvoiceStatus {
+  issued
+  paid
+  void
+}
+
+enum NotificationType {
+  reward_confirmed
+  reward_flagged
+  withdrawal_status
+  new_offer
+  account_status
+  system
+}
+
+enum PushStatus {
+  pending
+  sent
+  failed
+  skipped
+}
+
+enum DevicePlatform {
+  android
+  ios
+  web
+}
+
+enum AdReportReason {
+  inappropriate
+  misleading
+  broken_media
+  offensive
+  banned_topic
+  other
+}
+
+enum AdReportStatus {
+  open
+  reviewed
+  dismissed
+}
+
+enum OfferCompletionStatus {
+  pending_verification
+  valid
+  flagged
+  rejected
+}
+
+/* ------------------------------------------------------------------ */
+/* Identity                                                            */
+/* ------------------------------------------------------------------ */
+
+model User {
+  id                    String                @id @default(uuid()) @db.Uuid
+  phoneNumber           String                @unique @map("phone_number")
+  phoneVerifiedAt       DateTime?             @map("phone_verified_at")
+  fullName              String?               @map("full_name")
+  dateOfBirth           DateTime?             @map("date_of_birth") @db.Date
+  ageVerificationStatus AgeVerificationStatus @default(pending) @map("age_verification_status")
+  deviceId              String?               @map("device_id")
+  /// Reserved for optional password auth; users authenticate with OTP only today.
+  passwordHash          String?               @map("password_hash")
+  languagePreference    Language              @default(am) @map("language_preference")
+  /// CACHED value. Written ONLY by LedgerService.applyEntry inside the ledger transaction.
+  coinBalance           Int                   @default(0) @map("coin_balance")
+  trustScore            Int                   @default(50) @map("trust_score")
+  status                UserStatus            @default(active)
+  statusReason          String?               @map("status_reason")
+  notificationPrefs     Json                  @default("{\"rewards\":true,\"withdrawals\":true,\"offers\":true}") @map("notification_prefs")
+  lastLoginAt           DateTime?             @map("last_login_at")
+  lastIp                String?               @map("last_ip")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
+
+  watchSessions         AdWatchSession[]
+  completions           AdCompletion[]
+  ledgerEntries         CoinLedger[]
+  withdrawals           Withdrawal[]
+  fraudFlags            FraudFlag[]
+  surveyResponses       SurveyResponse[]
+  appInstallCompletions AppInstallCompletion[]
+  notifications         Notification[]
+  pushTokens            DevicePushToken[]
+  adReports             AdReport[]
+  coinAdjustments       CoinAdjustmentRequest[]
+
+  @@index([status])
+  @@index([deviceId])
+  @@index([trustScore])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model OtpCode {
+  id          String    @id @default(uuid()) @db.Uuid
+  phoneNumber String    @map("phone_number")
+  codeHash    String    @map("code_hash")
+  expiresAt   DateTime  @map("expires_at")
+  attempts    Int       @default(0)
+  consumedAt  DateTime? @map("consumed_at")
+  ipAddress   String?   @map("ip_address")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([phoneNumber, createdAt])
+  @@map("otp_codes")
+}
+
+model RefreshToken {
+  id           String          @id @default(uuid()) @db.Uuid
+  tokenHash    String          @unique @map("token_hash")
+  subjectType  AuthSubjectType @map("subject_type")
+  subjectId    String          @map("subject_id") @db.Uuid
+  /// All tokens descending from one login share a family; reuse of a rotated token revokes the family.
+  familyId     String          @map("family_id") @db.Uuid
+  expiresAt    DateTime        @map("expires_at")
+  revokedAt    DateTime?       @map("revoked_at")
+  replacedById String?         @map("replaced_by_id") @db.Uuid
+  userAgent    String?         @map("user_agent")
+  ipAddress    String?         @map("ip_address")
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  @@index([subjectType, subjectId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model AdminUser {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name")
+  role         AdminRole
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  reviewedAds          Ad[]                    @relation("AdReviewer")
+  withdrawalApprovals  WithdrawalApproval[]
+  requestedAdjustments CoinAdjustmentRequest[] @relation("AdjustmentRequester")
+  approvedAdjustments  CoinAdjustmentRequest[] @relation("AdjustmentApprover")
+
+  @@map("admin_users")
+}
+
+/* ------------------------------------------------------------------ */
+/* Advertisers, wallet, billing                                        */
+/* ------------------------------------------------------------------ */
+
+model Advertiser {
+  id                         String                       @id @default(uuid()) @db.Uuid
+  businessName               String                       @map("business_name")
+  businessRegistrationNumber String                       @unique @map("business_registration_number")
+  contactEmail               String                       @unique @map("contact_email")
+  contactPhone               String                       @map("contact_phone")
+  passwordHash               String                       @map("password_hash")
+  verificationStatus         AdvertiserVerificationStatus @default(pending) @map("verification_status")
+  verificationNote           String?                      @map("verification_note")
+  verifiedBy                 String?                      @map("verified_by") @db.Uuid
+  verifiedAt                 DateTime?                    @map("verified_at")
+  /// CACHED value. Written ONLY by AdvertiserWalletService.applyEntry inside the wallet ledger transaction.
+  walletBalanceEtb           Decimal                      @default(0) @map("wallet_balance_etb") @db.Decimal(12, 2)
+  createdAt                  DateTime                     @default(now()) @map("created_at")
+  updatedAt                  DateTime                     @updatedAt @map("updated_at")
+
+  campaigns     Campaign[]
+  walletEntries AdvertiserWalletLedger[]
+  payments      AdvertiserPayment[]
+  invoices      Invoice[]
+
+  @@index([verificationStatus])
+  @@map("advertisers")
+}
+
+/// Append-only ETB ledger of advertiser prepaid funds (B2B receivable; never user funds).
+model AdvertiserWalletLedger {
+  id              String                    @id @default(uuid()) @db.Uuid
+  advertiserId    String                    @map("advertiser_id") @db.Uuid
+  amountEtb       Decimal                   @map("amount_etb") @db.Decimal(12, 2)
+  balanceAfterEtb Decimal                   @map("balance_after_etb") @db.Decimal(12, 2)
+  entryType       AdvertiserLedgerEntryType @map("entry_type")
+  referenceType   String?                   @map("reference_type")
+  referenceId     String?                   @map("reference_id") @db.Uuid
+  idempotencyKey  String?                   @unique @map("idempotency_key")
+  description     String?
+  createdAt       DateTime                  @default(now()) @map("created_at")
+
+  advertiser Advertiser @relation(fields: [advertiserId], references: [id])
+
+  @@index([advertiserId, createdAt])
+  @@map("advertiser_wallet_ledger")
+}
+
+model AdvertiserPayment {
+  id               String        @id @default(uuid()) @db.Uuid
+  advertiserId     String        @map("advertiser_id") @db.Uuid
+  amountEtb        Decimal       @map("amount_etb") @db.Decimal(12, 2)
+  currency         String        @default("ETB")
+  gateway          String        @default("chapa")
+  /// Our transaction reference sent to the gateway (unique, used for webhook idempotency).
+  txRef            String        @unique @map("tx_ref")
+  gatewayReference String?       @map("gateway_reference")
+  checkoutUrl      String?       @map("checkout_url")
+  status           PaymentStatus @default(pending)
+  mock             Boolean       @default(false)
+  rawWebhook       Json?         @map("raw_webhook")
+  paidAt           DateTime?     @map("paid_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  advertiser Advertiser @relation(fields: [advertiserId], references: [id])
+  invoice    Invoice?
+
+  @@index([advertiserId, createdAt])
+  @@index([status])
+  @@map("advertiser_payments")
+}
+
+model Invoice {
+  id            String        @id @default(uuid()) @db.Uuid
+  advertiserId  String        @map("advertiser_id") @db.Uuid
+  invoiceNumber String        @unique @map("invoice_number")
+  status        InvoiceStatus @default(issued)
+  subtotalEtb   Decimal       @map("subtotal_etb") @db.Decimal(12, 2)
+  vatEtb        Decimal       @default(0) @map("vat_etb") @db.Decimal(12, 2)
+  totalEtb      Decimal       @map("total_etb") @db.Decimal(12, 2)
+  currency      String        @default("ETB")
+  lineItems     Json          @map("line_items")
+  paymentId     String?       @unique @map("payment_id") @db.Uuid
+  issuedAt      DateTime      @default(now()) @map("issued_at")
+  paidAt        DateTime?     @map("paid_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  advertiser Advertiser         @relation(fields: [advertiserId], references: [id])
+  payment    AdvertiserPayment? @relation(fields: [paymentId], references: [id])
+
+  @@index([advertiserId, issuedAt])
+  @@map("invoices")
+}
+
+/* ------------------------------------------------------------------ */
+/* Campaigns & ads                                                     */
+/* ------------------------------------------------------------------ */
+
+model Campaign {
+  id                    String           @id @default(uuid()) @db.Uuid
+  advertiserId          String           @map("advertiser_id") @db.Uuid
+  title                 String
+  description           String?
+  budgetEtb             Decimal          @map("budget_etb") @db.Decimal(12, 2)
+  /// CACHED sum of cost_etb over valid completions; updated atomically in the completion transaction.
+  spentEtb              Decimal          @default(0) @map("spent_etb") @db.Decimal(12, 2)
+  status                CampaignStatus   @default(draft)
+  startDate             DateTime?        @map("start_date") @db.Date
+  endDate               DateTime?        @map("end_date") @db.Date
+  targetActionType      TargetActionType @map("target_action_type")
+  /// What the advertiser pays per valid action.
+  costPerActionEtb      Decimal          @map("cost_per_action_etb") @db.Decimal(12, 2)
+  /// What the user earns per valid action = cost * (1 - PLATFORM_TAKE_RATE), snapshotted at creation.
+  rewardPerActionEtb    Decimal          @map("reward_per_action_etb") @db.Decimal(12, 2)
+  takeRateSnapshot      Decimal          @map("take_rate_snapshot") @db.Decimal(5, 4)
+  attentionCheckEnabled Boolean          @default(true) @map("attention_check_enabled")
+  submittedAt           DateTime?        @map("submitted_at")
+  reviewedAt            DateTime?        @map("reviewed_at")
+  reviewedBy            String?          @map("reviewed_by") @db.Uuid
+  rejectionReason       String?          @map("rejection_reason")
+  pausedReason          String?          @map("paused_reason")
+  completedAt           DateTime?        @map("completed_at")
+  budgetReservedEtb     Decimal          @default(0) @map("budget_reserved_etb") @db.Decimal(12, 2)
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  advertiser       Advertiser        @relation(fields: [advertiserId], references: [id])
+  ads              Ad[]
+  completions      AdCompletion[]
+  surveys          Survey[]
+  appInstallOffers AppInstallOffer[]
+
+  @@index([advertiserId])
+  @@index([status])
+  @@index([targetActionType, status])
+  @@map("campaigns")
+}
+
+model Ad {
+  id                    String       @id @default(uuid()) @db.Uuid
+  campaignId            String       @map("campaign_id") @db.Uuid
+  title                 String
+  description           String?
+  mediaUrl              String       @map("media_url")
+  thumbnailUrl          String?      @map("thumbnail_url")
+  storageKey            String?      @map("storage_key")
+  mediaType             MediaType    @map("media_type")
+  durationSeconds       Int          @map("duration_seconds")
+  reviewStatus          ReviewStatus @default(pending) @map("review_status")
+  reviewedBy            String?      @map("reviewed_by") @db.Uuid
+  reviewedAt            DateTime?    @map("reviewed_at")
+  rejectionReason       String?      @map("rejection_reason")
+  reviewNote            String?      @map("review_note")
+  /// Structured banned-topics checklist filled by the reviewer: { checks: {alcohol: true, ...}, notes }.
+  bannedTopicsChecklist Json?        @map("banned_topics_checklist")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+
+  campaign           Campaign            @relation(fields: [campaignId], references: [id])
+  reviewer           AdminUser?          @relation("AdReviewer", fields: [reviewedBy], references: [id])
+  attentionQuestions AttentionQuestion[]
+  watchSessions      AdWatchSession[]
+  completions        AdCompletion[]
+  reports            AdReport[]
+
+  @@index([campaignId])
+  @@index([reviewStatus])
+  @@map("ads")
+}
+
+model AttentionQuestion {
+  id           String   @id @default(uuid()) @db.Uuid
+  adId         String   @map("ad_id") @db.Uuid
+  prompt       String
+  promptAm     String?  @map("prompt_am")
+  /// JSON array of option strings.
+  options      Json
+  correctIndex Int      @map("correct_index")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  ad            Ad               @relation(fields: [adId], references: [id], onDelete: Cascade)
+  watchSessions AdWatchSession[]
+
+  @@index([adId])
+  @@map("attention_questions")
+}
+
+/// Server-recorded watch session. All timing decisions use these server timestamps.
+model AdWatchSession {
+  id                      String             @id @default(uuid()) @db.Uuid
+  userId                  String             @map("user_id") @db.Uuid
+  adId                    String             @map("ad_id") @db.Uuid
+  startedAt               DateTime           @default(now()) @map("started_at")
+  lastHeartbeatAt         DateTime?          @map("last_heartbeat_at")
+  heartbeatCount          Int                @default(0) @map("heartbeat_count")
+  expectedDurationSeconds Int                @map("expected_duration_seconds")
+  expiresAt               DateTime           @map("expires_at")
+  deviceFingerprint       String             @map("device_fingerprint")
+  deviceId                String?            @map("device_id")
+  ipAddress               String             @map("ip_address")
+  userAgent               String?            @map("user_agent")
+  status                  WatchSessionStatus @default(active)
+  attentionQuestionId     String?            @map("attention_question_id") @db.Uuid
+  completedAt             DateTime?          @map("completed_at")
+  rejectionCode           String?            @map("rejection_code")
+  createdAt               DateTime           @default(now()) @map("created_at")
+
+  user              User               @relation(fields: [userId], references: [id])
+  ad                Ad                 @relation(fields: [adId], references: [id])
+  attentionQuestion AttentionQuestion? @relation(fields: [attentionQuestionId], references: [id])
+  completion        AdCompletion?
+
+  @@index([userId, adId, startedAt])
+  @@index([deviceFingerprint])
+  @@index([ipAddress, startedAt])
+  @@index([status, expiresAt])
+  @@map("ad_watch_sessions")
+}
+
+model AdCompletion {
+  id                     String           @id @default(uuid()) @db.Uuid
+  userId                 String           @map("user_id") @db.Uuid
+  adId                   String           @map("ad_id") @db.Uuid
+  campaignId             String           @map("campaign_id") @db.Uuid
+  watchSessionId         String           @unique @map("watch_session_id") @db.Uuid
+  startedAt              DateTime         @map("started_at")
+  completedAt            DateTime         @map("completed_at")
+  watchDurationSeconds   Int              @map("watch_duration_seconds")
+  serverVerified         Boolean          @default(true) @map("server_verified")
+  deviceFingerprint      String           @map("device_fingerprint")
+  ipAddress              String           @map("ip_address")
+  /// JSON array of fraud rule ids that fired.
+  fraudFlags             Json             @default("[]") @map("fraud_flags")
+  fraudScore             Int              @default(0) @map("fraud_score")
+  attentionAnswerCorrect Boolean?         @map("attention_answer_correct")
+  coinRewardAmount       Int              @default(0) @map("coin_reward_amount")
+  rewardEtb              Decimal          @default(0) @map("reward_etb") @db.Decimal(12, 2)
+  costEtb                Decimal          @default(0) @map("cost_etb") @db.Decimal(12, 2)
+  status                 CompletionStatus
+  rejectionCode          String?          @map("rejection_code")
+  createdAt              DateTime         @default(now()) @map("created_at")
+
+  user         User           @relation(fields: [userId], references: [id])
+  ad           Ad             @relation(fields: [adId], references: [id])
+  campaign     Campaign       @relation(fields: [campaignId], references: [id])
+  watchSession AdWatchSession @relation(fields: [watchSessionId], references: [id])
+
+  @@index([userId, adId])
+  @@index([userId, completedAt])
+  @@index([campaignId, completedAt])
+  @@index([campaignId, status])
+  @@index([deviceFingerprint])
+  @@index([ipAddress, completedAt])
+  @@map("ad_completions")
+}
+
+/* ------------------------------------------------------------------ */
+/* Coins                                                               */
+/* ------------------------------------------------------------------ */
+
+/// APPEND-ONLY. UPDATE/DELETE are blocked by a Postgres trigger (migration 0001).
+model CoinLedger {
+  id             String           @id @default(uuid()) @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  /// Signed coins. Negative for withdrawals / negative adjustments.
+  amount         Int
+  balanceAfter   Int              @map("balance_after")
+  sourceType     LedgerSourceType @map("source_type")
+  sourceId       String?          @map("source_id") @db.Uuid
+  /// Guarantees each business event credits at most once (e.g. "ad_completion:<sessionId>").
+  idempotencyKey String           @unique @map("idempotency_key")
+  description    String?
+  /// Admin who requested the manual adjustment (nullable; system entries have none).
+  createdBy      String?          @map("created_by") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("coin_ledger")
+}
+
+model CoinAdjustmentRequest {
+  id            String               @id @default(uuid()) @db.Uuid
+  userId        String               @map("user_id") @db.Uuid
+  amount        Int
+  reason        String
+  reference     String?
+  status        CoinAdjustmentStatus @default(pending_approval)
+  requestedBy   String               @map("requested_by") @db.Uuid
+  approvedBy    String?              @map("approved_by") @db.Uuid
+  rejectedBy    String?              @map("rejected_by") @db.Uuid
+  decisionNote  String?              @map("decision_note")
+  ledgerEntryId String?              @unique @map("ledger_entry_id") @db.Uuid
+  executedAt    DateTime?            @map("executed_at")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  user      User       @relation(fields: [userId], references: [id])
+  requester AdminUser  @relation("AdjustmentRequester", fields: [requestedBy], references: [id])
+  approver  AdminUser? @relation("AdjustmentApprover", fields: [approvedBy], references: [id])
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@map("coin_adjustment_requests")
+}
+
+model LedgerReconciliationRun {
+  id           String    @id @default(uuid()) @db.Uuid
+  startedAt    DateTime  @default(now()) @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  usersChecked Int       @default(0) @map("users_checked")
+  driftCount   Int       @default(0) @map("drift_count")
+  /// [{ userId, cachedBalance, ledgerSum, lastBalanceAfter }]
+  drifts       Json      @default("[]")
+  status       String    @default("running")
+  error        String?
+
+  @@index([startedAt])
+  @@map("ledger_reconciliation_runs")
+}
+
+/* ------------------------------------------------------------------ */
+/* Withdrawals                                                          */
+/* ------------------------------------------------------------------ */
+
+model Withdrawal {
+  id                    String           @id @default(uuid()) @db.Uuid
+  userId                String           @map("user_id") @db.Uuid
+  amountEtb             Decimal          @map("amount_etb") @db.Decimal(12, 2)
+  coinAmount            Int              @map("coin_amount")
+  payoutMethod          PayoutMethod     @map("payout_method")
+  payoutDestination     String           @map("payout_destination")
+  destinationName       String?          @map("destination_name")
+  bankCode              String?          @map("bank_code")
+  status                WithdrawalStatus @default(pending)
+  /// e.g. ["first_withdrawal", "large_amount"]
+  reviewReasons         Json             @default("[]") @map("review_reasons")
+  isFirstWithdrawal     Boolean          @default(false) @map("is_first_withdrawal")
+  requiresDualApproval  Boolean          @default(false) @map("requires_dual_approval")
+  reviewNote            String?          @map("review_note")
+  failureReason         String?          @map("failure_reason")
+  providerName          String?          @map("provider_name")
+  providerPayoutId      String?          @map("provider_payout_id")
+  providerStatusRaw     Json?            @map("provider_status_raw")
+  attempts              Int              @default(0)
+  ledgerHoldEntryId     String?          @unique @map("ledger_hold_entry_id") @db.Uuid
+  ledgerReversalEntryId String?          @unique @map("ledger_reversal_entry_id") @db.Uuid
+  requestedAt           DateTime         @default(now()) @map("requested_at")
+  processedAt           DateTime?        @map("processed_at")
+  processedBy           String?          @map("processed_by") @db.Uuid
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  user      User                 @relation(fields: [userId], references: [id])
+  approvals WithdrawalApproval[]
+
+  @@index([userId, requestedAt])
+  @@index([status, requestedAt])
+  @@index([providerPayoutId])
+  @@map("withdrawals")
+}
+
+/// One row per admin decision; the unique constraint enforces two DISTINCT admins for dual approval.
+model WithdrawalApproval {
+  id           String           @id @default(uuid()) @db.Uuid
+  withdrawalId String           @map("withdrawal_id") @db.Uuid
+  adminId      String           @map("admin_id") @db.Uuid
+  decision     ApprovalDecision
+  note         String?
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id])
+  admin      AdminUser  @relation(fields: [adminId], references: [id])
+
+  @@unique([withdrawalId, adminId])
+  @@map("withdrawal_approvals")
+}
+
+/* ------------------------------------------------------------------ */
+/* Offers                                                              */
+/* ------------------------------------------------------------------ */
+
+model Survey {
+  id               String   @id @default(uuid()) @db.Uuid
+  campaignId       String   @map("campaign_id") @db.Uuid
+  title            String
+  description      String?
+  /// { questions: SurveyQuestion[] }
+  details          Json
+  rewardEtb        Decimal  @map("reward_etb") @db.Decimal(12, 2)
+  estimatedMinutes Int      @default(3) @map("estimated_minutes")
+  active           Boolean  @default(true)
+  maxResponses     Int?     @map("max_responses")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  campaign  Campaign         @relation(fields: [campaignId], references: [id])
+  responses SurveyResponse[]
+
+  @@index([campaignId])
+  @@index([active])
+  @@map("surveys")
+}
+
+model SurveyResponse {
+  id          String                @id @default(uuid()) @db.Uuid
+  surveyId    String                @map("survey_id") @db.Uuid
+  userId      String                @map("user_id") @db.Uuid
+  answers     Json
+  coinReward  Int                   @default(0) @map("coin_reward")
+  status      OfferCompletionStatus @default(valid)
+  ipAddress   String?               @map("ip_address")
+  completedAt DateTime              @default(now()) @map("completed_at")
+
+  survey Survey @relation(fields: [surveyId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([surveyId, userId])
+  @@index([userId, completedAt])
+  @@map("survey_responses")
+}
+
+model AppInstallOffer {
+  id           String   @id @default(uuid()) @db.Uuid
+  campaignId   String   @map("campaign_id") @db.Uuid
+  appName      String   @map("app_name")
+  packageName  String?  @map("package_name")
+  storeUrl     String   @map("store_url")
+  iconUrl      String?  @map("icon_url")
+  /// { description, instructions }
+  details      Json
+  rewardEtb    Decimal  @map("reward_etb") @db.Decimal(12, 2)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  campaign    Campaign               @relation(fields: [campaignId], references: [id])
+  completions AppInstallCompletion[]
+
+  @@index([campaignId])
+  @@index([active])
+  @@map("app_install_offers")
+}
+
+model AppInstallCompletion {
+  id                String                @id @default(uuid()) @db.Uuid
+  offerId           String                @map("offer_id") @db.Uuid
+  userId            String                @map("user_id") @db.Uuid
+  deviceFingerprint String                @map("device_fingerprint")
+  proof             String?
+  status            OfferCompletionStatus @default(pending_verification)
+  coinReward        Int                   @default(0) @map("coin_reward")
+  verifiedBy        String?               @map("verified_by") @db.Uuid
+  verifiedAt        DateTime?             @map("verified_at")
+  rejectionReason   String?               @map("rejection_reason")
+  createdAt         DateTime              @default(now()) @map("created_at")
+
+  offer AppInstallOffer @relation(fields: [offerId], references: [id])
+  user  User            @relation(fields: [userId], references: [id])
+
+  @@unique([offerId, userId])
+  @@index([status])
+  @@map("app_install_completions")
+}
+
+/* ------------------------------------------------------------------ */
+/* Fraud, audit, notifications, reports                                */
+/* ------------------------------------------------------------------ */
+
+model FraudFlag {
+  id                String           @id @default(uuid()) @db.Uuid
+  userId            String?          @map("user_id") @db.Uuid
+  relatedEntityType String           @map("related_entity_type")
+  relatedEntityId   String?          @map("related_entity_id") @db.Uuid
+  flagType          String           @map("flag_type")
+  severity          FraudSeverity
+  description       String
+  metadata          Json?
+  trustScoreDelta   Int              @default(0) @map("trust_score_delta")
+  resolved          Boolean          @default(false)
+  resolution        FraudResolution?
+  resolvedBy        String?          @map("resolved_by") @db.Uuid
+  resolvedAt        DateTime?        @map("resolved_at")
+  resolutionNote    String?          @map("resolution_note")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([resolved, severity])
+  @@index([flagType])
+  @@index([relatedEntityType, relatedEntityId])
+  @@map("fraud_flags")
+}
+
+/// APPEND-ONLY. Every admin mutation (and money-relevant system action) writes a row.
+model AuditLog {
+  id          String    @id @default(uuid()) @db.Uuid
+  actorType   ActorType @map("actor_type")
+  actorId     String?   @map("actor_id") @db.Uuid
+  action      String
+  targetType  String    @map("target_type")
+  targetId    String?   @map("target_id") @db.Uuid
+  beforeState Json?     @map("before_state")
+  afterState  Json?     @map("after_state")
+  metadata    Json?
+  ipAddress   String?   @map("ip_address")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([targetType, targetId])
+  @@index([actorId, createdAt])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @map("user_id") @db.Uuid
+  type       NotificationType
+  title      String
+  body       String
+  data       Json?
+  readAt     DateTime?        @map("read_at")
+  pushStatus PushStatus       @default(pending) @map("push_status")
+  sentAt     DateTime?        @map("sent_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model DevicePushToken {
+  id         String         @id @default(uuid()) @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  token      String         @unique
+  platform   DevicePlatform
+  deviceId   String?        @map("device_id")
+  lastSeenAt DateTime       @default(now()) @map("last_seen_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("device_push_tokens")
+}
+
+model AdReport {
+  id         String         @id @default(uuid()) @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  adId       String         @map("ad_id") @db.Uuid
+  reason     AdReportReason
+  details    String?
+  status     AdReportStatus @default(open)
+  reviewedBy String?        @map("reviewed_by") @db.Uuid
+  reviewedAt DateTime?      @map("reviewed_at")
+  reviewNote String?        @map("review_note")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+  ad   Ad   @relation(fields: [adId], references: [id])
+
+  @@unique([userId, adId])
+  @@index([status, createdAt])
+  @@map("ad_reports")
+}

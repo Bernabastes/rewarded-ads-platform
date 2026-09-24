@@ -1,0 +1,12 @@
+{
+  "name": "@rap/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "User mobile app (Expo React Native) - Phase 2 stub. See README.md.",
+  "scripts": {
+    "typecheck": "node -e \"console.log('[@rap/mobile] typecheck: stub, nothing to do')\"",
+    "lint": "node -e \"console.log('[@rap/mobile] lint: stub, nothing to do')\"",
+    "test": "node -e \"console.log('[@rap/mobile] test: stub, nothing to do')\"",
+    "build": "node -e \"console.log('[@rap/mobile] build: stub, nothing to do')\""
+  }
+}
