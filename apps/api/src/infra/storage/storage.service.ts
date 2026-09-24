@@ -16,19 +16,29 @@ export interface PresignedUpload {
 /**
  * S3-compatible object storage (MinIO locally, AWS S3 / any S3 API in production).
  * Uploads happen browser -> storage via presigned PUT URLs; the API never proxies media bytes.
+ * Two clients: `client` talks to the internal endpoint for server-side calls; `presignClient` targets the
+ * browser-reachable S3_PUBLIC_ENDPOINT because the host name is part of a SigV4 signature.
  */
 @Injectable()
 export class StorageService {
   private readonly client: S3Client;
+  private readonly presignClient: S3Client;
 
   constructor(private readonly config: AppConfig) {
     const e = config.env;
-    this.client = new S3Client({
+    const base = {
       region: e.S3_REGION,
-      endpoint: e.S3_ENDPOINT,
       forcePathStyle: e.S3_FORCE_PATH_STYLE,
       credentials: { accessKeyId: e.S3_ACCESS_KEY, secretAccessKey: e.S3_SECRET_KEY },
-    });
+    };
+    this.client = new S3Client({ ...base, endpoint: e.S3_ENDPOINT });
+    this.presignClient = new S3Client({ ...base, endpoint: this.publicEndpoint });
+  }
+
+  /** Endpoint embedded in presigned URLs (falls back to S3_PUBLIC_URL, then the internal endpoint). */
+  get publicEndpoint(): string {
+    const e = this.config.env;
+    return (e.S3_PUBLIC_ENDPOINT || e.S3_PUBLIC_URL || e.S3_ENDPOINT).replace(/\/$/, '');
   }
 
   buildKey(prefix: string, fileName: string): string {
@@ -50,7 +60,7 @@ export class StorageService {
       ContentType: contentType,
       ContentLength: sizeBytes,
     });
-    const uploadUrl = await getSignedUrl(this.client, command, { expiresIn });
+    const uploadUrl = await getSignedUrl(this.presignClient, command, { expiresIn });
     return {
       method: 'PUT',
       uploadUrl,

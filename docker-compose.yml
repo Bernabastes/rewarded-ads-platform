@@ -90,6 +90,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-rap}:${POSTGRES_PASSWORD:-rap}@postgres:5432/${POSTGRES_DB:-rap}?schema=public
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-http://localhost:9000}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3000}
       RUN_MIGRATIONS: 'true'

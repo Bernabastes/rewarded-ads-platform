@@ -1,11 +1,14 @@
 import type {
   AdReportReason,
   AdReportStatus,
+  CompletionStatus,
   DevicePlatform,
   Language,
   LedgerSourceType,
+  MediaType,
   NotificationType,
   PushStatus,
+  WatchSessionStatus,
 } from '../enums';
 import type { NotificationPrefs } from './auth';
 import type { IsoDateTime, Uuid } from './common';
@@ -87,4 +90,24 @@ export interface AdReport {
   details: string | null;
   status: AdReportStatus;
   createdAt: IsoDateTime;
+}
+
+/** One entry of GET /users/me/recently-watched ({ data: RecentlyWatchedItem[] }). */
+export interface RecentlyWatchedItem {
+  adId: Uuid;
+  title: string;
+  advertiserName: string;
+  thumbnailUrl: string | null;
+  mediaType: MediaType;
+  durationSeconds: number;
+  lastWatchedAt: IsoDateTime;
+  sessionStatus: WatchSessionStatus;
+  completionStatus: CompletionStatus | null;
+  coinReward: number;
+  /** true when the user already reported this ad. */
+  reported: boolean;
+}
+
+export interface RecentlyWatchedResponse {
+  data: RecentlyWatchedItem[];
 }

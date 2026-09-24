@@ -1,3 +1,4 @@
+import type { WithdrawalReviewReason } from '../constants';
 import type { ApprovalDecision, PayoutMethod, WithdrawalStatus } from '../enums';
 import type { IsoDateTime, Uuid } from './common';
 
@@ -52,13 +53,17 @@ export interface WithdrawalItem {
   payoutDestination: string;
   destinationName: string | null;
   status: WithdrawalStatus;
-  /** Why the request is held for review, when status is flagged_for_review. */
-  reviewReasons: string[];
+  /** Why the request is held for review, when status is flagged_for_review. Known values plus a string fallback. */
+  reviewReasons: Array<WithdrawalReviewReason | (string & {})>;
   requiresDualApproval: boolean;
   approvalsCount: number;
   failureReason: string | null;
   providerName: string | null;
   providerPayoutId: string | null;
+  /** Chapa bank code for bank transfers (null for mobile wallets). */
+  bankCode?: string | null;
+  /** Payout attempts so far (incremented when the worker starts processing). */
+  attempts?: number;
   requestedAt: IsoDateTime;
   processedAt: IsoDateTime | null;
   updatedAt: IsoDateTime;

@@ -1,11 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PLATFORM_DEFAULTS } from '@rap/shared';
 import { IsNumber, IsOptional, IsUrl, Max, Min } from 'class-validator';
 
 export class CreateTopupDto {
   /** ETB amount to add to the wallet (min MIN_TOPUP_ETB, default 100). */
-  @ApiProperty({ example: 5000 })
+  @ApiProperty({ example: 5000, minimum: PLATFORM_DEFAULTS.MIN_TOPUP_ETB })
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(1)
+  @Min(PLATFORM_DEFAULTS.MIN_TOPUP_ETB)
   @Max(10_000_000)
   amountEtb: number;
 

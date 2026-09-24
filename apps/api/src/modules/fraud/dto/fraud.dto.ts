@@ -1,6 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FraudResolution, FraudSeverity } from '@prisma/client';
-import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
@@ -15,6 +14,7 @@ import {
   Min,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/pagination';
+import { ToBoolean } from '../../../common/transformers/to-boolean';
 
 export class CreateFraudFlagDto {
   @ApiPropertyOptional({ format: 'uuid' })
@@ -86,7 +86,7 @@ export class FraudFlagsQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Boolean)
+  @ToBoolean()
   @IsBoolean()
   resolved?: boolean;
 

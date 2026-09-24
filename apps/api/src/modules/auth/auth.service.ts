@@ -11,9 +11,16 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { SMS_PROVIDER, type SmsProvider } from '../../infra/sms/sms.module';
 import { AuditService } from '../audit/audit.service';
 import { toUserProfile } from '../users/user.mapper';
+import { permissionsFor } from './admin-permissions';
 import { TokenService } from './token.service';
 
 const BCRYPT_ROUNDS = 10;
+
+export const DEFAULT_ADVERTISER_NOTIFICATION_PREFS = {
+  campaignReviews: true,
+  billing: true,
+  weeklyReport: true,
+};
 
 export function toAdvertiserProfile(a: Advertiser) {
   return {
@@ -25,6 +32,10 @@ export function toAdvertiserProfile(a: Advertiser) {
     verificationStatus: a.verificationStatus,
     verificationNote: a.verificationNote,
     walletBalanceEtb: a.walletBalanceEtb,
+    notificationPrefs: {
+      ...DEFAULT_ADVERTISER_NOTIFICATION_PREFS,
+      ...((a.notificationPrefs as Record<string, boolean> | null) ?? {}),
+    },
     createdAt: a.createdAt,
   };
 }
@@ -38,6 +49,8 @@ export function toAdminProfile(a: AdminUser) {
     active: a.active,
     lastLoginAt: a.lastLoginAt,
     createdAt: a.createdAt,
+    roles: [a.role],
+    permissions: permissionsFor(a.role),
   };
 }
 
@@ -315,6 +328,45 @@ export class AuthService {
 
   async logout(refreshToken: string) {
     await this.tokens.revoke(refreshToken);
+  }
+
+  /** Advertiser password change: verifies the current password and revokes every other session. */
+  async changeAdvertiserPassword(
+    advertiserId: string,
+    currentPassword: string,
+    newPassword: string,
+    ip: string,
+  ) {
+    const advertiser = await this.prisma.advertiser.findUniqueOrThrow({ where: { id: advertiserId } });
+    if (!(await bcrypt.compare(currentPassword, advertiser.passwordHash))) {
+      this.security.warn('auth.invalid_credentials', {
+        subjectType: 'advertiser',
+        advertiserId,
+        ip,
+        action: 'change_password',
+      });
+      throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Current password is incorrect');
+    }
+    if (currentPassword === newPassword) {
+      throw AppException.badRequest(
+        ErrorCode.VALIDATION_ERROR,
+        'New password must differ from the current password',
+      );
+    }
+    await this.prisma.advertiser.update({
+      where: { id: advertiserId },
+      data: { passwordHash: await bcrypt.hash(newPassword, BCRYPT_ROUNDS) },
+    });
+    await this.tokens.revokeAllForSubject('advertiser', advertiserId);
+    await this.audit.record({
+      actorType: 'advertiser',
+      actorId: advertiserId,
+      action: 'advertiser.password_changed',
+      targetType: 'advertiser',
+      targetId: advertiserId,
+      ipAddress: ip,
+    });
+    return { changed: true, sessionsRevoked: true };
   }
 
   normalizePhone(raw: string): string {

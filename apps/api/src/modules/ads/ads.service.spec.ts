@@ -144,19 +144,17 @@ describe('AdsService.completeWatchSession', () => {
   });
 
   it('replays when a concurrent request claimed the session first', async () => {
-    prisma.adWatchSession.findUnique
-      .mockResolvedValueOnce(buildSession())
-      .mockResolvedValueOnce({
-        ...buildSession({ status: 'completed' }),
-        completion: {
-          id: uuid(7),
-          status: 'valid',
-          coinRewardAmount: 100,
-          watchDurationSeconds: 31,
-          rejectionCode: null,
-          fraudFlags: [],
-        },
-      });
+    prisma.adWatchSession.findUnique.mockResolvedValueOnce(buildSession()).mockResolvedValueOnce({
+      ...buildSession({ status: 'completed' }),
+      completion: {
+        id: uuid(7),
+        status: 'valid',
+        coinRewardAmount: 100,
+        watchDurationSeconds: 31,
+        rejectionCode: null,
+        fraudFlags: [],
+      },
+    });
     prisma.adWatchSession.updateMany.mockResolvedValue({ count: 0 });
     const result = await service.completeWatchSession(USER, SESSION, {}, { ip: '10.0.0.1' });
     expect(result.replayed).toBe(true);

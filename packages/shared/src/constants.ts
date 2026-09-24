@@ -25,7 +25,19 @@ export const PLATFORM_DEFAULTS = {
   DAILY_WITHDRAWAL_REQUEST_LIMIT: 3,
   /** Max watch-session starts per user per ad per day (retry budget after rejections). */
   MAX_WATCH_ATTEMPTS_PER_AD_PER_DAY: 3,
+  /** Minimum campaign budget an advertiser can submit, in ETB. */
+  MIN_CAMPAIGN_BUDGET_ETB: 100,
+  /** Minimum cost per valid action an advertiser can set, in ETB. */
+  MIN_COST_PER_ACTION_ETB: 0.5,
+  /** Minimum wallet top-up, in ETB. */
+  MIN_TOPUP_ETB: 100,
+  /** Max payout attempts per withdrawal (admin retries) before it stays failed. */
+  PAYOUT_MAX_ATTEMPTS: 3,
 } as const;
+
+/** Reasons a withdrawal is held for manual review (`WithdrawalItem.reviewReasons`). */
+export const WITHDRAWAL_REVIEW_REASONS = ['first_withdrawal', 'large_amount', 'low_trust_score'] as const;
+export type WithdrawalReviewReason = (typeof WITHDRAWAL_REVIEW_REASONS)[number];
 
 /** Access token lifetime the frontends should assume (they must still handle 401 + refresh). */
 export const ACCESS_TOKEN_TTL_SECONDS_DEFAULT = 900;

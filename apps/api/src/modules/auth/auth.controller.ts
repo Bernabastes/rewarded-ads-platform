@@ -11,6 +11,7 @@ import {
 import { AuthService } from './auth.service';
 import {
   AdvertiserRegisterDto,
+  ChangePasswordDto,
   CompleteProfileDto,
   EmailPasswordLoginDto,
   LogoutDto,
@@ -108,5 +109,18 @@ export class AuthController {
   @ApiOperation({ summary: 'Revoke a refresh token family' })
   async logout(@Body() dto: LogoutDto) {
     await this.auth.logout(dto.refreshToken);
+  }
+
+  @Post('advertiser/change-password')
+  @ApiBearerAuth()
+  @Subjects('advertiser')
+  @ApiOperation({ summary: 'Change the advertiser password (revokes all refresh tokens; re-login required)' })
+  @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS (current password wrong)' })
+  changeAdvertiserPassword(
+    @Body() dto: ChangePasswordDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
+    return this.auth.changeAdvertiserPassword(auth.subjectId, dto.currentPassword, dto.newPassword, ip);
   }
 }

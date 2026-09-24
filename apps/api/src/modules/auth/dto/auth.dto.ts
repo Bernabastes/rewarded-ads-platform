@@ -125,3 +125,19 @@ export class LogoutDto {
   @MinLength(20)
   refreshToken: string;
 }
+
+export class ChangePasswordDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  currentPassword: string;
+
+  /** Min 8 characters with at least one letter and one digit. */
+  @ApiProperty({ example: 'NewPassw0rd!' })
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d).+$/, { message: 'newPassword must contain a letter and a digit' })
+  newPassword: string;
+}

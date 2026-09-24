@@ -20,6 +20,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { PLATFORM_DEFAULTS } from '@rap/shared';
 import { PaginationQueryDto } from '../../../common/pagination';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -37,17 +38,17 @@ export class CreateCampaignDto {
   @MaxLength(2000)
   description?: string;
 
-  /** Total budget in ETB; reserved from the wallet when the campaign is submitted. */
-  @ApiProperty({ example: 5000, minimum: 1 })
+  /** Total budget in ETB (>= MIN_CAMPAIGN_BUDGET_ETB); reserved from the wallet when the campaign is submitted. */
+  @ApiProperty({ example: 5000, minimum: PLATFORM_DEFAULTS.MIN_CAMPAIGN_BUDGET_ETB })
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(1)
+  @Min(PLATFORM_DEFAULTS.MIN_CAMPAIGN_BUDGET_ETB)
   @Max(10_000_000)
   budgetEtb: number;
 
-  /** Amount the advertiser pays per valid action. User reward = cost x (1 - take rate). */
-  @ApiProperty({ example: 2, minimum: 0.01 })
+  /** Amount the advertiser pays per valid action (>= MIN_COST_PER_ACTION_ETB). User reward = cost x (1 - take rate). */
+  @ApiProperty({ example: 2, minimum: PLATFORM_DEFAULTS.MIN_COST_PER_ACTION_ETB })
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
+  @Min(PLATFORM_DEFAULTS.MIN_COST_PER_ACTION_ETB)
   @Max(10_000)
   costPerActionEtb: number;
 
@@ -86,17 +87,17 @@ export class UpdateCampaignDto {
   @MaxLength(2000)
   description?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ minimum: PLATFORM_DEFAULTS.MIN_CAMPAIGN_BUDGET_ETB })
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(1)
+  @Min(PLATFORM_DEFAULTS.MIN_CAMPAIGN_BUDGET_ETB)
   @Max(10_000_000)
   budgetEtb?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ minimum: PLATFORM_DEFAULTS.MIN_COST_PER_ACTION_ETB })
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
+  @Min(PLATFORM_DEFAULTS.MIN_COST_PER_ACTION_ETB)
   @Max(10_000)
   costPerActionEtb?: number;
 

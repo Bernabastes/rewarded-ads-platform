@@ -1,4 +1,12 @@
-import type { AdminMe, AdminOverview, AuthTokens, CoinAdjustmentItem, Paginated, PlatformConfigResponse } from '@rap/shared';
+import { BANNED_TOPICS } from '@rap/shared';
+import type {
+  AdminMe,
+  AdminOverview,
+  AuthTokens,
+  CoinAdjustmentItem,
+  Paginated,
+  PlatformConfigResponse,
+} from '@rap/shared';
 import type { AdminWithdrawal, AdReview } from '@/lib/api/types';
 
 export const BASE = 'http://localhost:3000/api/v1';
@@ -19,7 +27,17 @@ export const adminSuper: AdminMe = {
   lastLoginAt: null,
   createdAt: '2026-09-01T00:00:00.000Z',
   roles: ['super_admin'],
-  permissions: ['ads.review', 'campaigns.moderate', 'users.moderate', 'advertisers.verify', 'fraud.manage', 'withdrawals.decide', 'adjustments.manage', 'revenue.view', 'audit.view'],
+  permissions: [
+    'ads.review',
+    'campaigns.moderate',
+    'users.moderate',
+    'advertisers.verify',
+    'fraud.manage',
+    'withdrawals.decide',
+    'adjustments.manage',
+    'revenue.view',
+    'audit.view',
+  ],
 };
 
 export const adminFinance: AdminMe = {
@@ -70,6 +88,10 @@ export const config: PlatformConfigResponse = {
   heartbeatIntervalSeconds: 10,
   dailyWithdrawalRequestLimit: 3,
   maxWatchAttemptsPerAdPerDay: 3,
+  payoutMaxAttempts: 3,
+  minCampaignBudgetEtb: 100,
+  minCostPerActionEtb: 0.5,
+  minTopupEtb: 100,
   fraud: { flagThreshold: 40, rejectThreshold: 80, minTrustScoreForFeed: 20 },
   mocks: { sms: true, payouts: true, paymentGateway: true, push: true },
   environment: 'test',
@@ -90,15 +112,29 @@ export const pendingAd: AdReview = {
   reviewedAt: null,
   attentionQuestionsCount: 1,
   createdAt: '2026-09-02T14:43:53.008Z',
-  campaign: { id: 'camp-1', title: 'Buna Time - Morning Roast launch', status: 'active', targetActionType: 'video_view', costPerActionEtb: 2, budgetEtb: 5000 },
+  campaign: {
+    id: 'camp-1',
+    title: 'Buna Time - Morning Roast launch',
+    status: 'active',
+    targetActionType: 'video_view',
+    costPerActionEtb: 2,
+    budgetEtb: 5000,
+  },
   advertiser: { id: 'adv-1', businessName: 'Habesha Coffee Roasters PLC', verificationStatus: 'verified' },
   bannedTopicsChecklist: null,
   reviewedBy: null,
+  reviewNote: null,
   openReports: 0,
-  attentionQuestions: [{ id: 'q-1', prompt: 'What was advertised?', options: ['Coffee', 'Tea', 'Juice'], correctIndex: 0 }],
+  attentionQuestions: [
+    { id: 'q-1', prompt: 'What was advertised?', options: ['Coffee', 'Tea', 'Juice'], correctIndex: 0 },
+  ],
+  bannedTopics: BANNED_TOPICS,
 };
 
-export const reviewQueue: Paginated<AdReview> = { data: [pendingAd, { ...pendingAd, id: 'ad-2', title: 'Eid promo - 15s' }], meta: { page: 1, limit: 50, total: 2 } };
+export const reviewQueue: Paginated<AdReview> = {
+  data: [pendingAd, { ...pendingAd, id: 'ad-2', title: 'Eid promo - 15s' }],
+  meta: { page: 1, limit: 50, total: 2 },
+};
 
 export const largeWithdrawal: AdminWithdrawal = {
   id: 'wd-650',
@@ -118,10 +154,26 @@ export const largeWithdrawal: AdminWithdrawal = {
   requestedAt: '2026-09-23T08:45:20.542Z',
   processedAt: null,
   updatedAt: '2026-09-24T07:53:46.027Z',
-  user: { id: 'user-1', phoneNumber: '+251911001233', fullName: 'Rahel Girma', trustScore: 77, status: 'active' },
+  user: {
+    id: 'user-1',
+    phoneNumber: '+251911001233',
+    fullName: 'Rahel Girma',
+    trustScore: 77,
+    status: 'active',
+  },
   isFirstWithdrawal: false,
-  approvals: [{ id: 'appr-1', adminId: 'admin-finance', adminEmail: 'finance@rap.et', decision: 'approved', note: 'Identity verified', createdAt: '2026-09-23T09:15:20.542Z' }],
+  approvals: [
+    {
+      id: 'appr-1',
+      adminId: 'admin-finance',
+      adminEmail: 'finance@rap.et',
+      decision: 'approved',
+      note: 'Identity verified',
+      createdAt: '2026-09-23T09:15:20.542Z',
+    },
+  ],
   payoutDestinationFull: '+251911001233',
+  bankCode: null,
   reviewNote: null,
   processedBy: 'admin-finance',
   attempts: 0,

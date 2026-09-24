@@ -1,3 +1,4 @@
+import { PLATFORM_DEFAULTS } from '@rap/shared';
 import { z } from 'zod';
 
 const bool = z
@@ -59,9 +60,9 @@ export const envSchema = z
     WATCH_SESSION_TTL_MINUTES: num(30),
     DAILY_WITHDRAWAL_REQUEST_LIMIT: num(3),
     MAX_WATCH_ATTEMPTS_PER_AD_PER_DAY: num(3),
-    MIN_CAMPAIGN_BUDGET_ETB: num(100),
-    MIN_COST_PER_ACTION_ETB: num(0.5),
-    MIN_TOPUP_ETB: num(100),
+    MIN_CAMPAIGN_BUDGET_ETB: num(PLATFORM_DEFAULTS.MIN_CAMPAIGN_BUDGET_ETB),
+    MIN_COST_PER_ACTION_ETB: num(PLATFORM_DEFAULTS.MIN_COST_PER_ACTION_ETB),
+    MIN_TOPUP_ETB: num(PLATFORM_DEFAULTS.MIN_TOPUP_ETB),
     INVOICE_VAT_RATE: num(0),
 
     FRAUD_FLAG_THRESHOLD: num(40),
@@ -72,6 +73,8 @@ export const envSchema = z
     FRAUD_MIN_ACCOUNT_AGE_HOURS_FOR_FULL_TRUST: num(24),
 
     S3_ENDPOINT: z.string().default('http://localhost:9000'),
+    /** Endpoint browsers can reach; used ONLY to presign upload URLs (the Host is part of the signature). */
+    S3_PUBLIC_ENDPOINT: z.string().optional(),
     S3_PUBLIC_URL: z.string().default('http://localhost:9000'),
     S3_REGION: z.string().default('us-east-1'),
     S3_BUCKET: z.string().default('rap-media'),
@@ -88,7 +91,7 @@ export const envSchema = z
     PAYOUT_MOCK_FAILURE_RATE: num(0.1),
     PAYOUT_MOCK_PROCESSING_SECONDS: num(5),
     PAYOUT_STATUS_POLL_SECONDS: num(10),
-    PAYOUT_MAX_ATTEMPTS: num(3),
+    PAYOUT_MAX_ATTEMPTS: num(PLATFORM_DEFAULTS.PAYOUT_MAX_ATTEMPTS),
     TELEBIRR_BASE_URL: z.string().default('https://app.ethiomobilemoney.et:2121'),
     TELEBIRR_APP_ID: z.string().optional(),
     TELEBIRR_APP_KEY: z.string().optional(),

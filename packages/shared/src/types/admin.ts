@@ -1,6 +1,5 @@
 import type {
   ActorType,
-  AdminRole,
   AdvertiserVerificationStatus,
   CampaignStatus,
   CoinAdjustmentStatus,
@@ -11,9 +10,11 @@ import type {
   UserStatus,
   WithdrawalStatus,
 } from '../enums';
+import type { BannedTopicKey } from '../constants';
 import type { AdminProfile, UserProfile } from './auth';
-import type { AdSummary, BannedTopicsChecklist, CampaignSummary } from './campaigns';
-import type { DailyPoint, DateRangeQuery, IsoDateTime, PaginationQuery, Uuid } from './common';
+import type { AdSummary, BannedTopicsChecklist, CampaignAnalytics, CampaignSummary } from './campaigns';
+import type { DailyPoint, DateRangeQuery, IsoDateTime, Paginated, PaginationQuery, Uuid } from './common';
+import type { AdvertiserLedgerEntry, PaymentItem } from './billing';
 import type { LedgerEntry } from './users';
 import type { WithdrawalApprovalItem, WithdrawalItem } from './withdrawals';
 
@@ -47,6 +48,11 @@ export interface PlatformConfigResponse {
   heartbeatIntervalSeconds: number;
   dailyWithdrawalRequestLimit: number;
   maxWatchAttemptsPerAdPerDay: number;
+  /** Max payout attempts per withdrawal before it stays failed (admin retries count). */
+  payoutMaxAttempts: number;
+  minCampaignBudgetEtb: number;
+  minCostPerActionEtb: number;
+  minTopupEtb: number;
   fraud: { flagThreshold: number; rejectThreshold: number; minTrustScoreForFeed: number };
   mocks: { sms: boolean; payouts: boolean; paymentGateway: boolean; push: boolean };
   environment: string;
@@ -63,8 +69,12 @@ export interface AdReviewItem extends AdSummary {
   advertiser: { id: Uuid; businessName: string; verificationStatus: AdvertiserVerificationStatus };
   bannedTopicsChecklist: BannedTopicsChecklist | null;
   reviewedBy: Uuid | null;
+  /** Free-text note left by the reviewer on approval. */
+  reviewNote: string | null;
   openReports: number;
   attentionQuestions: Array<{ id: Uuid; prompt: string; options: string[]; correctIndex: number }>;
+  /** The banned-topics checklist definition (same as `BANNED_TOPICS` in this package), for convenience. */
+  bannedTopics: ReadonlyArray<{ key: BannedTopicKey; label: string }>;
 }
 
 export interface AdReviewQueueQuery extends PaginationQuery {
@@ -100,6 +110,8 @@ export interface AdminUserListItem extends UserProfile {
 }
 
 export interface AdminUserDetail extends AdminUserListItem {
+  /** Last IP address seen at login (detail endpoint only). */
+  lastIp: string | null;
   stats: {
     totalCompletions: number;
     validCompletions: number;
@@ -146,6 +158,18 @@ export interface AdminAdvertiserDetail extends AdminAdvertiserItem {
   campaigns: CampaignSummary[];
 }
 
+/** `GET /admin/advertisers/:id/wallet` (finance / support / super_admin). */
+export interface AdminAdvertiserWallet {
+  advertiser: Pick<AdminAdvertiserItem, 'id' | 'businessName' | 'walletBalanceEtb' | 'verificationStatus'>;
+  balanceEtb: number;
+  reservedEtb: number;
+  lifetimeTopupsEtb: number;
+  lifetimeSpendEtb: number;
+  ledger: Paginated<AdvertiserLedgerEntry>;
+  /** Latest 50 gateway payments. */
+  payments: Paginated<Omit<PaymentItem, 'checkoutUrl' | 'returnUrl'>>;
+}
+
 export interface VerifyAdvertiserDto {
   note?: string;
 }
@@ -163,6 +187,12 @@ export interface AdminCampaignsQuery extends PaginationQuery {
 
 export interface AdminCampaignItem extends CampaignSummary {
   advertiser: { id: Uuid; businessName: string };
+}
+
+/** `GET /admin/campaigns/:id`: summary + creatives + 30-day analytics. */
+export interface AdminCampaignDetail extends AdminCampaignItem {
+  ads: AdSummary[];
+  analytics: CampaignAnalytics;
 }
 
 /* ---------- fraud ---------- */
@@ -255,6 +285,8 @@ export interface AdminWithdrawalItem extends WithdrawalItem {
   approvals: WithdrawalApprovalItem[];
   /** Unmasked destination for finance staff. */
   payoutDestinationFull: string;
+  bankCode: string | null;
+  attempts: number;
   reviewNote: string | null;
   processedBy: Uuid | null;
 }
@@ -402,4 +434,5 @@ export interface AdminAppInstallCompletionItem {
   createdAt: IsoDateTime;
 }
 
-export type AdminMe = AdminProfile & { permissions: string[]; roles: AdminRole[] };
+/** GET /admin/me – identical to the dmin object returned by POST /auth/admin/login. */
+export type AdminMe = AdminProfile;

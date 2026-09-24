@@ -22,6 +22,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .addTag('users', 'Profile, balance, ledger, notifications, ad reports (user tokens)')
     .addTag('ads', 'Feed, watch sessions and server-verified completions (user tokens)')
     .addTag('offers', 'Surveys and app-install offers (user tokens)')
+    .addTag('advertisers', 'Advertiser profile and preferences (advertiser tokens)')
     .addTag('campaigns', 'Advertiser campaign management, creatives and analytics (advertiser tokens)')
     .addTag('billing', 'Advertiser wallet, top-ups, payments, invoices')
     .addTag('withdrawals', 'User withdrawal requests and status (user tokens)')

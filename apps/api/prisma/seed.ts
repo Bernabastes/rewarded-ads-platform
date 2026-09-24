@@ -5,9 +5,18 @@
  * All coin balances are produced through the SAME ledger write path as the API (applyLedgerEntry), so the seeded
  * ledger is internally consistent and the reconciliation job reports zero drift.
  */
+import {
+  CreateBucketCommand,
+  HeadBucketCommand,
+  PutBucketPolicyCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { applyLedgerEntry } from '../src/modules/ledger/ledger.core';
 
 const prisma = new PrismaClient();
@@ -40,22 +49,77 @@ const reward = (cost: number) =>
 const coins = (etb: Prisma.Decimal | number) => dec(etb).mul(COINS_PER_ETB).round().toNumber();
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
-const SAMPLE = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample';
+/* ------------------------------ demo media (self-hosted) ------------------------------ */
+// Tiny synthetic clips + thumbnails from ./seed-assets (regenerate with seed-assets/generate.ps1). They are uploaded
+// to the MinIO/S3 bucket at seed time so every ad plays without internet access or third-party CDNs.
+const S3_ENDPOINT = process.env.S3_ENDPOINT ?? 'http://localhost:9000';
+const S3_PUBLIC_URL = (process.env.S3_PUBLIC_URL ?? 'http://localhost:9000').replace(/\/$/, '');
+const S3_BUCKET = process.env.S3_BUCKET ?? 'rap-media';
+const MEDIA_PREFIX = 'seed';
 const VIDEOS = [
-  { file: 'ForBiggerBlazes', duration: 15 },
-  { file: 'ForBiggerEscapes', duration: 15 },
-  { file: 'ForBiggerFun', duration: 60 },
-  { file: 'ForBiggerJoyrides', duration: 15 },
-  { file: 'ForBiggerMeltdowns', duration: 15 },
-  { file: 'BigBuckBunny', duration: 30 },
-  { file: 'ElephantsDream', duration: 30 },
-  { file: 'Sintel', duration: 45 },
+  { file: 'morning-roast', duration: 15 },
+  { file: 'origin-story', duration: 15 },
+  { file: 'vertical-cut', duration: 15 },
+  { file: 'loyalty-card', duration: 15 },
+  { file: 'savings-goals', duration: 20 },
+  { file: 'send-money', duration: 15 },
+  { file: 'eid-promo', duration: 15 },
+  { file: 'launch-film', duration: 30 },
 ];
+const mediaUrl = (name: string) => `${S3_PUBLIC_URL}/${S3_BUCKET}/${MEDIA_PREFIX}/${name}`;
 const video = (i: number) => ({
-  mediaUrl: `${SAMPLE}/${VIDEOS[i % VIDEOS.length].file}.mp4`,
-  thumbnailUrl: `${SAMPLE}/images/${VIDEOS[i % VIDEOS.length].file}.jpg`,
+  mediaUrl: mediaUrl(`${VIDEOS[i % VIDEOS.length].file}.mp4`),
+  thumbnailUrl: mediaUrl(`${VIDEOS[i % VIDEOS.length].file}.png`),
+  storageKey: `${MEDIA_PREFIX}/${VIDEOS[i % VIDEOS.length].file}.mp4`,
   durationSeconds: VIDEOS[i % VIDEOS.length].duration,
 });
+
+async function uploadSeedMedia() {
+  const s3 = new S3Client({
+    region: process.env.S3_REGION ?? 'us-east-1',
+    endpoint: S3_ENDPOINT,
+    forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'true') !== 'false',
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY ?? 'minioadmin',
+      secretAccessKey: process.env.S3_SECRET_KEY ?? 'minioadmin',
+    },
+  });
+  const dir = path.resolve(__dirname, 'seed-assets');
+  const files = readdirSync(dir).filter((f) => f.endsWith('.mp4') || f.endsWith('.png'));
+  try {
+    await s3.send(new HeadBucketCommand({ Bucket: S3_BUCKET }));
+  } catch {
+    await s3.send(new CreateBucketCommand({ Bucket: S3_BUCKET }));
+    await s3.send(
+      new PutBucketPolicyCommand({
+        Bucket: S3_BUCKET,
+        Policy: JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Effect: 'Allow',
+              Principal: { AWS: ['*'] },
+              Action: ['s3:GetObject'],
+              Resource: [`arn:aws:s3:::${S3_BUCKET}/*`],
+            },
+          ],
+        }),
+      }),
+    );
+  }
+  for (const file of files) {
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: `${MEDIA_PREFIX}/${file}`,
+        Body: readFileSync(path.join(dir, file)),
+        ContentType: file.endsWith('.mp4') ? 'video/mp4' : 'image/png',
+        CacheControl: 'public, max-age=86400',
+      }),
+    );
+  }
+  console.log(`Uploaded ${files.length} demo media files to ${S3_ENDPOINT}/${S3_BUCKET}/${MEDIA_PREFIX}/`);
+}
 
 const USER_NAMES = [
   'አበበ ቢቂላ',
@@ -162,6 +226,13 @@ async function reset() {
 async function main() {
   console.log('Seeding demo data...');
   await reset();
+  try {
+    await uploadSeedMedia();
+  } catch (err) {
+    console.warn(
+      `[seed] could not upload demo media to ${S3_ENDPOINT} (${(err as Error).message}); ads will still reference ${S3_PUBLIC_URL}`,
+    );
+  }
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const advertiserHash = await bcrypt.hash(ADVERTISER_PASSWORD, 10);
 
@@ -698,7 +769,7 @@ async function main() {
       appName: 'AddisPay',
       packageName: 'et.addispay.app',
       storeUrl: 'https://play.google.com/store/apps/details?id=et.addispay.app',
-      iconUrl: 'https://placehold.co/128x128/0f4c81/ffffff?text=AP',
+      iconUrl: mediaUrl('savings-goals.png'),
       rewardEtb: reward(20),
       active: true,
       createdAt: daysAgo(23),

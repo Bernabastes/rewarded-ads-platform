@@ -103,6 +103,15 @@ export class BillingController {
     return this.billing.handleChapaWebhook(req.rawBody, body ?? {}, headers, ip);
   }
 
+  @Get('mock-checkout/assets/checkout.js')
+  @Public()
+  @Header('Content-Type', 'application/javascript; charset=utf-8')
+  @Header('Cache-Control', 'public, max-age=300')
+  @ApiExcludeEndpoint()
+  mockCheckoutScript() {
+    return this.billing.mockCheckoutScript();
+  }
+
   @Get('mock-checkout/:txRef')
   @Public()
   @Header('Content-Type', 'text/html; charset=utf-8')
@@ -113,7 +122,11 @@ export class BillingController {
 
   @Post('mock-checkout/:txRef/pay')
   @Public()
-  @ApiOperation({ summary: '[MOCK MODE ONLY] Complete or fail a mock checkout', deprecated: false })
+  @ApiOperation({
+    summary: '[MOCK MODE ONLY] Complete or fail a mock checkout',
+    description:
+      'Returns `{ txRef, paymentId, status, returnUrl }`; `returnUrl` is the caller-supplied return URL with paymentId and txRef appended.',
+  })
   mockPay(@Param('txRef') txRef: string, @Body() body: { outcome?: 'success' | 'failed' }) {
     return this.billing.mockCheckoutPay(txRef, body?.outcome === 'failed' ? 'failed' : 'success');
   }

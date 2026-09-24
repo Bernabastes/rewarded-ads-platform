@@ -112,6 +112,48 @@ export class UsersService {
     return surveys + installs;
   }
 
+  /** Last 20 distinct ads the user opened (watch sessions), newest first – used by the "report an ad" flow. */
+  async recentlyWatched(userId: string, limit = 20) {
+    const sessions = await this.prisma.adWatchSession.findMany({
+      where: { userId },
+      orderBy: { startedAt: 'desc' },
+      take: limit * 3,
+      include: {
+        ad: { include: { campaign: { include: { advertiser: { select: { businessName: true } } } } } },
+        completion: { select: { id: true, status: true, coinRewardAmount: true } },
+      },
+    });
+    const seen = new Set<string>();
+    const items = [];
+    for (const s of sessions) {
+      if (seen.has(s.adId)) continue;
+      seen.add(s.adId);
+      items.push({
+        adId: s.adId,
+        title: s.ad.title,
+        advertiserName: s.ad.campaign.advertiser.businessName,
+        thumbnailUrl: s.ad.thumbnailUrl,
+        mediaType: s.ad.mediaType,
+        durationSeconds: s.ad.durationSeconds,
+        lastWatchedAt: s.startedAt,
+        sessionStatus: s.status,
+        completionStatus: s.completion?.status ?? null,
+        coinReward: s.completion?.coinRewardAmount ?? 0,
+        reported: false,
+      });
+      if (items.length >= limit) break;
+    }
+    if (items.length) {
+      const reports = await this.prisma.adReport.findMany({
+        where: { userId, adId: { in: items.map((i) => i.adId) } },
+        select: { adId: true },
+      });
+      const reported = new Set(reports.map((r) => r.adId));
+      for (const item of items) item.reported = reported.has(item.adId);
+    }
+    return { data: items };
+  }
+
   async reportAd(
     userId: string,
     adId: string,

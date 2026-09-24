@@ -98,6 +98,10 @@ export class AdminReportsService {
       heartbeatIntervalSeconds: p.heartbeatIntervalSeconds,
       dailyWithdrawalRequestLimit: p.dailyWithdrawalRequestLimit,
       maxWatchAttemptsPerAdPerDay: p.maxWatchAttemptsPerAdPerDay,
+      payoutMaxAttempts: this.config.env.PAYOUT_MAX_ATTEMPTS,
+      minCampaignBudgetEtb: p.minCampaignBudgetEtb,
+      minCostPerActionEtb: p.minCostPerActionEtb,
+      minTopupEtb: p.minTopupEtb,
       fraud: {
         flagThreshold: this.config.fraud.flagThreshold,
         rejectThreshold: this.config.fraud.rejectThreshold,

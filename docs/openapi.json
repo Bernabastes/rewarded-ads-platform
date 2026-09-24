@@ -288,6 +288,39 @@
         ]
       }
     },
+    "/api/v1/auth/advertiser/change-password": {
+      "post": {
+        "operationId": "changeAdvertiserPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "401": {
+            "description": "INVALID_CREDENTIALS (current password wrong)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change the advertiser password (revokes all refresh tokens; re-login required)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/fraud/rules": {
       "get": {
         "operationId": "rules",
@@ -545,6 +578,27 @@
           }
         ],
         "summary": "Paginated coin ledger (transaction history)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/recently-watched": {
+      "get": {
+        "description": "Derived from server-side watch sessions, newest first, one entry per ad, with `reported` flag.",
+        "operationId": "recentlyWatched",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Last 20 ads the user opened (for the \"report an ad\" flow)",
         "tags": [
           "users"
         ]
@@ -1883,7 +1937,7 @@
     },
     "/api/v1/billing/mock-checkout/{txRef}/pay": {
       "post": {
-        "deprecated": false,
+        "description": "Returns `{ txRef, paymentId, status, returnUrl }`; `returnUrl` is the caller-supplied return URL with paymentId and txRef appended.",
         "operationId": "mockPay",
         "parameters": [
           {
@@ -1897,19 +1951,61 @@
         ],
         "responses": {
           "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+            "description": ""
           }
         },
         "summary": "[MOCK MODE ONLY] Complete or fail a mock checkout",
         "tags": [
           "billing"
+        ]
+      }
+    },
+    "/api/v1/advertisers/me": {
+      "get": {
+        "operationId": "me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Current advertiser profile (fresh verificationStatus, wallet balance, preferences)",
+        "tags": [
+          "advertisers"
+        ]
+      },
+      "patch": {
+        "description": "Registration number and email are identity fields and cannot be changed here (contact support).",
+        "operationId": "update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAdvertiserProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update business name, contact phone or notification preferences",
+        "tags": [
+          "advertisers"
         ]
       }
     },
@@ -2940,6 +3036,56 @@
           }
         ],
         "summary": "Advertiser detail with campaigns",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/advertisers/{id}/wallet": {
+      "get": {
+        "operationId": "advertiserWallet",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Advertiser wallet: balance, reserved budget, ledger (paginated) and gateway payments",
         "tags": [
           "admin"
         ]
@@ -4022,6 +4168,10 @@
       "description": "Surveys and app-install offers (user tokens)"
     },
     {
+      "name": "advertisers",
+      "description": "Advertiser profile and preferences (advertiser tokens)"
+    },
+    {
       "name": "campaigns",
       "description": "Advertiser campaign management, creatives and analytics (advertiser tokens)"
     },
@@ -4211,6 +4361,28 @@
         },
         "required": [
           "refreshToken"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "newPassword": {
+            "type": "string",
+            "description": "Min 8 characters with at least one letter and one digit.",
+            "minLength": 8,
+            "maxLength": 128,
+            "pattern": "^(?=.*[A-Za-z])(?=.*\\d).+$",
+            "example": "NewPassw0rd!"
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
         ]
       },
       "CreateFraudFlagDto": {
@@ -4515,15 +4687,15 @@
           },
           "budgetEtb": {
             "type": "number",
-            "description": "Total budget in ETB; reserved from the wallet when the campaign is submitted.",
-            "minimum": 1,
+            "description": "Total budget in ETB (>= MIN_CAMPAIGN_BUDGET_ETB); reserved from the wallet when the campaign is submitted.",
+            "minimum": 100,
             "maximum": 10000000,
             "example": 5000
           },
           "costPerActionEtb": {
             "type": "number",
-            "description": "Amount the advertiser pays per valid action. User reward = cost x (1 - take rate).",
-            "minimum": 0.01,
+            "description": "Amount the advertiser pays per valid action (>= MIN_COST_PER_ACTION_ETB). User reward = cost x (1 - take rate).",
+            "minimum": 0.5,
             "maximum": 10000,
             "example": 2
           },
@@ -4570,12 +4742,12 @@
           },
           "budgetEtb": {
             "type": "number",
-            "minimum": 1,
+            "minimum": 100,
             "maximum": 10000000
           },
           "costPerActionEtb": {
             "type": "number",
-            "minimum": 0.01,
+            "minimum": 0.5,
             "maximum": 10000
           },
           "targetActionType": {
@@ -4701,7 +4873,7 @@
           "amountEtb": {
             "type": "number",
             "description": "ETB amount to add to the wallet (min MIN_TOPUP_ETB, default 100).",
-            "minimum": 1,
+            "minimum": 100,
             "maximum": 10000000,
             "example": 5000
           },
@@ -4715,6 +4887,43 @@
         "required": [
           "amountEtb"
         ]
+      },
+      "AdvertiserNotificationPrefsDto": {
+        "type": "object",
+        "properties": {
+          "campaignReviews": {
+            "type": "boolean",
+            "description": "Email when a campaign or creative is approved/rejected."
+          },
+          "billing": {
+            "type": "boolean",
+            "description": "Email for top-ups, invoices and low-balance warnings."
+          },
+          "weeklyReport": {
+            "type": "boolean",
+            "description": "Weekly performance summary."
+          }
+        }
+      },
+      "UpdateAdvertiserProfileDto": {
+        "type": "object",
+        "properties": {
+          "businessName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 160,
+            "example": "Habesha Coffee Roasters PLC"
+          },
+          "contactPhone": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 20,
+            "example": "+251911000001"
+          },
+          "notificationPrefs": {
+            "$ref": "#/components/schemas/AdvertiserNotificationPrefsDto"
+          }
+        }
       },
       "CreateWithdrawalDto": {
         "type": "object",

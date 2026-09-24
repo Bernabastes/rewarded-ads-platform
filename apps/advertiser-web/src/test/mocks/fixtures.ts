@@ -26,6 +26,7 @@ export const profileFixture: AdvertiserProfile = {
   verificationStatus: 'verified',
   verificationNote: null,
   walletBalanceEtb: 12000,
+  notificationPrefs: { campaignReviews: true, billing: true, weeklyReport: true },
   createdAt: '2026-08-01T10:00:00.000Z',
 };
 
@@ -187,6 +188,7 @@ export const paymentFixture: PaymentItem = {
   amountEtb: 1000,
   currency: 'ETB',
   status: 'pending',
+  mock: true,
   checkoutUrl: 'http://localhost:3000/api/v1/billing/mock-checkout/RAP-TEST-1',
   gatewayReference: null,
   paidAt: null,

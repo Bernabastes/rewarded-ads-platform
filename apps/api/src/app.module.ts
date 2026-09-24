@@ -12,6 +12,7 @@ import { RedisModule } from './infra/redis/redis.service';
 import { SmsModule } from './infra/sms/sms.module';
 import { StorageModule } from './infra/storage/storage.service';
 import { AdminModule } from './modules/admin/admin.module';
+import { AdvertisersModule } from './modules/advertisers/advertisers.module';
 import { AdsModule } from './modules/ads/ads.module';
 import { AuditModule } from './modules/audit/audit.service';
 import { AuthModule } from './modules/auth/auth.module';
@@ -48,6 +49,7 @@ import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
     OffersModule,
     CampaignsModule,
     BillingModule,
+    AdvertisersModule,
     WithdrawalsModule,
     AdminModule,
   ],

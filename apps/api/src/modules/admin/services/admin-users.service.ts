@@ -256,6 +256,74 @@ export class AdminUsersService {
     return { ...this.toAdvertiserItem(a), campaigns: a.campaigns.map((c) => this.campaigns.toSummary(c)) };
   }
 
+  /** Finance view of an advertiser's prepaid wallet: balance, ledger and gateway payments. */
+  async getAdvertiserWallet(id: string, query: { page?: number; limit?: number }) {
+    const advertiser = await this.prisma.advertiser.findUnique({
+      where: { id },
+      select: { id: true, businessName: true, walletBalanceEtb: true, verificationStatus: true },
+    });
+    if (!advertiser) throw AppException.notFound('Advertiser not found');
+    const p = pageArgs(query);
+    const [ledger, ledgerTotal, payments, paymentsTotal, topups, reserved, spend] = await Promise.all([
+      this.prisma.advertiserWalletLedger.findMany({
+        where: { advertiserId: id },
+        orderBy: { createdAt: 'desc' },
+        skip: p.skip,
+        take: p.take,
+        select: {
+          id: true,
+          amountEtb: true,
+          balanceAfterEtb: true,
+          entryType: true,
+          referenceType: true,
+          referenceId: true,
+          description: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.advertiserWalletLedger.count({ where: { advertiserId: id } }),
+      this.prisma.advertiserPayment.findMany({
+        where: { advertiserId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          txRef: true,
+          gateway: true,
+          amountEtb: true,
+          currency: true,
+          status: true,
+          mock: true,
+          gatewayReference: true,
+          paidAt: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.advertiserPayment.count({ where: { advertiserId: id } }),
+      this.prisma.advertiserWalletLedger.aggregate({
+        where: { advertiserId: id, entryType: 'topup' },
+        _sum: { amountEtb: true },
+      }),
+      this.prisma.campaign.aggregate({
+        where: { advertiserId: id, status: { in: ['pending_review', 'active', 'paused'] } },
+        _sum: { budgetReservedEtb: true, spentEtb: true },
+      }),
+      this.prisma.campaign.aggregate({ where: { advertiserId: id }, _sum: { spentEtb: true } }),
+    ]);
+    const reservedEtb = new Prisma.Decimal(reserved._sum.budgetReservedEtb ?? 0).minus(
+      reserved._sum.spentEtb ?? 0,
+    );
+    return {
+      advertiser,
+      balanceEtb: advertiser.walletBalanceEtb,
+      reservedEtb: reservedEtb.isNegative() ? new Prisma.Decimal(0) : reservedEtb,
+      lifetimeTopupsEtb: topups._sum.amountEtb ?? new Prisma.Decimal(0),
+      lifetimeSpendEtb: spend._sum.spentEtb ?? new Prisma.Decimal(0),
+      ledger: paginated(ledger, ledgerTotal, p),
+      payments: { data: payments, meta: { page: 1, limit: 50, total: paymentsTotal } },
+    };
+  }
+
   async decideAdvertiser(
     id: string,
     decision: 'verified' | 'rejected',

@@ -11,7 +11,9 @@ export const env = {
   apiUrl,
   apiBaseUrl: `${apiUrl}${API_BASE_PATH}`,
   publicUrl: read('VITE_PUBLIC_URL') || (typeof window !== 'undefined' ? window.location.origin : ''),
-  uploadInternalOrigin: read('VITE_UPLOAD_INTERNAL_ORIGIN', import.meta.env.DEV ? 'http://minio:9000' : ''),
+  // Presigned upload rewrite is OFF by default: the API now signs URLs for the browser-reachable
+  // S3_PUBLIC_ENDPOINT. Set VITE_UPLOAD_INTERNAL_ORIGIN (e.g. http://minio:9000) to re-enable the dev proxy.
+  uploadInternalOrigin: read('VITE_UPLOAD_INTERNAL_ORIGIN', ''),
   uploadProxyPath: read('VITE_UPLOAD_PROXY_PATH', '/__media-upload'),
   isDev: import.meta.env.DEV,
 } as const;

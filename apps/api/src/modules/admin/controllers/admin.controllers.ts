@@ -7,6 +7,7 @@ import {
   Roles,
   Subjects,
 } from '../../../common/decorators/auth.decorators';
+import { PaginationQueryDto } from '../../../common/pagination';
 import { FraudService } from '../../fraud/fraud.service';
 import { FraudFlagsQueryDto, ResolveFraudFlagDto } from '../../fraud/dto/fraud.dto';
 import { WithdrawalsService } from '../../withdrawals/withdrawals.service';
@@ -56,7 +57,7 @@ export class AdminHomeController {
   @ApiOperation({ summary: 'Current admin profile and role' })
   async me(@CurrentAuth() auth: AuthContext) {
     const admin = await this.prisma.adminUser.findUniqueOrThrow({ where: { id: auth.subjectId } });
-    return { ...toAdminProfile(admin), roles: [admin.role], permissions: PERMISSIONS[admin.role] };
+    return toAdminProfile(admin);
   }
 
   @Get('overview')
@@ -71,30 +72,6 @@ export class AdminHomeController {
     return this.reports.platformConfig();
   }
 }
-
-export const PERMISSIONS: Record<string, string[]> = {
-  super_admin: [
-    'ads.review',
-    'campaigns.moderate',
-    'users.moderate',
-    'advertisers.verify',
-    'fraud.manage',
-    'withdrawals.decide',
-    'adjustments.manage',
-    'revenue.view',
-    'audit.view',
-  ],
-  ad_reviewer: ['ads.review', 'campaigns.moderate', 'reports.review'],
-  support: [
-    'users.moderate',
-    'advertisers.verify',
-    'fraud.manage',
-    'reports.review',
-    'audit.view',
-    'offers.verify',
-  ],
-  finance: ['withdrawals.decide', 'adjustments.manage', 'revenue.view', 'audit.view', 'fraud.manage'],
-};
 
 /* ------------------------------------------------------------------ */
 /* Ad review + campaigns + ad reports                                  */
@@ -299,6 +276,15 @@ export class AdminUsersController {
   @ApiOperation({ summary: 'Advertiser detail with campaigns' })
   advertiser(@Param('id', ParseUUIDPipe) id: string) {
     return this.users.getAdvertiser(id);
+  }
+
+  @Get('advertisers/:id/wallet')
+  @Roles('super_admin', 'finance', 'support')
+  @ApiOperation({
+    summary: 'Advertiser wallet: balance, reserved budget, ledger (paginated) and gateway payments',
+  })
+  advertiserWallet(@Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationQueryDto) {
+    return this.users.getAdvertiserWallet(id, query);
   }
 
   @Post('advertisers/:id/verify')

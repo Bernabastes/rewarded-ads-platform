@@ -330,6 +330,7 @@ model Advertiser {
   verifiedAt                 DateTime?                    @map("verified_at")
   /// CACHED value. Written ONLY by AdvertiserWalletService.applyEntry inside the wallet ledger transaction.
   walletBalanceEtb           Decimal                      @default(0) @map("wallet_balance_etb") @db.Decimal(12, 2)
+  notificationPrefs          Json                         @default("{\"campaignReviews\":true,\"billing\":true,\"weeklyReport\":true}") @map("notification_prefs")
   createdAt                  DateTime                     @default(now()) @map("created_at")
   updatedAt                  DateTime                     @updatedAt @map("updated_at")
 
@@ -371,6 +372,8 @@ model AdvertiserPayment {
   txRef            String        @unique @map("tx_ref")
   gatewayReference String?       @map("gateway_reference")
   checkoutUrl      String?       @map("checkout_url")
+  /** Where the browser is sent after checkout (caller-supplied; mock checkout honours it). */
+  returnUrl        String?       @map("return_url")
   status           PaymentStatus @default(pending)
   mock             Boolean       @default(false)
   rawWebhook       Json?         @map("raw_webhook")

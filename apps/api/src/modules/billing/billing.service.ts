@@ -41,6 +41,7 @@ export class BillingService {
     }
     const advertiser = await this.prisma.advertiser.findUniqueOrThrow({ where: { id: advertiserId } });
     const txRef = `RAP-${Date.now().toString(36).toUpperCase()}-${randomBytes(4).toString('hex').toUpperCase()}`;
+    const effectiveReturnUrl = returnUrl ?? this.defaultReturnUrl(txRef);
     const payment = await this.prisma.advertiserPayment.create({
       data: {
         advertiserId,
@@ -48,6 +49,7 @@ export class BillingService {
         txRef,
         gateway: this.gateway.name,
         mock: this.gateway.isMock,
+        returnUrl: effectiveReturnUrl,
       },
     });
     const [firstName, ...rest] = advertiser.businessName.split(' ');
@@ -60,7 +62,7 @@ export class BillingService {
         firstName: firstName || 'Advertiser',
         lastName: rest.join(' ') || 'Account',
         phoneNumber: advertiser.contactPhone,
-        returnUrl: returnUrl ?? `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`,
+        returnUrl: withReturnParams(effectiveReturnUrl, { paymentId: payment.id, txRef }),
         callbackUrl: `${this.config.env.API_PUBLIC_URL}/api/v1/billing/webhooks/chapa`,
         title: 'RAP top-up',
         description: `Wallet top-up ${txRef}`,
@@ -76,7 +78,7 @@ export class BillingService {
         status: updated.status,
         checkoutUrl: checkout.checkoutUrl,
         mock: this.gateway.isMock,
-        returnUrl: returnUrl ?? `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`,
+        returnUrl: withReturnParams(effectiveReturnUrl, { paymentId: payment.id, txRef }),
       };
     } catch (err) {
       await this.prisma.advertiserPayment.update({
@@ -283,32 +285,48 @@ export class BillingService {
       include: { advertiser: { select: { businessName: true } } },
     });
     if (!payment) throw AppException.notFound('Payment not found', { code: ErrorCode.PAYMENT_NOT_FOUND });
-    const returnUrl = `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`;
     return mockCheckoutHtml({
       txRef,
       amount: payment.amountEtb.toFixed(2),
       business: payment.advertiser.businessName,
       status: payment.status,
       payUrl: `${this.config.env.API_PUBLIC_URL}/api/v1/billing/mock-checkout/${txRef}/pay`,
-      returnUrl,
+      scriptUrl: `${this.config.env.API_PUBLIC_URL}/api/v1/billing/mock-checkout/assets/checkout.js`,
+      returnUrl: this.returnUrlFor(payment),
     });
+  }
+
+  /** The checkout page script, served from our own origin so helmet's `script-src 'self'` allows it. */
+  mockCheckoutScript(): string {
+    return MOCK_CHECKOUT_SCRIPT;
   }
 
   async mockCheckoutPay(txRef: string, outcome: 'success' | 'failed' = 'success') {
     this.assertMock();
+    const existing = await this.prisma.advertiserPayment.findUnique({ where: { txRef } });
+    if (!existing) throw AppException.notFound('Payment not found', { code: ErrorCode.PAYMENT_NOT_FOUND });
     if (outcome === 'failed') {
       await this.prisma.advertiserPayment.updateMany({
         where: { txRef, status: 'pending' },
         data: { status: 'failed', rawWebhook: { mock: true, outcome } },
       });
-      return { txRef, status: 'failed' as const };
+      const failed = await this.prisma.advertiserPayment.findUniqueOrThrow({ where: { txRef } });
+      return { txRef, paymentId: failed.id, status: failed.status, returnUrl: this.returnUrlFor(failed) };
     }
     const payment = await this.settlePayment(txRef, `MOCK-${txRef}`, { mock: true, outcome }, 'mock');
-    return {
-      txRef,
-      status: payment.status,
-      returnUrl: `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`,
-    };
+    return { txRef, paymentId: payment.id, status: payment.status, returnUrl: this.returnUrlFor(existing) };
+  }
+
+  private defaultReturnUrl(txRef: string) {
+    return `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`;
+  }
+
+  /** Caller-supplied return URL (or the default) with `paymentId` and `txRef` appended. */
+  private returnUrlFor(payment: { id: string; txRef: string; returnUrl?: string | null }) {
+    return withReturnParams(payment.returnUrl ?? this.defaultReturnUrl(payment.txRef), {
+      paymentId: payment.id,
+      txRef: payment.txRef,
+    });
   }
 
   private assertMock() {
@@ -325,6 +343,7 @@ export class BillingService {
     status: true,
     mock: true,
     checkoutUrl: true,
+    returnUrl: true,
     gatewayReference: true,
     paidAt: true,
     createdAt: true,
@@ -349,15 +368,63 @@ function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
 }
 
+/** Appends `paymentId` and `txRef` to a caller-supplied return URL (keeps existing query/hash). */
+export function withReturnParams(returnUrl: string, params: { paymentId: string; txRef: string }): string {
+  try {
+    const url = new URL(returnUrl);
+    url.searchParams.set('paymentId', params.paymentId);
+    url.searchParams.set('txRef', params.txRef);
+    return url.toString();
+  } catch {
+    const sep = returnUrl.includes('?') ? '&' : '?';
+    return `${returnUrl}${sep}paymentId=${encodeURIComponent(params.paymentId)}&txRef=${encodeURIComponent(params.txRef)}`;
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!,
+  );
+}
+
+/**
+ * Behaviour of the mock checkout page. Served as an external script from our origin (CSP `script-src 'self'`);
+ * configuration is read from data attributes, so no inline scripts or handlers are needed.
+ */
+const MOCK_CHECKOUT_SCRIPT = `(function () {
+  var card = document.querySelector('[data-pay-url]');
+  if (!card) return;
+  var payUrl = card.getAttribute('data-pay-url');
+  var msg = document.getElementById('msg');
+  function go(url) { setTimeout(function () { location.href = url; }, 900); }
+  function pay(outcome) {
+    msg.textContent = 'Processing...';
+    fetch(payUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outcome: outcome }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        msg.textContent = 'Result: ' + (j.status || JSON.stringify(j));
+        if (j.returnUrl) go(j.returnUrl);
+      })
+      .catch(function (e) { msg.textContent = 'Error: ' + e; });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-outcome]'), function (btn) {
+    btn.addEventListener('click', function () { pay(btn.getAttribute('data-outcome')); });
+  });
+})();
+`;
+
 function mockCheckoutHtml(p: {
   txRef: string;
   amount: string;
   business: string;
   status: string;
   payUrl: string;
+  scriptUrl: string;
   returnUrl: string;
 }): string {
   const paid = p.status === 'completed';
+  const returnHref = escapeHtml(p.returnUrl);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Mock Chapa Checkout</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;min-height:100vh;margin:0}
@@ -365,20 +432,19 @@ function mockCheckoutHtml(p: {
 h1{font-size:18px;margin:0 0 4px}.tag{display:inline-block;background:#f59e0b;color:#111;font-weight:700;font-size:11px;padding:2px 8px;border-radius:999px;margin-bottom:16px}
 .amt{font-size:36px;font-weight:700;margin:12px 0}.muted{color:#94a3b8;font-size:13px}
 button{width:100%;padding:14px;border:0;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;margin-top:12px}
-.pay{background:#22c55e;color:#052e16}.fail{background:#334155;color:#e2e8f0}</style></head>
-<body><div class="card"><span class="tag">MOCK GATEWAY - NO REAL MONEY</span>
-<h1>Pay ${p.business}</h1><div class="muted">Reference ${p.txRef}</div>
-<div class="amt">ETB ${p.amount}</div>
+.pay{background:#22c55e;color:#052e16}.fail{background:#334155;color:#e2e8f0}
+a{color:inherit;text-decoration:none}</style></head>
+<body><div class="card" data-pay-url="${escapeHtml(p.payUrl)}"><span class="tag">MOCK GATEWAY - NO REAL MONEY</span>
+<h1>Pay ${escapeHtml(p.business)}</h1><div class="muted">Reference ${escapeHtml(p.txRef)}</div>
+<div class="amt">ETB ${escapeHtml(p.amount)}</div>
 ${
   paid
-    ? `<p>This payment is already <b>completed</b>.</p><a href="${p.returnUrl}"><button class="pay">Return to portal</button></a>`
+    ? `<p>This payment is already <b>completed</b>.</p><a href="${returnHref}"><button class="pay">Return to portal</button></a>`
     : `<p class="muted">This page simulates Chapa's hosted checkout. Choose an outcome:</p>
-<button class="pay" onclick="pay('success')">Pay ETB ${p.amount}</button>
-<button class="fail" onclick="pay('failed')">Simulate failure</button>
+<button class="pay" data-outcome="success">Pay ETB ${escapeHtml(p.amount)}</button>
+<button class="fail" data-outcome="failed">Simulate failure</button>
 <p id="msg" class="muted"></p>
-<script>async function pay(outcome){const m=document.getElementById('msg');m.textContent='Processing...';
-const r=await fetch('${p.payUrl}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({outcome})});
-const j=await r.json();m.textContent='Result: '+(j.status||JSON.stringify(j));if(j.status==='completed'){setTimeout(()=>location.href='${p.returnUrl}',800)}}</script>`
+<p class="muted"><a href="${returnHref}">Cancel and return to portal</a></p>`
 }
-</div></body></html>`;
+</div><script src="${escapeHtml(p.scriptUrl)}"></script></body></html>`;
 }

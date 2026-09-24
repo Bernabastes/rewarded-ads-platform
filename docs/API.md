@@ -43,32 +43,34 @@ Human-readable companion to the machine contract:
 
 ## Auth (`/auth`)
 
-| Method | Path                           | Auth   | Body → Response                                                                                               |
-| ------ | ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------- |
-| POST   | `/auth/otp/request`            | public | `{ phoneNumber }` → `{ phoneNumber, expiresInSeconds, resendAfterSeconds, devCode? }`                         |
-| POST   | `/auth/otp/verify`             | public | `{ phoneNumber, code, deviceId?, deviceFingerprint? }` → `{ tokens, user, isNewUser }`                        |
-| POST   | `/auth/users/complete-profile` | user   | `{ fullName, dateOfBirth: 'YYYY-MM-DD', languagePreference? }` → `UserProfile` (403 `AGE_RESTRICTED` if < 18) |
-| POST   | `/auth/advertiser/register`    | public | `AdvertiserRegisterDto` → `{ tokens, advertiser }` (verificationStatus `pending`)                             |
-| POST   | `/auth/advertiser/login`       | public | `{ email, password }` → `{ tokens, advertiser }`                                                              |
-| POST   | `/auth/admin/login`            | public | `{ email, password }` → `{ tokens, admin }` (`admin.role`)                                                    |
-| POST   | `/auth/refresh`                | public | `{ refreshToken }` → `AuthTokens`                                                                             |
-| POST   | `/auth/logout`                 | public | `{ refreshToken }` → 204                                                                                      |
+| Method | Path                               | Auth       | Body → Response                                                                                                     |
+| ------ | ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/otp/request`                | public     | `{ phoneNumber }` → `{ phoneNumber, expiresInSeconds, resendAfterSeconds, devCode? }`                               |
+| POST   | `/auth/otp/verify`                 | public     | `{ phoneNumber, code, deviceId?, deviceFingerprint? }` → `{ tokens, user, isNewUser }`                              |
+| POST   | `/auth/users/complete-profile`     | user       | `{ fullName, dateOfBirth: 'YYYY-MM-DD', languagePreference? }` → `UserProfile` (403 `AGE_RESTRICTED` if < 18)       |
+| POST   | `/auth/advertiser/register`        | public     | `AdvertiserRegisterDto` → `{ tokens, advertiser }` (verificationStatus `pending`)                                   |
+| POST   | `/auth/advertiser/login`           | public     | `{ email, password }` → `{ tokens, advertiser }`                                                                    |
+| POST   | `/auth/admin/login`                | public     | `{ email, password }` → `{ tokens, admin }` (`admin.role`)                                                          |
+| POST   | `/auth/refresh`                    | public     | `{ refreshToken }` → `AuthTokens`                                                                                   |
+| POST   | `/auth/logout`                     | public     | `{ refreshToken }` → 204                                                                                            |
+| POST   | `/auth/advertiser/change-password` | advertiser | `{ currentPassword, newPassword }` ? `{ changed, sessionsRevoked }` (all refresh tokens revoked; re-login required) |
 
 Mobile onboarding flow: `otp/request` → `otp/verify` → if `user.profileComplete === false` → `complete-profile` →
 `PATCH /users/me` for language → home. Store tokens in secure storage; on `401 TOKEN_EXPIRED` refresh and retry once.
 
 ## Users (`/users`, user token)
 
-| Method | Path                      | Response                                                                                                                                         |
-| ------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/users/me`               | `UserProfile`                                                                                                                                    |
-| PATCH  | `/users/me`               | `{ fullName?, languagePreference?, notificationPrefs? }` → `UserProfile`                                                                         |
-| GET    | `/users/me/summary`       | `UserSummary` – balance, today's completions vs cap, totals, unread notifications, available ads/offers                                          |
-| GET    | `/users/me/balance`       | `BalanceResponse` – `coinBalance`, `etbEquivalent`, `coinsPerEtb`, `ledgerChecksum`, `conversionNote`. **Only source of truth for the balance.** |
-| GET    | `/users/me/ledger`        | `Paginated<LedgerEntry>` (signed `amount`, `balanceAfter`, `sourceType`)                                                                         |
-| GET    | `/users/me/notifications` | `Paginated<NotificationItem>`; `POST /users/me/notifications/:id/read`                                                                           |
-| POST   | `/users/me/push-tokens`   | `{ token, platform, deviceId? }`; `DELETE /users/me/push-tokens/:token`                                                                          |
-| POST   | `/users/me/ad-reports`    | `{ adId, reason, details? }` → `AdReport` (one per user per ad)                                                                                  |
+| Method | Path                         | Response                                                                                                                                                            |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/users/me`                  | `UserProfile`                                                                                                                                                       |
+| PATCH  | `/users/me`                  | `{ fullName?, languagePreference?, notificationPrefs? }` → `UserProfile`                                                                                            |
+| GET    | `/users/me/summary`          | `UserSummary` – balance, today's completions vs cap, totals, unread notifications, available ads/offers                                                             |
+| GET    | `/users/me/balance`          | `BalanceResponse` – `coinBalance`, `etbEquivalent`, `coinsPerEtb`, `ledgerChecksum`, `conversionNote`. **Only source of truth for the balance.**                    |
+| GET    | `/users/me/ledger`           | `Paginated<LedgerEntry>` (signed `amount`, `balanceAfter`, `sourceType`)                                                                                            |
+| GET    | `/users/me/notifications`    | `Paginated<NotificationItem>`; `POST /users/me/notifications/:id/read`                                                                                              |
+| POST   | `/users/me/push-tokens`      | `{ token, platform, deviceId? }`; `DELETE /users/me/push-tokens/:token`                                                                                             |
+| GET    | `/users/me/recently-watched` | `{ data: RecentlyWatchedItem[] }` � last 20 ads the user opened (from server-side watch sessions), newest first, with a `reported` flag for the "report an ad" flow |
+| POST   | `/users/me/ad-reports`       | `{ adId, reason, details? }` → `AdReport` (one per user per ad)                                                                                                     |
 
 ## Ads (`/ads`, user token, verified adult)
 
@@ -116,6 +118,13 @@ Player rules for the mobile app:
 Status meanings for the UI: `flagged_for_review` "under review by our team" (show `reviewReasons`), `pending` "queued",
 `processing` "sending to <provider>", `completed`, `failed` (`failureReason`, coins returned), `rejected` (coins returned).
 
+## Advertisers (`/advertisers`, advertiser token)
+
+| Method | Path              | Notes                                                                                                                       |
+| ------ | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/advertisers/me` | `AdvertiserProfile` � fresh `verificationStatus`, `walletBalanceEtb`, `notificationPrefs` (poll after registering)          |
+| PATCH  | `/advertisers/me` | `{ businessName?, contactPhone?, notificationPrefs? }` ? `AdvertiserProfile` (registration number / email are not editable) |
+
 ## Campaigns (`/campaigns`, advertiser token)
 
 | Method   | Path                               | Notes                                                                                                                                                                    |
@@ -138,21 +147,21 @@ Upload flow: `presign` → `PUT uploadUrl` with the file and the returned `heade
 
 ## Billing (`/billing`, advertiser token unless noted)
 
-| Method | Path                                 | Notes                                                                                                                                                         |
-| ------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/billing/balance`                   | `WalletBalanceResponse` (`balanceEtb`, `reservedEtb`, lifetime totals)                                                                                        |
-| GET    | `/billing/ledger`                    | `Paginated<AdvertiserLedgerEntry>`                                                                                                                            |
-| POST   | `/billing/topups`                    | `{ amountEtb (≥100), returnUrl? }` → `TopupResponse` – redirect the browser to `checkoutUrl` (`mock: true` → local fake checkout that returns to `returnUrl`) |
-| GET    | `/billing/payments`, `/payments/:id` | `Paginated<PaymentItem>`; detail re-verifies pending payments with the gateway                                                                                |
-| GET    | `/billing/invoices`, `/invoices/:id` | `Paginated<InvoiceItem>` (JSON line items)                                                                                                                    |
-| POST   | `/billing/webhooks/chapa`            | public, signature-verified gateway webhook                                                                                                                    |
-| GET    | `/billing/mock-checkout/:txRef`      | public HTML page (mock mode only); `POST …/pay { outcome: 'success'                                                                                           | 'failed' }` |
+| Method | Path                                 | Notes                                                                                                                                                                                                                                                                                                                  |
+| ------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/billing/balance`                   | `WalletBalanceResponse` (`balanceEtb`, `reservedEtb`, lifetime totals)                                                                                                                                                                                                                                                 |
+| GET    | `/billing/ledger`                    | `Paginated<AdvertiserLedgerEntry>`                                                                                                                                                                                                                                                                                     |
+| POST   | `/billing/topups`                    | `{ amountEtb (=100), returnUrl? }` ? `TopupResponse` � redirect the browser to `checkoutUrl`. The gateway (and the mock checkout) sends the browser back to `returnUrl` (default `<ADVERTISER_WEB_URL>/billing?topup=<txRef>`) **with `paymentId` and `txRef` appended**; `TopupResponse.returnUrl` is that final URL. |
+| GET    | `/billing/payments`, `/payments/:id` | `Paginated<PaymentItem>`; detail re-verifies pending payments with the gateway                                                                                                                                                                                                                                         |
+| GET    | `/billing/invoices`, `/invoices/:id` | `Paginated<InvoiceItem>` (JSON line items)                                                                                                                                                                                                                                                                             |
+| POST   | `/billing/webhooks/chapa`            | public, signature-verified gateway webhook                                                                                                                                                                                                                                                                             |
+| GET    | `/billing/mock-checkout/:txRef`      | public HTML page (mock mode only; its script is served from `�/mock-checkout/assets/checkout.js`, so it works under the API CSP). `POST �/:txRef/pay { outcome: 'success'\|'failed' }` ? `{ txRef, paymentId, status, returnUrl }`.                                                                                    |
 
 ## Admin (`/admin`, admin token; role-gated)
 
 | Area                     | Endpoints                                                                                                                                                                                                                                                                                            | Roles                                                                 |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Home                     | `GET /admin/me` (role + permissions), `GET /admin/overview` (counters), `GET /admin/config` (effective platform config + mock flags)                                                                                                                                                                 | all admins                                                            |
+| Home                     | `GET /admin/me` (role + permissions), `GET /admin/overview` (counters), `GET /admin/config` (effective platform config incl. `payoutMaxAttempts`, minimums and mock flags)                                                                                                                           | all admins                                                            |
 | Ad review                | `GET /admin/ads/review-queue?status`, `GET /admin/ads/:id` (incl. `attentionQuestions` with `correctIndex`, `bannedTopics`), `POST /admin/ads/:id/approve { bannedTopicsChecklist: { checks: {alcohol: true, …}, notes? }, note? }`, `POST /admin/ads/:id/reject { reason, bannedTopicsChecklist? }` | ad_reviewer, super_admin (`GET :id` also support)                     |
 | Campaign moderation      | `GET /admin/campaigns?status&advertiserId`, `GET /admin/campaigns/:id` (+analytics), `POST …/approve { note? }`, `…/reject { reason }`, `…/pause { reason }`, `…/resume`                                                                                                                             | ad_reviewer, super_admin (pause/resume + support; lists also finance) |
 | Ad reports               | `GET /admin/ad-reports?status`, `POST /admin/ad-reports/:id/review { outcome, note?, rejectAd?, rejectionReason? }`                                                                                                                                                                                  | ad_reviewer, support, super_admin                                     |
@@ -169,6 +178,16 @@ Admin UI rules: large withdrawals (`requiresDualApproval`) show `approvalsCount/
 already listed in `approvals`; coin adjustments must disable "Approve" for `requestedBy === me`. Every decision needs a
 reason where the API requires one (`REJECTION_REASON_REQUIRED`). Approving an ad requires **every** key of
 `BANNED_TOPICS` set to `true` in `bannedTopicsChecklist.checks`.
+
+## Boolean query parameters
+
+Boolean filters (`?resolved=false`) accept `true|false|1|0|yes|no`; they are parsed server-side with a dedicated
+transformer (a plain `Boolean("false")` coercion bug was fixed in Phase 3), so `resolved=false` really returns only open flags.
+
+## Admin login response
+
+`POST /auth/admin/login` returns `admin` with the same shape as `GET /admin/me` (`role`, `roles[]`, `permissions[]`),
+so dashboards can gate navigation immediately after login without a second request.
 
 ## Fraud (`/fraud`, admin token: support/finance/super_admin)
 

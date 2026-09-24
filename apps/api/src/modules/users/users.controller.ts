@@ -57,6 +57,16 @@ export class UsersController {
     return this.users.ledgerEntries(auth.subjectId, query);
   }
 
+  @Get('me/recently-watched')
+  @ApiOperation({
+    summary: 'Last 20 ads the user opened (for the "report an ad" flow)',
+    description:
+      'Derived from server-side watch sessions, newest first, one entry per ad, with `reported` flag.',
+  })
+  recentlyWatched(@CurrentAuth() auth: AuthContext) {
+    return this.users.recentlyWatched(auth.subjectId);
+  }
+
   @Get('me/notifications')
   @ApiOperation({ summary: 'In-app notification inbox' })
   notificationsList(@CurrentAuth() auth: AuthContext, @Query() query: PaginationQueryDto) {

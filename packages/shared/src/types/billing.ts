@@ -22,9 +22,12 @@ export interface AdvertiserLedgerEntry {
 }
 
 export interface CreateTopupDto {
-  /** ETB, >= 100. */
+  /** ETB, >= MIN_TOPUP_ETB (100). */
   amountEtb: number;
-  /** Where the gateway should send the browser after checkout (advertiser web URL). */
+  /**
+   * Where the gateway (or the mock checkout) should send the browser after checkout. The API appends
+   * `paymentId` and `txRef` query parameters. Defaults to `<ADVERTISER_WEB_URL>/billing?topup=<txRef>`.
+   */
   returnUrl?: string;
 }
 
@@ -37,6 +40,8 @@ export interface TopupResponse {
   checkoutUrl: string;
   /** true when the gateway runs in mock mode (no CHAPA_SECRET_KEY configured). */
   mock: boolean;
+  /** Effective return URL (caller-supplied or default) with `paymentId` + `txRef` appended. */
+  returnUrl: string;
 }
 
 export interface PaymentItem {
@@ -46,10 +51,22 @@ export interface PaymentItem {
   amountEtb: number;
   currency: 'ETB';
   status: PaymentStatus;
+  /** true for payments created while the gateway ran in mock mode. */
+  mock: boolean;
   checkoutUrl: string | null;
+  /** Caller-supplied return URL stored with the payment (without the appended params). */
+  returnUrl?: string | null;
   gatewayReference: string | null;
   paidAt: IsoDateTime | null;
   createdAt: IsoDateTime;
+}
+
+/** Response of the mock-only `POST /billing/mock-checkout/:txRef/pay`. */
+export interface MockCheckoutPayResponse {
+  txRef: string;
+  paymentId: Uuid;
+  status: PaymentStatus;
+  returnUrl: string;
 }
 
 export interface InvoiceLineItem {

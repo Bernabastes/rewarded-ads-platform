@@ -16,12 +16,18 @@ export const API_ROUTES = {
     advertiserRegister: '/auth/advertiser/register',
     advertiserLogin: '/auth/advertiser/login',
     adminLogin: '/auth/admin/login',
+    advertiserChangePassword: '/auth/advertiser/change-password',
     refresh: '/auth/refresh',
     logout: '/auth/logout',
   },
 
+  advertisers: {
+    me: '/advertisers/me',
+  },
+
   users: {
     me: '/users/me',
+    recentlyWatched: '/users/me/recently-watched',
     summary: '/users/me/summary',
     balance: '/users/me/balance',
     ledger: '/users/me/ledger',
@@ -74,6 +80,7 @@ export const API_ROUTES = {
     chapaWebhook: '/billing/webhooks/chapa',
     mockCheckout: (txRef: string) => `/billing/mock-checkout/${txRef}`,
     mockCheckoutPay: (txRef: string) => `/billing/mock-checkout/${txRef}/pay`,
+    mockCheckoutScript: '/billing/mock-checkout/assets/checkout.js',
   },
 
   withdrawals: {
@@ -100,6 +107,7 @@ export const API_ROUTES = {
     advertiser: (id: string) => `/admin/advertisers/${id}`,
     advertiserVerify: (id: string) => `/admin/advertisers/${id}/verify`,
     advertiserReject: (id: string) => `/admin/advertisers/${id}/reject`,
+    advertiserWallet: (id: string) => `/admin/advertisers/${id}/wallet`,
     campaigns: '/admin/campaigns',
     campaign: (id: string) => `/admin/campaigns/${id}`,
     campaignApprove: (id: string) => `/admin/campaigns/${id}/approve`,

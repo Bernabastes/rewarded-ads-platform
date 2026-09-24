@@ -1,37 +1,25 @@
 /**
- * Local widening of the `@rap/shared` admin types for fields the API returns but the
- * shared contract does not (yet) declare. Kept in one place so the gap is easy to close upstream.
+ * Local aliases over the `@rap/shared` admin types. The fields this file used to add locally
+ * (`reviewNote`, `bannedTopics`, `bankCode`, `attempts`, `lastIp`, campaign detail `ads`/`analytics`) are now
+ * declared upstream; the aliases are kept so feature code does not churn.
  */
 import type {
   AdminAdvertiserDetail,
+  AdminCampaignDetail as SharedAdminCampaignDetail,
   AdminCampaignItem,
   AdminUserDetail,
   AdminWithdrawalItem,
   AdReviewItem,
-  AdSummary,
-  BANNED_TOPICS,
-  CampaignAnalytics,
 } from '@rap/shared';
 
-export type AdReview = AdReviewItem & {
-  reviewNote?: string | null;
-  bannedTopics?: typeof BANNED_TOPICS;
-};
+export type AdReview = AdReviewItem;
 
-export type AdminWithdrawal = AdminWithdrawalItem & {
-  bankCode?: string | null;
-  attempts?: number;
-};
+export type AdminWithdrawal = AdminWithdrawalItem;
 
-export type AdminUser = AdminUserDetail & {
-  lastIp?: string | null;
-};
+export type AdminUser = AdminUserDetail;
 
 export type AdminCampaign = AdminCampaignItem;
 
-export type AdminCampaignDetail = AdminCampaignItem & {
-  ads: AdSummary[];
-  analytics: CampaignAnalytics;
-};
+export type AdminCampaignDetail = SharedAdminCampaignDetail;
 
 export type AdminAdvertiser = AdminAdvertiserDetail;

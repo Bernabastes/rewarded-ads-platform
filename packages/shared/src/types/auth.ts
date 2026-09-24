@@ -97,6 +97,15 @@ export interface EmailPasswordLoginDto {
   password: string;
 }
 
+export interface AdvertiserNotificationPrefs {
+  /** Campaign / creative approved or rejected. */
+  campaignReviews: boolean;
+  /** Top-ups, invoices, low balance. */
+  billing: boolean;
+  /** Weekly performance summary. */
+  weeklyReport: boolean;
+}
+
 export interface AdvertiserProfile {
   id: Uuid;
   businessName: string;
@@ -106,7 +115,22 @@ export interface AdvertiserProfile {
   verificationStatus: AdvertiserVerificationStatus;
   verificationNote: string | null;
   walletBalanceEtb: number;
+  notificationPrefs: AdvertiserNotificationPrefs;
   createdAt: IsoDateTime;
+}
+
+/** `PATCH /advertisers/me` – identity fields (registration number, email) are not editable here. */
+export interface UpdateAdvertiserProfileDto {
+  businessName?: string;
+  contactPhone?: string;
+  notificationPrefs?: Partial<AdvertiserNotificationPrefs>;
+}
+
+/** `POST /auth/advertiser/change-password` – revokes every refresh token; re-login required. */
+export interface ChangePasswordDto {
+  currentPassword: string;
+  /** Min 8 chars, at least one letter and one digit. */
+  newPassword: string;
 }
 
 export interface AdvertiserAuthResponse {
@@ -122,6 +146,9 @@ export interface AdminProfile {
   active: boolean;
   lastLoginAt: IsoDateTime | null;
   createdAt: IsoDateTime;
+  /** Same shape as GET /admin/me: role(s) and coarse permission strings the UI can gate on. */
+  roles: AdminRole[];
+  permissions: string[];
 }
 
 export interface AdminAuthResponse {
