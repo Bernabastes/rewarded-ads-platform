@@ -8,7 +8,7 @@ WORKDIR /repo
 
 # ---- install all workspace deps (cached by lockfile) ----
 FROM base AS deps
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
 COPY scripts ./scripts
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/api/package.json ./apps/api/
