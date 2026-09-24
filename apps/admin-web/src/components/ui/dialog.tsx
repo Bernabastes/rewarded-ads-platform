@@ -14,16 +14,19 @@ export interface DialogProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Prevent closing via overlay / escape (e.g. while a mutation is pending). */
   locked?: boolean;
+  /** Override Radix's default "focus first tabbable" behaviour (e.g. to focus a search input). */
+  onOpenAutoFocus?: (event: Event) => void;
 }
 
 const sizes = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-2xl', xl: 'max-w-4xl' };
 
-export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', locked }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', locked, onOpenAutoFocus }: DialogProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={locked ? () => undefined : onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="anim-fade-in fixed inset-0 z-50 bg-stone-950/40 backdrop-blur-[2px]" />
         <DialogPrimitive.Content
+          onOpenAutoFocus={onOpenAutoFocus}
           className={cn(
             'anim-pop-in fixed top-1/2 left-1/2 z-50 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-surface shadow-pop outline-none',
             'flex max-h-[calc(100vh-2rem)] flex-col',

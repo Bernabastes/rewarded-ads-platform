@@ -31,5 +31,6 @@ export const handlers = [
   http.get(`${BASE}/admin/withdrawals`, () => HttpResponse.json({ data: [largeWithdrawal], meta: { page: 1, limit: 20, total: 1 } })),
   http.get(`${BASE}/admin/withdrawals/:id`, () => HttpResponse.json(largeWithdrawal)),
   http.get(`${BASE}/admin/coin-adjustments`, () => HttpResponse.json({ data: [pendingAdjustment], meta: { page: 1, limit: 20, total: 1 } })),
+  http.get(`${BASE}/admin/coin-adjustments/:id`, () => HttpResponse.json(pendingAdjustment)),
   http.get(`${BASE}/admin/users`, () => HttpResponse.json({ data: [], meta: { page: 1, limit: 20, total: 0 } })),
 ];

@@ -21,20 +21,23 @@ export function Tooltip({
   side?: 'top' | 'bottom' | 'left' | 'right';
   disabled?: boolean;
 }) {
-  if (disabled || !content) return <>{children}</>;
+  // Root + Trigger stay mounted even when disabled so toggling a tooltip never remounts (and un-focuses) the child.
+  const show = !disabled && Boolean(content);
   return (
     <TooltipPrimitive.Root delayDuration={250}>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-      <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content
-          side={side}
-          sideOffset={6}
-          className="anim-fade-in z-[60] max-w-xs rounded-md bg-stone-900 px-2.5 py-1.5 text-xs leading-snug text-stone-50 shadow-pop dark:bg-stone-100 dark:text-stone-900"
-        >
-          {content}
-          <TooltipPrimitive.Arrow className="fill-stone-900 dark:fill-stone-100" />
-        </TooltipPrimitive.Content>
-      </TooltipPrimitive.Portal>
+      {show ? (
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
+            side={side}
+            sideOffset={6}
+            className="anim-fade-in z-[60] max-w-xs rounded-md bg-stone-900 px-2.5 py-1.5 text-xs leading-snug text-stone-50 shadow-pop dark:bg-stone-100 dark:text-stone-900"
+          >
+            {content}
+            <TooltipPrimitive.Arrow className="fill-stone-900 dark:fill-stone-100" />
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      ) : null}
     </TooltipPrimitive.Root>
   );
 }

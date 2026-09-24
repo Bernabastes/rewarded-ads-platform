@@ -1,6 +1,6 @@
 import { Command } from 'cmdk';
 import { LogOut, Moon, Search, Sun, SunMoon, UserSearch } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useTheme } from '@/lib/hooks/use-theme';
@@ -18,6 +18,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { can, logout } = useAuth();
   const { setTheme } = useTheme();
   const [search, setSearch] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) setSearch('');
@@ -31,11 +32,22 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const looksLikePhone = /^\+?\d{4,}$/.test(search.replace(/\s+/g, ''));
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Command palette" size="md">
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Command palette"
+      size="md"
+      onOpenAutoFocus={(e) => {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }}
+    >
       <Command label="Command palette" className="-m-5 [&_[cmdk-input]]:outline-none">
         <div className="flex items-center gap-2 border-b px-4">
           <Search className="size-4 shrink-0 text-fg-subtle" aria-hidden />
           <Command.Input
+            ref={inputRef}
+            autoFocus
             value={search}
             onValueChange={setSearch}
             placeholder="Jump to a page, search a user, change theme…"

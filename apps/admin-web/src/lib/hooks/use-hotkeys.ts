@@ -23,14 +23,15 @@ function isEditable(target: EventTarget | null): boolean {
 
 /**
  * Normalises a key event to a token like "mod+k", "shift+j", "j", "escape", "?".
- * `mod` is Cmd on macOS and Ctrl elsewhere.
+ * `mod` is Cmd on macOS and Ctrl elsewhere. Shift is recorded for letters/digits and named keys;
+ * for punctuation the key itself already encodes it ("?" rather than "shift+/").
  */
 export function eventToToken(e: KeyboardEvent): string {
   const parts: string[] = [];
   if (e.metaKey || e.ctrlKey) parts.push('mod');
   if (e.altKey) parts.push('alt');
-  if (e.shiftKey && e.key.length > 1) parts.push('shift');
-  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  const key = e.key.toLowerCase();
+  if (e.shiftKey && (e.key.length > 1 || /^[a-z0-9]$/i.test(e.key))) parts.push('shift');
   parts.push(key);
   return parts.join('+');
 }
