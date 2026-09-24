@@ -17,12 +17,18 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev:api": "node scripts/run-workspace.mjs dev --filter @rap/api",
+    "dev:advertiser": "node scripts/run-workspace.mjs dev --filter @rap/advertiser-web",
+    "dev:admin": "node scripts/run-workspace.mjs dev --filter @rap/admin-web",
+    "dev:mobile": "node scripts/run-workspace.mjs web --filter @rap/mobile",
+    "dev": "concurrently -k -n api,advertiser,admin -c blue,green,magenta \"node scripts/run-workspace.mjs dev --filter @rap/api\" \"node scripts/run-workspace.mjs dev --filter @rap/advertiser-web\" \"node scripts/run-workspace.mjs dev --filter @rap/admin-web\"",
+    "demo": "powershell -ExecutionPolicy Bypass -File scripts/demo.ps1",
     "infra:up": "docker compose up -d postgres redis minio minio-init",
     "infra:down": "docker compose down",
     "smoke": "powershell -ExecutionPolicy Bypass -File scripts/smoke.ps1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "concurrently": "^9.2.1",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.4.0",

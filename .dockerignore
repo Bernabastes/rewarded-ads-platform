@@ -8,3 +8,8 @@ coverage
 **/.expo
 **/build
 docs/openapi.json
+**/dist
+**/.vite
+**/.vite-temp
+**/playwright-report
+**/test-results

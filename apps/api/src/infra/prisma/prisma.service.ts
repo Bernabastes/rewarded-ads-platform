@@ -10,7 +10,12 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
-    super({ log: process.env.PRISMA_LOG === 'query' ? ['query', 'warn', 'error'] : ['warn', 'error'] });
+    super({
+      log: process.env.PRISMA_LOG === 'query' ? ['query', 'warn', 'error'] : ['warn', 'error'],
+      // Interactive transactions default to a 5 s budget, which cold Docker-on-Windows volumes can exceed on the
+      // first statement after start-up; admin decisions and ledger writes must never fail on a timing hiccup.
+      transactionOptions: { maxWait: 10_000, timeout: 20_000 },
+    });
   }
 
   async connectOrThrow(): Promise<void> {

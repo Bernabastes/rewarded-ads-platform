@@ -103,6 +103,36 @@ services:
       timeout: 5s
       retries: 10
 
+  # Static builds of the two web portals (nginx). VITE_API_URL is baked in at build time.
+  advertiser-web:
+    build:
+      context: .
+      dockerfile: apps/advertiser-web/Dockerfile
+      args:
+        VITE_API_URL: ${API_PUBLIC_URL:-http://localhost:3000}
+        VITE_PUBLIC_URL: ${ADVERTISER_WEB_URL:-http://localhost:5173}
+    container_name: rap-advertiser-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - '${ADVERTISER_WEB_PORT:-5173}:80'
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: apps/admin-web/Dockerfile
+      args:
+        VITE_API_URL: ${API_PUBLIC_URL:-http://localhost:3000}
+    container_name: rap-admin-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - '${ADMIN_WEB_PORT:-5174}:80'
+
 volumes:
   postgres-data:
   redis-data:

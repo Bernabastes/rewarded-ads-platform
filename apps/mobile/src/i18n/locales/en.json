@@ -356,6 +356,7 @@
       "first_withdrawal": "This is your first withdrawal.",
       "large_amount": "The amount is above our review threshold.",
       "low_trust": "Some recent activity needs a closer look.",
+      "low_trust_score": "Some recent activity needs a closer look.",
       "default": "Routine safety check."
     },
     "timeline": {
