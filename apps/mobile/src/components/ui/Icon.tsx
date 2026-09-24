@@ -1,3 +1,4 @@
+import { View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import { useTheme } from '@/theme/ThemeProvider';
@@ -77,24 +78,24 @@ export function Icon({ name, size = 22, color, strokeWidth = 1.9, filled = false
   const { colors } = useTheme();
   const stroke = color ?? colors.text;
   return (
-    <Svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole={accessibilityLabel ? 'image' : undefined}
+    <View
       accessible={Boolean(accessibilityLabel)}
+      accessibilityRole={accessibilityLabel ? 'image' : undefined}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityElementsHidden={!accessibilityLabel}
       importantForAccessibility={accessibilityLabel ? 'yes' : 'no-hide-descendants'}
+      style={{ width: size, height: size }}
     >
-      <Path
-        d={ICONS[name]}
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill={filled ? stroke : 'none'}
-      />
-    </Svg>
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path
+          d={ICONS[name]}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill={filled ? stroke : 'none'}
+        />
+      </Svg>
+    </View>
   );
 }

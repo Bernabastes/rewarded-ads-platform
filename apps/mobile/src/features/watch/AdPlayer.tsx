@@ -83,7 +83,16 @@ export function AdPlayer({
   useEventListener(player, 'timeUpdate', ({ currentTime }) => {
     setPosition(currentTime);
     positionRef.current = currentTime;
-    if (player.duration && Number.isFinite(player.duration) && player.duration > 0) setDuration(player.duration);
+    // The rewarded portion is the declared ad length. Media longer than that (e.g. a long sample clip)
+    // is cut at the declared duration - the server also rejects sessions kept open for too long.
+    const declared = state.session?.expectedDurationSeconds ?? ad.durationSeconds;
+    const media = player.duration && Number.isFinite(player.duration) && player.duration > 0 ? player.duration : declared;
+    setDuration(declared > 0 ? Math.min(media, declared) : media);
+    if (declared > 0 && currentTime >= declared && !endedRef.current) {
+      endedRef.current = true;
+      player.pause();
+      onPlaybackEnded();
+    }
   });
   useEventListener(player, 'playToEnd', () => {
     if (endedRef.current) return;
@@ -309,10 +318,12 @@ export function AdPlayer({
               />
             )}
             {playbackError ? (
-              <View style={styles.overlay}>
-                <Text variant="body" weight="medium" style={{ color: '#FFFFFF' }}>
+              <View style={[styles.overlay, { gap: spacing.md }]} testID="ad-playback-error">
+                <Icon name="alert" size={32} color="#FFFFFF" />
+                <Text variant="body" weight="medium" align="center" style={{ color: '#FFFFFF' }}>
                   {t('ad.playbackError')}
                 </Text>
+                <Button title={t('common.back')} onPress={onClose} variant="accent" fullWidth={false} size="sm" />
               </View>
             ) : null}
             {needsTap && !isPlaying && state.phase === 'watching' ? (

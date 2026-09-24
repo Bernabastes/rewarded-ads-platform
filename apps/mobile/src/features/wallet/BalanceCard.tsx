@@ -101,6 +101,7 @@ export function BalanceCard({
               icon="arrowUpRight"
               fullWidth={false}
               style={{ flex: 1 }}
+              testID="balance-withdraw"
             />
           ) : null}
           {onHistory ? (
@@ -111,6 +112,7 @@ export function BalanceCard({
               icon="receipt"
               fullWidth={false}
               style={{ flex: 1 }}
+              testID="balance-history"
             />
           ) : null}
         </View>

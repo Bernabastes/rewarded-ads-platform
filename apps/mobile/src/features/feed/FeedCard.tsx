@@ -1,6 +1,6 @@
 import type { AdFeedItem } from '@rap/shared';
 import { Image } from 'expo-image';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
@@ -29,6 +29,7 @@ export const FeedCard = memo(function FeedCard({ ad, onPress, testID }: FeedCard
   const time = formatEstimatedTime(ad.estimatedSeconds, t);
   const coins = formatCoins(ad.rewardCoins, language);
   const etbNumber = formatEtbNumber(ad.rewardEtb, language);
+  const [thumbFailed, setThumbFailed] = useState(false);
 
   return (
     <Card
@@ -41,9 +42,10 @@ export const FeedCard = memo(function FeedCard({ ad, onPress, testID }: FeedCard
       style={styles.card}
     >
       <View style={[styles.thumbWrap, { backgroundColor: colors.surfaceMuted }]}>
-        {ad.thumbnailUrl ? (
+        {ad.thumbnailUrl && !thumbFailed ? (
           <Image
             source={{ uri: ad.thumbnailUrl }}
+            onError={() => setThumbFailed(true)}
             style={styles.thumb}
             contentFit="cover"
             transition={200}

@@ -82,5 +82,6 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
 
 const styles = StyleSheet.create({
   field: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, minHeight: 52 },
-  input: { flex: 1, fontSize: 16, paddingVertical: 12, minHeight: 48 },
+  // minWidth 0 lets the web <input> shrink below its intrinsic ~20ch width inside narrow fields.
+  input: { flex: 1, minWidth: 0, fontSize: 16, paddingVertical: 12, minHeight: 48 },
 });
