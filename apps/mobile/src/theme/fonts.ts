@@ -1,10 +1,13 @@
-import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
-import {
-  NotoSansEthiopic_400Regular,
-  NotoSansEthiopic_500Medium,
-  NotoSansEthiopic_600SemiBold,
-  NotoSansEthiopic_700Bold,
-} from '@expo-google-fonts/noto-sans-ethiopic';
+// Per-weight subpath imports keep only the 8 font files we use in the bundle (the package
+// index would pull in every weight and italic, ~9 MB more).
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
+import { NotoSansEthiopic_400Regular } from '@expo-google-fonts/noto-sans-ethiopic/400Regular';
+import { NotoSansEthiopic_500Medium } from '@expo-google-fonts/noto-sans-ethiopic/500Medium';
+import { NotoSansEthiopic_600SemiBold } from '@expo-google-fonts/noto-sans-ethiopic/600SemiBold';
+import { NotoSansEthiopic_700Bold } from '@expo-google-fonts/noto-sans-ethiopic/700Bold';
 import { useFonts } from 'expo-font';
 import { Platform } from 'react-native';
 
