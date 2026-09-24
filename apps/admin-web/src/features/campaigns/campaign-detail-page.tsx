@@ -58,7 +58,7 @@ export function CampaignDetailPage() {
             <div className="min-w-0">
               <div className="truncate font-medium">{row.original.title}</div>
               <div className="text-2xs text-fg-subtle">
-                {humanize(row.original.mediaType)} Â· {formatDuration(row.original.durationSeconds)} Â· {row.original.attentionQuestionsCount} question{row.original.attentionQuestionsCount === 1 ? '' : 's'}
+                {humanize(row.original.mediaType)} · {formatDuration(row.original.durationSeconds)} · {row.original.attentionQuestionsCount} question{row.original.attentionQuestionsCount === 1 ? '' : 's'}
               </div>
             </div>
           </div>
@@ -91,7 +91,7 @@ export function CampaignDetailPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        crumbs={[{ label: 'Campaigns', to: '/campaigns' }, { label: c?.title ?? 'â€¦' }]}
+        crumbs={[{ label: 'Campaigns', to: '/campaigns' }, { label: c?.title ?? '…' }]}
         title={
           c ? (
             <span className="flex flex-wrap items-center gap-2">
@@ -108,8 +108,8 @@ export function CampaignDetailPage() {
               <Link to={`/advertisers/${c.advertiserId}`} className="font-medium text-fg hover:text-primary hover:underline">
                 {c.advertiser?.businessName ?? 'advertiser'}
               </Link>{' '}
-              Â· created {formatDate(c.createdAt)}
-              {c.startDate ? ` Â· runs ${formatDate(c.startDate)}${c.endDate ? ` â†’ ${formatDate(c.endDate)}` : ' onwards'}` : ''}
+              · created {formatDate(c.createdAt)}
+              {c.startDate ? ` · runs ${formatDate(c.startDate)}${c.endDate ? ` → ${formatDate(c.endDate)}` : ' onwards'}` : ''}
             </>
           ) : undefined
         }
@@ -158,16 +158,16 @@ export function CampaignDetailPage() {
       ) : null}
       {c?.status === 'pending_review' && c.approvedAdsCount === 0 && c.adsCount > 0 && c.targetActionType === 'video_view' ? (
         <div className="rounded-md border border-info/40 bg-info/10 px-3 py-2 text-sm">
-          None of this campaignâ€™s {c.adsCount} creative{c.adsCount === 1 ? ' is' : 's are'} approved yet - approving the campaign does not approve its ads. Review them in the ad queue first or in parallel.
+          None of this campaign’s {c.adsCount} creative{c.adsCount === 1 ? ' is' : 's are'} approved yet - approving the campaign does not approve its ads. Review them in the ad queue first or in parallel.
         </div>
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Spend" value={t ? Number(t.spendEtb) : undefined} format={(v) => formatEtb(v)} loading={!c} tone="primary" hint={c ? `of ${formatEtb(c.budgetEtb)} budget Â· ${formatEtb(c.remainingEtb)} left` : undefined} />
+        <StatCard label="Spend" value={t ? Number(t.spendEtb) : undefined} format={(v) => formatEtb(v)} loading={!c} tone="primary" hint={c ? `of ${formatEtb(c.budgetEtb)} budget · ${formatEtb(c.remainingEtb)} left` : undefined} />
         <StatCard label="Valid completions" value={t?.validCompletions} loading={!c} tone="success" hint={t ? `${formatInt(t.uniqueUsers)} unique users` : undefined} />
         <StatCard label="Raw completions" value={t?.rawCompletions} loading={!c} hint={t ? `${formatInt(t.rawViews)} watch sessions started` : undefined} />
-        <StatCard label="Fraud-filtered" value={t ? t.fraudFilteredRate * 100 : undefined} format={(v) => `${v.toFixed(1)}%`} loading={!c} tone="accent" hint={t ? `${formatInt(t.flaggedCompletions)} flagged Â· ${formatInt(t.rejectedCompletions)} rejected` : undefined} />
-        <StatCard label="Reward / action" value={c ? Number(c.rewardPerActionEtb) : undefined} format={(v) => formatEtb(v)} loading={!c} hint={c ? `${formatInt(c.rewardCoins)} coins Â· advertiser pays ${formatEtb(c.costPerActionEtb)}` : undefined} />
+        <StatCard label="Fraud-filtered" value={t ? t.fraudFilteredRate * 100 : undefined} format={(v) => `${v.toFixed(1)}%`} loading={!c} tone="accent" hint={t ? `${formatInt(t.flaggedCompletions)} flagged · ${formatInt(t.rejectedCompletions)} rejected` : undefined} />
+        <StatCard label="Reward / action" value={c ? Number(c.rewardPerActionEtb) : undefined} format={(v) => formatEtb(v)} loading={!c} hint={c ? `${formatInt(c.rewardCoins)} coins · advertiser pays ${formatEtb(c.costPerActionEtb)}` : undefined} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -216,7 +216,7 @@ export function CampaignDetailPage() {
                 <DescriptionList
                   columns={1}
                   items={[
-                    { label: 'Description', value: c.description ?? 'â€”' },
+                    { label: 'Description', value: c.description ?? '—' },
                     { label: 'Budget', value: `${formatEtb(c.budgetEtb)} (spent ${formatEtbBare(c.spentEtb)})` },
                     { label: 'Cost per action', value: formatEtb(c.costPerActionEtb) },
                     { label: 'User reward', value: `${formatEtb(c.rewardPerActionEtb)} = ${formatInt(c.rewardCoins)} coins` },
@@ -252,7 +252,7 @@ export function CampaignDetailPage() {
             action === 'approve'
               ? 'The campaign becomes active. Only approved creatives are served, so review them in the ad queue too.'
               : action === 'reject'
-                ? 'The campaign is rejected and any unspent reserved budget is refunded to the advertiserâ€™s wallet.'
+                ? 'The campaign is rejected and any unspent reserved budget is refunded to the advertiser’s wallet.'
                 : action === 'pause'
                   ? 'Ads stop serving immediately. The advertiser cannot resume an admin-paused campaign.'
                   : 'Ads start serving again.'

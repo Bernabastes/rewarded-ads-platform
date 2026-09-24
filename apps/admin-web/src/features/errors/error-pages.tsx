@@ -8,8 +8,8 @@ export function NotFoundPage() {
     <div className="flex min-h-[60vh] items-center justify-center">
       <EmptyState
         icon={Compass}
-        title="This page doesnâ€™t exist"
-        description="The link may be outdated, or the record may have been removed. Use the command palette (Ctrl/âŒ˜ K) to jump anywhere."
+        title="This page doesn’t exist"
+        description="The link may be outdated, or the record may have been removed. Use the command palette (Ctrl/⌘ K) to jump anywhere."
         action={
           <Link to="/" className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-fg hover:bg-primary-hover">
             Back to overview

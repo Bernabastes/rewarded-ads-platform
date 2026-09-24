@@ -59,7 +59,7 @@ export function FraudPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Flagged this week" value={m ? m.weekly.flaggedRate * 100 : undefined} format={(v) => `${v.toFixed(1)}%`} loading={!m} icon={TrendingUp} tone="accent" hint={m ? `${formatInt(m.weekly.flaggedCompletions + m.weekly.rejectedCompletions)} of ${formatInt(m.weekly.rawCompletions)} completions (7 UTC days)` : undefined} />
-        <StatCard label="Open flags" value={openTotal} loading={!m} icon={ShieldAlert} tone="danger" hint={m ? SEVERITY_ORDER.map((s) => `${m.openFlagsBySeverity[s]} ${s}`).join(' Â· ') : undefined} />
+        <StatCard label="Open flags" value={openTotal} loading={!m} icon={ShieldAlert} tone="danger" hint={m ? SEVERITY_ORDER.map((s) => `${m.openFlagsBySeverity[s]} ${s}`).join(' · ') : undefined} />
         <StatCard label="Suspended users" value={m?.suspendedUsers} loading={!m} icon={UserRoundX} tone="warning" hint={m ? `${formatInt(m.bannedUsers)} banned` : undefined} to="/users?status=suspended" />
         <StatCard label="Low-trust active users" value={m?.lowTrustUsers} loading={!m} tone="info" hint="Trust score below 30" to="/users?maxTrustScore=29&status=active" />
         <StatCard label="Ledger drifts" value={m?.ledgerDriftsDetected} loading={!m} icon={ShieldCheck} tone={m && m.ledgerDriftsDetected > 0 ? 'danger' : 'success'} hint="Cached balance vs ledger sum (hourly job)" />
@@ -229,7 +229,7 @@ export function FlagSheet({ id, initial, onClose }: { id: string | null; initial
             <SeverityBadge severity={f.severity} />
             {f.resolved ? <StatusBadge status={f.resolution ?? 'resolved'} /> : <Badge tone="warning" dot>Open</Badge>}
             <Badge tone="neutral" className="tabular">
-              trust Î” {f.trustScoreDelta > 0 ? '+' : ''}
+              trust Δ {f.trustScoreDelta > 0 ? '+' : ''}
               {f.trustScoreDelta}
             </Badge>
           </div>
@@ -247,7 +247,7 @@ export function FlagSheet({ id, initial, onClose }: { id: string | null; initial
                         {f.userPhone ?? f.userId} <ExternalLink className="size-3" />
                       </Link>
                     ) : (
-                      'â€”'
+                      '—'
                     ),
                   },
                   { label: 'Related entity', value: `${humanize(f.relatedEntityType)}` },
@@ -257,7 +257,7 @@ export function FlagSheet({ id, initial, onClose }: { id: string | null; initial
                     ? [
                         { label: 'Resolved by', value: <IdChip id={f.resolvedBy} /> },
                         { label: 'Resolved at', value: formatDateTime(f.resolvedAt) },
-                        { label: 'Resolution note', value: f.resolutionNote ?? 'â€”', span: 2 as const },
+                        { label: 'Resolution note', value: f.resolutionNote ?? '—', span: 2 as const },
                       ]
                     : []),
                 ]}
@@ -268,10 +268,10 @@ export function FlagSheet({ id, initial, onClose }: { id: string | null; initial
           {f.relatedEntityType === 'ad_completion' && !f.resolved ? (
             <div className={cn('rounded-md border px-3 py-2 text-xs', otherOpen === 0 ? 'border-warning/40 bg-warning/10' : 'border-info/40 bg-info/10')}>
               {siblings.isPending ? (
-                'Checking other flags on this completionâ€¦'
+                'Checking other flags on this completion…'
               ) : otherOpen === 0 ? (
                 <>
-                  <span className="font-medium">This is the only open flag on the completion.</span> Dismissing it marks the view genuine and <span className="font-medium">credits the userâ€™s reward</span> through the ledger (charging the campaign).
+                  <span className="font-medium">This is the only open flag on the completion.</span> Dismissing it marks the view genuine and <span className="font-medium">credits the user’s reward</span> through the ledger (charging the campaign).
                 </>
               ) : (
                 <>
@@ -306,7 +306,7 @@ export function FlagSheet({ id, initial, onClose }: { id: string | null; initial
                   : `Marks the flag a false positive. ${otherOpen} other flag${otherOpen === 1 ? '' : 's'} remain, so nothing is credited yet.`
                 : 'Marks the flag a false positive. No balance changes.'
               : action === 'escalate'
-                ? 'Marks the flag for investigation and lowers the userâ€™s trust score by 10. Nothing is credited.'
+                ? 'Marks the flag for investigation and lowers the user’s trust score by 10. Nothing is credited.'
                 : 'Confirms the flag, suspends the account (sessions revoked), and recomputes the trust score. Provide the reason shown in the audit log.'
           }
           confirmLabel={action === 'dismiss' ? (f.relatedEntityType === 'ad_completion' && otherOpen === 0 ? 'Dismiss & credit reward' : 'Dismiss flag') : action === 'escalate' ? 'Escalate' : 'Suspend user'}

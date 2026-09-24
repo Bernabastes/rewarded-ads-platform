@@ -44,7 +44,7 @@ export function AdvertiserDetailPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        crumbs={[{ label: 'Advertisers', to: '/advertisers' }, { label: a?.businessName ?? 'â€¦' }]}
+        crumbs={[{ label: 'Advertisers', to: '/advertisers' }, { label: a?.businessName ?? '…' }]}
         title={
           a ? (
             <span className="flex flex-wrap items-center gap-2">
@@ -54,7 +54,7 @@ export function AdvertiserDetailPage() {
             <Skeleton className="h-7 w-64" />
           )
         }
-        description={a ? `Registered ${formatDate(a.createdAt)} Â· ${a.campaignsCount} campaign${a.campaignsCount === 1 ? '' : 's'}` : undefined}
+        description={a ? `Registered ${formatDate(a.createdAt)} · ${a.campaignsCount} campaign${a.campaignsCount === 1 ? '' : 's'}` : undefined}
         actions={
           a && canDecide ? (
             <>
@@ -119,7 +119,7 @@ export function AdvertiserDetailPage() {
                   { label: 'Verification', value: <StatusBadge status={a.verificationStatus} /> },
                   { label: 'Verified by', value: <IdChip id={a.verifiedBy} /> },
                   { label: 'Decided at', value: formatDateTime(a.verifiedAt) },
-                  { label: 'Note', value: a.verificationNote ?? 'â€”' },
+                  { label: 'Note', value: a.verificationNote ?? '—' },
                   { label: 'Advertiser id', value: <IdChip id={a.id} length={36} /> },
                 ]}
               />
@@ -139,7 +139,7 @@ export function AdvertiserDetailPage() {
             <CardHeader title="Wallet ledger & payments" description="Not exposed by the admin API yet." />
             <CardBody className="text-xs text-fg-muted">
               The admin API currently returns the wallet balance and lifetime spend only. Top-ups, reservations and refunds are visible to the advertiser in their portal; a read-only admin
-              endpoint for the advertiser ledger is listed under â€œAPI gapsâ€ in the README.
+              endpoint for the advertiser ledger is listed under “API gaps” in the README.
             </CardBody>
           </Card>
         </div>

@@ -58,7 +58,7 @@ export function UserDetailPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        crumbs={[{ label: 'Users', to: '/users' }, { label: u?.phoneNumber ?? 'â€¦' }]}
+        crumbs={[{ label: 'Users', to: '/users' }, { label: u?.phoneNumber ?? '…' }]}
         title={
           u ? (
             <span className="flex items-center gap-3">
@@ -73,7 +73,7 @@ export function UserDetailPage() {
             <Skeleton className="h-7 w-72" />
           )
         }
-        description={u?.statusReason ? <span className="text-danger">Status reason: {u.statusReason}</span> : u ? `Joined ${formatDate(u.createdAt)} Â· last login ${formatDateTime(u.lastLoginAt)}` : undefined}
+        description={u?.statusReason ? <span className="text-danger">Status reason: {u.statusReason}</span> : u ? `Joined ${formatDate(u.createdAt)} · last login ${formatDateTime(u.lastLoginAt)}` : undefined}
         actions={
           u && canModerate ? (
             <>
@@ -99,10 +99,10 @@ export function UserDetailPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Trust score" value={u?.trustScore} loading={!u} icon={ShieldAlert} tone={u && u.trustScore < 40 ? 'danger' : u && u.trustScore < 60 ? 'warning' : 'success'} hint={u ? (u.trustScore < 20 ? 'Below feed threshold - sees no ads' : 'Recomputed from flags & history') : undefined} />
-        <StatCard label="Coin balance" value={u?.coinBalance} loading={!u} icon={Wallet} tone="primary" hint={u ? `${formatEtb(u.coinBalance / 100)} Â· derived from ledger` : undefined} />
-        <StatCard label="Valid completions" value={u?.stats.validCompletions} loading={!u} hint={u ? `${formatInt(u.stats.totalCompletions)} total Â· ${formatPercent(u.stats.totalCompletions ? (u.stats.flaggedCompletions + u.stats.rejectedCompletions) / u.stats.totalCompletions : 0)} filtered` : undefined} />
+        <StatCard label="Coin balance" value={u?.coinBalance} loading={!u} icon={Wallet} tone="primary" hint={u ? `${formatEtb(u.coinBalance / 100)} · derived from ledger` : undefined} />
+        <StatCard label="Valid completions" value={u?.stats.validCompletions} loading={!u} hint={u ? `${formatInt(u.stats.totalCompletions)} total · ${formatPercent(u.stats.totalCompletions ? (u.stats.flaggedCompletions + u.stats.rejectedCompletions) / u.stats.totalCompletions : 0)} filtered` : undefined} />
         <StatCard label="Total withdrawn" value={u ? Number(u.stats.totalWithdrawnEtb) : undefined} format={(v) => formatEtb(v)} loading={!u} hint={u ? `${formatCoins(u.stats.totalEarnedCoins)} coins earned lifetime` : undefined} />
-        <StatCard label="Open flags" value={u?.openFlags} loading={!u} tone={u && u.openFlags > 0 ? 'danger' : 'default'} hint={u ? `${u.stats.distinctDevices} device${u.stats.distinctDevices === 1 ? '' : 's'} Â· ${u.stats.distinctIps} IP${u.stats.distinctIps === 1 ? '' : 's'}` : undefined} />
+        <StatCard label="Open flags" value={u?.openFlags} loading={!u} tone={u && u.openFlags > 0 ? 'danger' : 'default'} hint={u ? `${u.stats.distinctDevices} device${u.stats.distinctDevices === 1 ? '' : 's'} · ${u.stats.distinctIps} IP${u.stats.distinctIps === 1 ? '' : 's'}` : undefined} />
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setSearchParams((p) => { const n = new URLSearchParams(p); n.set('tab', v); return n; }, { replace: true })}>
@@ -123,9 +123,9 @@ export function UserDetailPage() {
                 <CardBody>
                   <DescriptionList
                     items={[
-                      { label: 'Full name', value: u.fullName ?? 'â€”' },
+                      { label: 'Full name', value: u.fullName ?? '—' },
                       { label: 'Phone', value: u.phoneNumber, mono: true },
-                      { label: 'Date of birth', value: u.dateOfBirth ? formatDate(u.dateOfBirth) : 'â€”' },
+                      { label: 'Date of birth', value: u.dateOfBirth ? formatDate(u.dateOfBirth) : '—' },
                       { label: 'Age verification', value: <StatusBadge status={u.ageVerificationStatus === 'verified_adult' ? 'verified' : u.ageVerificationStatus} /> },
                       { label: 'Language', value: humanize(u.languagePreference) },
                       { label: 'Profile complete', value: u.profileComplete ? 'Yes' : 'No' },
@@ -160,14 +160,14 @@ export function UserDetailPage() {
 
         <TabsContent value="ledger" className="mt-4">
           {u ? <LedgerTable entries={u.recentLedger} highlightId={highlight} /> : <Skeleton className="h-64 w-full" />}
-          <p className="mt-2 text-xs text-fg-subtle">Most recent 20 entries. The cached balance ({u ? formatCoins(u.coinBalance) : 'â€¦'}) is derived from this append-only ledger.</p>
+          <p className="mt-2 text-xs text-fg-subtle">Most recent 20 entries. The cached balance ({u ? formatCoins(u.coinBalance) : '…'}) is derived from this append-only ledger.</p>
         </TabsContent>
 
         <TabsContent value="withdrawals" className="mt-4">
           {u ? <UserWithdrawalsTable rows={u.withdrawals} /> : <Skeleton className="h-64 w-full" />}
           {u && can('withdrawals') ? (
             <Link to={`/withdrawals?status=all&userId=${u.id}`} className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
-              Open in withdrawal queue â†’
+              Open in withdrawal queue →
             </Link>
           ) : null}
         </TabsContent>
@@ -176,7 +176,7 @@ export function UserDetailPage() {
           {u ? <FlagsTable rows={u.flags} onSelect={can('fraud') ? (f) => navigate(`/fraud/${f.id}`) : undefined} /> : <Skeleton className="h-64 w-full" />}
           {u && can('fraud') ? (
             <Link to={`/fraud?userId=${u.id}&resolved=all`} className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
-              Open in fraud dashboard â†’
+              Open in fraud dashboard →
             </Link>
           ) : null}
         </TabsContent>
@@ -226,8 +226,8 @@ function DevicesPanel({ userId, deviceId, lastIp, distinctDevices, distinctIps }
         <CardBody>
           <DescriptionList
             items={[
-              { label: 'Registered device id', value: deviceId ?? 'â€”', mono: true },
-              { label: 'Last IP', value: lastIp ?? 'â€”', mono: true },
+              { label: 'Registered device id', value: deviceId ?? '—', mono: true },
+              { label: 'Last IP', value: lastIp ?? '—', mono: true },
               { label: 'Distinct fingerprints', value: <span className={cn('tabular font-medium', distinctDevices > 2 && 'text-warning')}>{distinctDevices}</span> },
               { label: 'Distinct IPs', value: <span className="tabular font-medium">{distinctIps}</span> },
             ]}
@@ -263,13 +263,13 @@ function DevicesPanel({ userId, deviceId, lastIp, distinctDevices, distinctIps }
                         .filter((id) => id !== userId)
                         .map((id) => (
                           <Link key={id} to={`/users/${id}`} className="rounded border px-1.5 py-0.5 font-mono text-2xs hover:bg-sunken">
-                            {id.slice(0, 8)}â€¦
+                            {id.slice(0, 8)}…
                           </Link>
                         ))}
                     </div>
                   ) : null}
                   <Link to={`/fraud/${f.id}`} className="mt-1.5 inline-block text-xs font-medium text-primary hover:underline">
-                    Open flag â†’
+                    Open flag →
                   </Link>
                 </li>
               );
@@ -303,7 +303,7 @@ function UserAuditTrail({ userId }: { userId: string }) {
             <button type="button" onClick={() => setOpen((o) => (o === r.id ? null : r.id))} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-sunken/60" aria-expanded={open === r.id}>
               <Badge tone={r.action.includes('ban') || r.action.includes('reject') ? 'danger' : r.action.includes('suspend') ? 'warning' : 'primary'}>{r.action}</Badge>
               <span className="flex-1 truncate text-xs text-fg-muted">
-                {humanize(r.actorType)} {r.actorEmail ?? (r.actorId === userId ? 'this user' : r.actorId?.slice(0, 8) ?? 'system')} â†’ {humanize(r.targetType)} {r.targetId?.slice(0, 8)}
+                {humanize(r.actorType)} {r.actorEmail ?? (r.actorId === userId ? 'this user' : r.actorId?.slice(0, 8) ?? 'system')} → {humanize(r.targetType)} {r.targetId?.slice(0, 8)}
               </span>
               <span className="whitespace-nowrap text-xs text-fg-subtle">{formatDateTime(r.createdAt)}</span>
             </button>
@@ -317,7 +317,7 @@ function UserAuditTrail({ userId }: { userId: string }) {
       </ul>
       <div className="border-t px-4 py-2 text-xs">
         <Link to={`/audit?targetId=${userId}`} className="font-medium text-primary hover:underline">
-          Open in audit log viewer â†’
+          Open in audit log viewer →
         </Link>
       </div>
     </Card>
