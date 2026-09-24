@@ -40,7 +40,7 @@ COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
 COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
 COPY apps/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 WORKDIR /repo/apps/api
 EXPOSE 3000
 ENTRYPOINT ["docker-entrypoint.sh"]

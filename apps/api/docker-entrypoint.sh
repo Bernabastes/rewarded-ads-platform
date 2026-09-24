@@ -2,14 +2,18 @@
 set -e
 
 # Runs pending Prisma migrations (and optionally the demo seed) before starting the API.
+# Layout inside the image: /repo/node_modules (hoisted), /repo/apps/api (cwd).
+PRISMA=/repo/node_modules/.bin/prisma
+TSNODE=/repo/node_modules/.bin/ts-node
+
 if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
   echo "[entrypoint] applying database migrations..."
-  ./node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma || ../../node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma
+  "$PRISMA" migrate deploy --schema prisma/schema.prisma
 fi
 
 if [ "${RUN_SEED:-false}" = "true" ]; then
-  echo "[entrypoint] seeding demo data..."
-  node dist/prisma/seed.js 2>/dev/null || node -r ../../node_modules/ts-node/register/transpile-only prisma/seed.ts
+  echo "[entrypoint] seeding demo data (this resets existing data)..."
+  "$TSNODE" --transpile-only prisma/seed.ts
 fi
 
 exec "$@"
