@@ -1,6 +1,12 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { type AuthContext, ClientIp, CurrentAuth, RequireVerifiedAdult, Subjects } from '../../common/decorators/auth.decorators';
+import {
+  type AuthContext,
+  ClientIp,
+  CurrentAuth,
+  RequireVerifiedAdult,
+  Subjects,
+} from '../../common/decorators/auth.decorators';
 import { CreateWithdrawalDto, WithdrawalsQueryDto } from './dto/withdrawals.dto';
 import { WithdrawalsService } from './withdrawals.service';
 

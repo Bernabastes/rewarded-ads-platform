@@ -65,7 +65,8 @@ export class LedgerService {
         requested: err.requested,
       });
     }
-    if (err instanceof LedgerValidationError) return AppException.badRequest(ErrorCode.VALIDATION_ERROR, err.message);
+    if (err instanceof LedgerValidationError)
+      return AppException.badRequest(ErrorCode.VALIDATION_ERROR, err.message);
     if (err instanceof LedgerUserNotFoundError) return AppException.notFound('User not found');
     return err;
   }

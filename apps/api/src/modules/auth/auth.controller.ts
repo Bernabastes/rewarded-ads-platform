@@ -40,7 +40,8 @@ export class AuthController {
   @Public()
   @ApiOperation({
     summary: 'Verify an OTP and receive tokens (creates the user on first login)',
-    description: 'Returns `isNewUser` and the profile; when `user.profileComplete` is false call /auth/users/complete-profile.',
+    description:
+      'Returns `isNewUser` and the profile; when `user.profileComplete` is false call /auth/users/complete-profile.',
   })
   @ApiResponse({ status: 401, description: 'OTP_INVALID | OTP_EXPIRED' })
   @ApiResponse({ status: 403, description: 'ACCOUNT_SUSPENDED | ACCOUNT_BANNED | AGE_RESTRICTED' })
@@ -53,7 +54,8 @@ export class AuthController {
   @Subjects('user')
   @ApiOperation({
     summary: 'Set full name + date of birth; age is verified server-side',
-    description: 'Under MIN_AGE (18) the account is marked age-rejected, its sessions are revoked and 403 AGE_RESTRICTED is returned.',
+    description:
+      'Under MIN_AGE (18) the account is marked age-rejected, its sessions are revoked and 403 AGE_RESTRICTED is returned.',
   })
   @ApiResponse({ status: 403, description: 'AGE_RESTRICTED' })
   completeProfile(@Body() dto: CompleteProfileDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
@@ -64,7 +66,11 @@ export class AuthController {
   @Public()
   @ApiOperation({ summary: 'Register an advertiser business account (starts in pending verification)' })
   @ApiResponse({ status: 409, description: 'EMAIL_ALREADY_REGISTERED' })
-  registerAdvertiser(@Body() dto: AdvertiserRegisterDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
+  registerAdvertiser(
+    @Body() dto: AdvertiserRegisterDto,
+    @ClientIp() ip: string,
+    @UserAgent() userAgent?: string,
+  ) {
     return this.auth.registerAdvertiser(dto, { ip, userAgent });
   }
 
@@ -72,7 +78,11 @@ export class AuthController {
   @Public()
   @ApiOperation({ summary: 'Advertiser email + password login' })
   @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
-  loginAdvertiser(@Body() dto: EmailPasswordLoginDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
+  loginAdvertiser(
+    @Body() dto: EmailPasswordLoginDto,
+    @ClientIp() ip: string,
+    @UserAgent() userAgent?: string,
+  ) {
     return this.auth.loginAdvertiser(dto.email, dto.password, { ip, userAgent });
   }
 

@@ -79,8 +79,10 @@ export class LedgerUserNotFoundError extends Error {
 export type LedgerTx = Pick<Prisma.TransactionClient, '$queryRaw' | 'coinLedger' | 'user'>;
 
 export async function applyLedgerEntry(tx: LedgerTx, input: LedgerWriteInput): Promise<LedgerWriteResult> {
-  if (!Number.isInteger(input.amount)) throw new LedgerValidationError('amount must be an integer number of coins');
-  if (input.amount === 0 && !input.recomputeFromLedger) throw new LedgerValidationError('amount must be non-zero');
+  if (!Number.isInteger(input.amount))
+    throw new LedgerValidationError('amount must be an integer number of coins');
+  if (input.amount === 0 && !input.recomputeFromLedger)
+    throw new LedgerValidationError('amount must be non-zero');
   if (!input.idempotencyKey || input.idempotencyKey.length < 3) {
     throw new LedgerValidationError('idempotencyKey is required');
   }

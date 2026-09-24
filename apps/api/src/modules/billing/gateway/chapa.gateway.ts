@@ -37,7 +37,10 @@ export interface PaymentGateway {
   createCheckout(req: CheckoutRequest): Promise<CheckoutResult>;
   verify(txRef: string): Promise<VerifyResult>;
   /** Validates a webhook signature; returns false when it cannot be validated. */
-  verifyWebhookSignature(rawBody: Buffer | string, headers: Record<string, string | string[] | undefined>): boolean;
+  verifyWebhookSignature(
+    rawBody: Buffer | string,
+    headers: Record<string, string | string[] | undefined>,
+  ): boolean;
 }
 
 export const PAYMENT_GATEWAY = Symbol('PAYMENT_GATEWAY');
@@ -60,11 +63,17 @@ export class ChapaGateway implements PaymentGateway {
   async createCheckout(req: CheckoutRequest): Promise<CheckoutResult> {
     if (this.isMock) {
       this.logger.log(`[MOCK CHAPA] checkout tx_ref=${req.txRef} amount=${req.amountEtb} ETB`);
-      return { checkoutUrl: `${this.config.env.API_PUBLIC_URL}/api/v1/billing/mock-checkout/${req.txRef}`, raw: { mock: true } };
+      return {
+        checkoutUrl: `${this.config.env.API_PUBLIC_URL}/api/v1/billing/mock-checkout/${req.txRef}`,
+        raw: { mock: true },
+      };
     }
     const res = await fetch(`${this.config.env.CHAPA_BASE_URL}/transaction/initialize`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${this.config.env.CHAPA_SECRET_KEY}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${this.config.env.CHAPA_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
         amount: req.amountEtb.toFixed(2),
         currency: req.currency,
@@ -87,9 +96,12 @@ export class ChapaGateway implements PaymentGateway {
 
   async verify(txRef: string): Promise<VerifyResult> {
     if (this.isMock) return { status: 'pending', raw: { mock: true } };
-    const res = await fetch(`${this.config.env.CHAPA_BASE_URL}/transaction/verify/${encodeURIComponent(txRef)}`, {
-      headers: { Authorization: `Bearer ${this.config.env.CHAPA_SECRET_KEY}` },
-    });
+    const res = await fetch(
+      `${this.config.env.CHAPA_BASE_URL}/transaction/verify/${encodeURIComponent(txRef)}`,
+      {
+        headers: { Authorization: `Bearer ${this.config.env.CHAPA_SECRET_KEY}` },
+      },
+    );
     const json = (await res.json()) as {
       status: string;
       data?: { status?: string; amount?: string | number; currency?: string; reference?: string };
@@ -110,7 +122,10 @@ export class ChapaGateway implements PaymentGateway {
    *  - `x-chapa-signature`: HMAC-SHA256(secret, secret)
    * Either valid header is accepted.
    */
-  verifyWebhookSignature(rawBody: Buffer | string, headers: Record<string, string | string[] | undefined>): boolean {
+  verifyWebhookSignature(
+    rawBody: Buffer | string,
+    headers: Record<string, string | string[] | undefined>,
+  ): boolean {
     const secret = this.config.env.CHAPA_WEBHOOK_SECRET;
     if (!secret) return false;
     const header = (name: string) => {

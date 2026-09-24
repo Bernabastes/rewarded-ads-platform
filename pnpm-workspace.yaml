@@ -22,3 +22,6 @@ allowBuilds:
   '@tailwindcss/oxide': true
   core-js: true
   core-js-pure: true
+  '@parcel/watcher': true
+  msgpackr-extract: true
+  '@scarf/scarf': false

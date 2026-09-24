@@ -43,7 +43,10 @@ export class AdsController {
     description:
       'Records started_at, device fingerprint and IP on the server. Returns the heartbeat interval, minimum watch seconds and (optionally) an attention question that must be answered at completion.',
   })
-  @ApiResponse({ status: 400, description: 'AD_NOT_AVAILABLE | DAILY_LIMIT_REACHED | TOO_MANY_WATCH_ATTEMPTS' })
+  @ApiResponse({
+    status: 400,
+    description: 'AD_NOT_AVAILABLE | DAILY_LIMIT_REACHED | TOO_MANY_WATCH_ATTEMPTS',
+  })
   start(
     @CurrentAuth() auth: AuthContext,
     @Param('id', ParseUUIDPipe) adId: string,
@@ -57,7 +60,11 @@ export class AdsController {
   @Post('watch-sessions/:sid/heartbeat')
   @ApiOperation({ summary: 'Heartbeat while the ad is playing (call every heartbeatIntervalSeconds)' })
   @ApiResponse({ status: 400, description: 'WATCH_SESSION_NOT_ACTIVE | WATCH_SESSION_EXPIRED' })
-  heartbeat(@CurrentAuth() auth: AuthContext, @Param('sid', ParseUUIDPipe) sid: string, @Body() _dto: HeartbeatDto) {
+  heartbeat(
+    @CurrentAuth() auth: AuthContext,
+    @Param('sid', ParseUUIDPipe) sid: string,
+    @Body() _dto: HeartbeatDto,
+  ) {
     return this.ads.heartbeat(auth.subjectId, sid);
   }
 

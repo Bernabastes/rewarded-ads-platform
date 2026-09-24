@@ -88,10 +88,16 @@ export class FraudService {
         select: { userId: true },
         take: 50,
       }),
-      this.prisma.adCompletion.count({ where: { ipAddress: input.ipAddress, completedAt: { gte: since1h } } }),
+      this.prisma.adCompletion.count({
+        where: { ipAddress: input.ipAddress, completedAt: { gte: since1h } },
+      }),
       this.prisma.adCompletion.count({ where: { userId: input.user.id, completedAt: { gte: since1h } } }),
       this.prisma.adCompletion.count({
-        where: { userId: input.user.id, status: { in: ['flagged', 'rejected'] }, completedAt: { gte: since7d } },
+        where: {
+          userId: input.user.id,
+          status: { in: ['flagged', 'rejected'] },
+          completedAt: { gte: since7d },
+        },
       }),
     ]);
     const ipRedis = await this.redis.getNumber(`fraud:ip:${input.ipAddress}:${hourKey()}`).catch(() => 0);
@@ -150,13 +156,18 @@ export class FraudService {
             flagType: hit.ruleId,
             severity: hit.severity,
             description: hit.description,
-            metadata: { ...(hit.detail ?? {}), score: evaluation.score, outcome: evaluation.outcome } as Prisma.InputJsonValue,
+            metadata: {
+              ...(hit.detail ?? {}),
+              score: evaluation.score,
+              outcome: evaluation.outcome,
+            } as Prisma.InputJsonValue,
             trustScoreDelta: hit.trustScoreDelta,
           },
         }),
       );
     }
-    if (evaluation.trustScoreDelta !== 0) await this.adjustTrustScore(tx, userId, evaluation.trustScoreDelta, 'completion_rules');
+    if (evaluation.trustScoreDelta !== 0)
+      await this.adjustTrustScore(tx, userId, evaluation.trustScoreDelta, 'completion_rules');
     for (const flag of created) {
       this.security.warn('fraud.flag_created', {
         flagId: flag.id,
@@ -172,13 +183,24 @@ export class FraudService {
     return created;
   }
 
-  async adjustTrustScore(tx: Prisma.TransactionClient | PrismaService, userId: string, delta: number, reason: string) {
+  async adjustTrustScore(
+    tx: Prisma.TransactionClient | PrismaService,
+    userId: string,
+    delta: number,
+    reason: string,
+  ) {
     const user = await tx.user.findUnique({ where: { id: userId }, select: { trustScore: true } });
     if (!user) return;
     const next = clampTrust(user.trustScore + delta);
     if (next === user.trustScore) return;
     await tx.user.update({ where: { id: userId }, data: { trustScore: next } });
-    this.security.info('fraud.trust_score_changed', { userId, from: user.trustScore, to: next, delta, reason });
+    this.security.info('fraud.trust_score_changed', {
+      userId,
+      from: user.trustScore,
+      to: next,
+      delta,
+      reason,
+    });
   }
 
   async createFlag(input: CreateFlagInput, actor?: { adminId?: string; ip?: string }) {
@@ -223,7 +245,12 @@ export class FraudService {
     return flag;
   }
 
-  async resolveFlag(flagId: string, resolution: FraudResolution, note: string, admin: { adminId: string; ip?: string }) {
+  async resolveFlag(
+    flagId: string,
+    resolution: FraudResolution,
+    note: string,
+    admin: { adminId: string; ip?: string },
+  ) {
     const flag = await this.prisma.fraudFlag.findUnique({ where: { id: flagId } });
     if (!flag) throw AppException.notFound('Fraud flag not found');
     if (flag.resolved) throw AppException.conflict(ErrorCode.FLAG_ALREADY_RESOLVED, 'Flag already resolved');
@@ -231,11 +258,22 @@ export class FraudService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const u = await tx.fraudFlag.update({
         where: { id: flagId },
-        data: { resolved: true, resolution, resolvedBy: admin.adminId, resolvedAt: new Date(), resolutionNote: note },
+        data: {
+          resolved: true,
+          resolution,
+          resolvedBy: admin.adminId,
+          resolvedAt: new Date(),
+          resolutionNote: note,
+        },
       });
       // Dismissal reverses the trust penalty this flag applied.
       if (resolution === 'dismissed' && flag.userId && flag.trustScoreDelta !== 0) {
-        await this.adjustTrustScore(tx, flag.userId, -flag.trustScoreDelta, `flag_dismissed:${flag.flagType}`);
+        await this.adjustTrustScore(
+          tx,
+          flag.userId,
+          -flag.trustScoreDelta,
+          `flag_dismissed:${flag.flagType}`,
+        );
       }
       await this.audit.record(
         {
@@ -252,12 +290,20 @@ export class FraudService {
       );
       return u;
     });
-    this.security.info('fraud.flag_resolved', { flagId, resolution, adminId: admin.adminId, userId: flag.userId });
+    this.security.info('fraud.flag_resolved', {
+      flagId,
+      resolution,
+      adminId: admin.adminId,
+      userId: flag.userId,
+    });
     return updated;
   }
 
   async recomputeTrustScore(userId: string, actor?: { adminId?: string }) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { trustScore: true, status: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { trustScore: true, status: true },
+    });
     if (!user) throw AppException.notFound('User not found');
     const [validCompletions, completedWithdrawals, flags] = await Promise.all([
       this.prisma.adCompletion.count({ where: { userId, status: 'valid' } }),
@@ -270,7 +316,12 @@ export class FraudService {
     ]);
     const openFlagsBySeverity: Partial<Record<FraudSeverity, number>> = {};
     for (const f of flags) openFlagsBySeverity[f.severity] = f._count._all;
-    const next = computeTrustScore({ validCompletions, completedWithdrawals, openFlagsBySeverity, status: user.status });
+    const next = computeTrustScore({
+      validCompletions,
+      completedWithdrawals,
+      openFlagsBySeverity,
+      status: user.status,
+    });
     if (next !== user.trustScore) {
       await this.prisma.user.update({ where: { id: userId }, data: { trustScore: next } });
       this.security.info('fraud.trust_score_changed', {
@@ -282,7 +333,11 @@ export class FraudService {
         adminId: actor?.adminId,
       });
     }
-    return { userId, trustScore: next, inputs: { validCompletions, completedWithdrawals, openFlagsBySeverity } };
+    return {
+      userId,
+      trustScore: next,
+      inputs: { validCompletions, completedWithdrawals, openFlagsBySeverity },
+    };
   }
 
   async listFlags(query: {
@@ -320,7 +375,10 @@ export class FraudService {
   }
 
   async getFlag(id: string) {
-    const flag = await this.prisma.fraudFlag.findUnique({ where: { id }, include: { user: { select: { phoneNumber: true } } } });
+    const flag = await this.prisma.fraudFlag.findUnique({
+      where: { id },
+      include: { user: { select: { phoneNumber: true } } },
+    });
     if (!flag) throw AppException.notFound('Fraud flag not found');
     const { user, ...rest } = flag;
     return { ...rest, userPhone: user?.phoneNumber ?? null };
@@ -329,29 +387,48 @@ export class FraudService {
   async metrics() {
     const now = new Date();
     const since7d = addDays(now, -7);
-    const [raw, flagged, rejected, openBySeverity, byType, suspended, banned, lowTrust, drifts, dailyRows] = await Promise.all([
-      this.prisma.adCompletion.count({ where: { completedAt: { gte: since7d } } }),
-      this.prisma.adCompletion.count({ where: { completedAt: { gte: since7d }, status: 'flagged' } }),
-      this.prisma.adCompletion.count({ where: { completedAt: { gte: since7d }, status: 'rejected' } }),
-      this.prisma.fraudFlag.groupBy({ by: ['severity'], where: { resolved: false }, _count: { _all: true } }),
-      this.prisma.fraudFlag.groupBy({ by: ['flagType'], where: { createdAt: { gte: since7d } }, _count: { _all: true }, orderBy: { _count: { flagType: 'desc' } }, take: 10 }),
-      this.prisma.user.count({ where: { status: 'suspended' } }),
-      this.prisma.user.count({ where: { status: 'banned' } }),
-      this.prisma.user.count({ where: { trustScore: { lt: 30 }, status: 'active' } }),
-      this.prisma.fraudFlag.count({ where: { flagType: 'LEDGER_DRIFT', resolved: false } }),
-      this.prisma.$queryRaw<Array<{ day: Date; status: string; count: bigint }>>`
+    const [raw, flagged, rejected, openBySeverity, byType, suspended, banned, lowTrust, drifts, dailyRows] =
+      await Promise.all([
+        this.prisma.adCompletion.count({ where: { completedAt: { gte: since7d } } }),
+        this.prisma.adCompletion.count({ where: { completedAt: { gte: since7d }, status: 'flagged' } }),
+        this.prisma.adCompletion.count({ where: { completedAt: { gte: since7d }, status: 'rejected' } }),
+        this.prisma.fraudFlag.groupBy({
+          by: ['severity'],
+          where: { resolved: false },
+          _count: { _all: true },
+        }),
+        this.prisma.fraudFlag.groupBy({
+          by: ['flagType'],
+          where: { createdAt: { gte: since7d } },
+          _count: { _all: true },
+          orderBy: { _count: { flagType: 'desc' } },
+          take: 10,
+        }),
+        this.prisma.user.count({ where: { status: 'suspended' } }),
+        this.prisma.user.count({ where: { status: 'banned' } }),
+        this.prisma.user.count({ where: { trustScore: { lt: 30 }, status: 'active' } }),
+        this.prisma.fraudFlag.count({ where: { flagType: 'LEDGER_DRIFT', resolved: false } }),
+        this.prisma.$queryRaw<Array<{ day: Date; status: string; count: bigint }>>`
         SELECT date_trunc('day', completed_at AT TIME ZONE 'UTC') AS day, status::text AS status, COUNT(*)::bigint AS count
         FROM ad_completions WHERE completed_at >= ${since7d}
         GROUP BY 1, 2 ORDER BY 1`,
-    ]);
+      ]);
     const openFlagsBySeverity: Record<FraudSeverity, number> = { low: 0, medium: 0, high: 0, critical: 0 };
     for (const row of openBySeverity) openFlagsBySeverity[row.severity] = row._count._all;
 
-    const dailyMap = new Map<string, { rawCompletions: number; flaggedCompletions: number; rejectedCompletions: number }>();
-    for (const day of eachUtcDay(since7d, now)) dailyMap.set(day, { rawCompletions: 0, flaggedCompletions: 0, rejectedCompletions: 0 });
+    const dailyMap = new Map<
+      string,
+      { rawCompletions: number; flaggedCompletions: number; rejectedCompletions: number }
+    >();
+    for (const day of eachUtcDay(since7d, now))
+      dailyMap.set(day, { rawCompletions: 0, flaggedCompletions: 0, rejectedCompletions: 0 });
     for (const row of dailyRows) {
       const key = utcDayKey(new Date(row.day));
-      const bucket = dailyMap.get(key) ?? { rawCompletions: 0, flaggedCompletions: 0, rejectedCompletions: 0 };
+      const bucket = dailyMap.get(key) ?? {
+        rawCompletions: 0,
+        flaggedCompletions: 0,
+        rejectedCompletions: 0,
+      };
       const n = Number(row.count);
       bucket.rawCompletions += n;
       if (row.status === 'flagged') bucket.flaggedCompletions += n;

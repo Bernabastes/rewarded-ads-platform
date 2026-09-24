@@ -8,7 +8,11 @@ import { ChapaGateway, PAYMENT_GATEWAY } from './gateway/chapa.gateway';
   controllers: [BillingController],
   providers: [
     BillingService,
-    { provide: PAYMENT_GATEWAY, inject: [AppConfig], useFactory: (config: AppConfig) => new ChapaGateway(config) },
+    {
+      provide: PAYMENT_GATEWAY,
+      inject: [AppConfig],
+      useFactory: (config: AppConfig) => new ChapaGateway(config),
+    },
   ],
   exports: [BillingService],
 })

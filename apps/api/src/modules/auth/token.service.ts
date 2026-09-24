@@ -72,7 +72,10 @@ export class TokenService {
         familyId: stored.familyId,
         ip: meta.ip,
       });
-      throw AppException.unauthorized(ErrorCode.REFRESH_TOKEN_REUSED, 'Refresh token reuse detected; please log in again');
+      throw AppException.unauthorized(
+        ErrorCode.REFRESH_TOKEN_REUSED,
+        'Refresh token reuse detected; please log in again',
+      );
     }
     if (stored.expiresAt < new Date()) {
       throw AppException.unauthorized(ErrorCode.TOKEN_EXPIRED, 'Refresh token expired');
@@ -83,7 +86,9 @@ export class TokenService {
       { type: stored.subjectType, id: stored.subjectId, role },
       { ...meta, familyId: stored.familyId },
     );
-    const replacement = await this.prisma.refreshToken.findUnique({ where: { tokenHash: sha256(tokens.refreshToken) } });
+    const replacement = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: sha256(tokens.refreshToken) },
+    });
     await this.prisma.refreshToken.update({
       where: { id: stored.id },
       data: { revokedAt: new Date(), replacedById: replacement?.id },

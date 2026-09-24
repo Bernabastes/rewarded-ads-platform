@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { type AuthContext, CurrentAuth, Subjects } from '../../common/decorators/auth.decorators';
 import { CampaignsService } from './campaigns.service';
@@ -39,7 +50,9 @@ export class CampaignsController {
 
   @Post()
   @HttpCode(201)
-  @ApiOperation({ summary: 'Create a draft campaign (reward per action is derived from cost x (1 - take rate))' })
+  @ApiOperation({
+    summary: 'Create a draft campaign (reward per action is derived from cost x (1 - take rate))',
+  })
   create(@CurrentAuth() auth: AuthContext, @Body() dto: CreateCampaignDto) {
     return this.campaigns.create(auth.subjectId, dto);
   }
@@ -52,7 +65,11 @@ export class CampaignsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a draft/rejected campaign (paused: budget increase only)' })
-  update(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCampaignDto) {
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCampaignDto,
+  ) {
     return this.campaigns.update(auth.subjectId, id, dto);
   }
 
@@ -99,13 +116,21 @@ export class CampaignsController {
   @Delete(':id/ads/:adId')
   @HttpCode(204)
   @ApiOperation({ summary: 'Delete a non-approved creative' })
-  async removeAd(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Param('adId', ParseUUIDPipe) adId: string) {
+  async removeAd(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('adId', ParseUUIDPipe) adId: string,
+  ) {
     await this.campaigns.removeAd(auth.subjectId, id, adId);
   }
 
   @Get(':id/analytics')
   @ApiOperation({ summary: 'Raw vs fraud-filtered performance with daily buckets' })
-  analytics(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() range: DateRangeQueryDto) {
+  analytics(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() range: DateRangeQueryDto,
+  ) {
     return this.campaigns.analytics(auth.subjectId, id, range);
   }
 }

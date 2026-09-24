@@ -7,25 +7,44 @@ import { Prisma } from '@prisma/client';
  *   platform keeps the difference
  * The take rate is snapshotted on the campaign so later config changes never alter live campaigns.
  */
-export function computeRewardPerAction(costPerActionEtb: Prisma.Decimal | number | string, takeRate: number): Prisma.Decimal {
+export function computeRewardPerAction(
+  costPerActionEtb: Prisma.Decimal | number | string,
+  takeRate: number,
+): Prisma.Decimal {
   if (takeRate < 0 || takeRate >= 1) throw new Error('takeRate must be in [0, 1)');
-  return new Prisma.Decimal(costPerActionEtb).mul(1 - takeRate).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  return new Prisma.Decimal(costPerActionEtb)
+    .mul(1 - takeRate)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 }
 
-export function computePlatformRevenue(costPerActionEtb: Prisma.Decimal | number | string, takeRate: number): Prisma.Decimal {
+export function computePlatformRevenue(
+  costPerActionEtb: Prisma.Decimal | number | string,
+  takeRate: number,
+): Prisma.Decimal {
   return new Prisma.Decimal(costPerActionEtb).minus(computeRewardPerAction(costPerActionEtb, takeRate));
 }
 
-export function rewardCoins(rewardPerActionEtb: Prisma.Decimal | number | string, coinsPerEtb: number): number {
+export function rewardCoins(
+  rewardPerActionEtb: Prisma.Decimal | number | string,
+  coinsPerEtb: number,
+): number {
   return new Prisma.Decimal(rewardPerActionEtb).mul(coinsPerEtb).round().toNumber();
 }
 
 /** How many more valid actions a campaign can afford. */
-export function remainingActions(budgetEtb: Prisma.Decimal, spentEtb: Prisma.Decimal, costPerActionEtb: Prisma.Decimal): number {
+export function remainingActions(
+  budgetEtb: Prisma.Decimal,
+  spentEtb: Prisma.Decimal,
+  costPerActionEtb: Prisma.Decimal,
+): number {
   if (costPerActionEtb.lte(0)) return 0;
   return Math.max(0, budgetEtb.minus(spentEtb).div(costPerActionEtb).floor().toNumber());
 }
 
-export function isBudgetExhausted(budgetEtb: Prisma.Decimal, spentEtb: Prisma.Decimal, costPerActionEtb: Prisma.Decimal): boolean {
+export function isBudgetExhausted(
+  budgetEtb: Prisma.Decimal,
+  spentEtb: Prisma.Decimal,
+  costPerActionEtb: Prisma.Decimal,
+): boolean {
   return budgetEtb.minus(spentEtb).lessThan(costPerActionEtb);
 }

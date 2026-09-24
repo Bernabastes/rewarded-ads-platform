@@ -49,18 +49,31 @@ export class UsersService {
   }
 
   async summary(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { coinBalance: true, status: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { coinBalance: true, status: true },
+    });
     if (!user) throw AppException.notFound('User not found');
     const today = startOfUtcDay();
-    const [todayCompletions, earned, withdrawn, pending, unread, availableAds, availableOffers] = await Promise.all([
-      this.prisma.adCompletion.count({ where: { userId, status: 'valid', completedAt: { gte: today } } }),
-      this.prisma.coinLedger.aggregate({ where: { userId, amount: { gt: 0 }, sourceType: { in: ['ad_view', 'survey', 'app_install'] } }, _sum: { amount: true } }),
-      this.prisma.withdrawal.aggregate({ where: { userId, status: 'completed' }, _sum: { amountEtb: true } }),
-      this.prisma.withdrawal.aggregate({ where: { userId, status: { in: ['pending', 'processing', 'flagged_for_review'] } }, _sum: { amountEtb: true } }),
-      this.notifications.unreadCount(userId),
-      this.countAvailableAds(userId),
-      this.countAvailableOffers(userId),
-    ]);
+    const [todayCompletions, earned, withdrawn, pending, unread, availableAds, availableOffers] =
+      await Promise.all([
+        this.prisma.adCompletion.count({ where: { userId, status: 'valid', completedAt: { gte: today } } }),
+        this.prisma.coinLedger.aggregate({
+          where: { userId, amount: { gt: 0 }, sourceType: { in: ['ad_view', 'survey', 'app_install'] } },
+          _sum: { amount: true },
+        }),
+        this.prisma.withdrawal.aggregate({
+          where: { userId, status: 'completed' },
+          _sum: { amountEtb: true },
+        }),
+        this.prisma.withdrawal.aggregate({
+          where: { userId, status: { in: ['pending', 'processing', 'flagged_for_review'] } },
+          _sum: { amountEtb: true },
+        }),
+        this.notifications.unreadCount(userId),
+        this.countAvailableAds(userId),
+        this.countAvailableOffers(userId),
+      ]);
     const limit = this.config.platform.dailyAdCompletionLimit;
     return {
       coinBalance: user.coinBalance,
@@ -89,20 +102,37 @@ export class UsersService {
 
   private async countAvailableOffers(userId: string) {
     const [surveys, installs] = await Promise.all([
-      this.prisma.survey.count({ where: { active: true, campaign: { status: 'active' }, responses: { none: { userId } } } }),
-      this.prisma.appInstallOffer.count({ where: { active: true, campaign: { status: 'active' }, completions: { none: { userId } } } }),
+      this.prisma.survey.count({
+        where: { active: true, campaign: { status: 'active' }, responses: { none: { userId } } },
+      }),
+      this.prisma.appInstallOffer.count({
+        where: { active: true, campaign: { status: 'active' }, completions: { none: { userId } } },
+      }),
     ]);
     return surveys + installs;
   }
 
-  async reportAd(userId: string, adId: string, reason: Prisma.AdReportCreateInput['reason'], details?: string) {
+  async reportAd(
+    userId: string,
+    adId: string,
+    reason: Prisma.AdReportCreateInput['reason'],
+    details?: string,
+  ) {
     const ad = await this.prisma.ad.findUnique({ where: { id: adId }, select: { id: true } });
     if (!ad) throw AppException.notFound('Ad not found');
     const existing = await this.prisma.adReport.findUnique({ where: { userId_adId: { userId, adId } } });
     if (existing) throw AppException.conflict(ErrorCode.CONFLICT, 'You already reported this ad');
     return this.prisma.adReport.create({
       data: { userId, adId, reason, details },
-      select: { id: true, adId: true, userId: true, reason: true, details: true, status: true, createdAt: true },
+      select: {
+        id: true,
+        adId: true,
+        userId: true,
+        reason: true,
+        details: true,
+        status: true,
+        createdAt: true,
+      },
     });
   }
 }

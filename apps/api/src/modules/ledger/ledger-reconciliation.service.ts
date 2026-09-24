@@ -32,9 +32,16 @@ export class LedgerReconciliationService {
   ) {}
 
   async findDrifts(): Promise<{ usersChecked: number; drifts: LedgerDrift[] }> {
-    const [countRow] = await this.prisma.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM users`;
+    const [countRow] = await this.prisma.$queryRaw<
+      Array<{ count: bigint }>
+    >`SELECT COUNT(*)::bigint AS count FROM users`;
     const drifts = await this.prisma.$queryRaw<
-      Array<{ user_id: string; cached_balance: number; ledger_sum: bigint | number; last_balance_after: number | null }>
+      Array<{
+        user_id: string;
+        cached_balance: number;
+        ledger_sum: bigint | number;
+        last_balance_after: number | null;
+      }>
     >`
       SELECT u.id AS user_id,
              u.coin_balance AS cached_balance,
@@ -70,7 +77,9 @@ export class LedgerReconciliationService {
           status: drifts.length ? 'drift_detected' : 'ok',
         },
       });
-      this.logger.log(`Ledger reconciliation (${trigger}): ${usersChecked} users checked, ${drifts.length} drift(s)`);
+      this.logger.log(
+        `Ledger reconciliation (${trigger}): ${usersChecked} users checked, ${drifts.length} drift(s)`,
+      );
       return { runId: run.id, usersChecked, driftCount: drifts.length, drifts };
     } catch (err) {
       await this.prisma.ledgerReconciliationRun.update({
@@ -133,7 +142,8 @@ export class LedgerReconciliationScheduler implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    if (!this.config.env.QUEUES_ENABLED || !this.config.env.RECONCILIATION_ENABLED || this.config.isTest) return;
+    if (!this.config.env.QUEUES_ENABLED || !this.config.env.RECONCILIATION_ENABLED || this.config.isTest)
+      return;
     try {
       await this.queue.upsertJobScheduler(
         'ledger-reconciliation',
@@ -142,7 +152,9 @@ export class LedgerReconciliationScheduler implements OnApplicationBootstrap {
       );
       this.logger.log(`Ledger reconciliation scheduled: "${this.config.env.RECONCILIATION_CRON}"`);
     } catch (err) {
-      this.logger.warn(`Could not schedule ledger reconciliation (redis unavailable?): ${(err as Error).message}`);
+      this.logger.warn(
+        `Could not schedule ledger reconciliation (redis unavailable?): ${(err as Error).message}`,
+      );
     }
   }
 }

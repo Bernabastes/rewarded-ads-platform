@@ -9,7 +9,12 @@ export class AppException extends HttpException {
   readonly code: ErrorCode;
   readonly details?: unknown;
 
-  constructor(code: ErrorCode, message: string, status: HttpStatus = HttpStatus.BAD_REQUEST, details?: unknown) {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    status: HttpStatus = HttpStatus.BAD_REQUEST,
+    details?: unknown,
+  ) {
     super({ statusCode: status, code, message, details }, status);
     this.code = code;
     this.details = details;
@@ -39,7 +44,11 @@ export class AppException extends HttpException {
     return new AppException(code, message, HttpStatus.UNPROCESSABLE_ENTITY, details);
   }
 
-  static rateLimited(code: ErrorCode = ErrorCode.RATE_LIMITED, message = 'Too many requests', details?: unknown) {
+  static rateLimited(
+    code: ErrorCode = ErrorCode.RATE_LIMITED,
+    message = 'Too many requests',
+    details?: unknown,
+  ) {
     return new AppException(code, message, HttpStatus.TOO_MANY_REQUESTS, details);
   }
 }

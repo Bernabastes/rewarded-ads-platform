@@ -12,13 +12,13 @@
 
 ## RBAC (enforced server-side, mirror it in the UI)
 
-| Area | Roles allowed |
-| --- | --- |
-| Ad review queue, campaign moderation | `ad_reviewer`, `super_admin` |
-| Users (suspend/ban/reinstate), advertiser verification, ad reports | `support`, `super_admin` |
-| Fraud dashboard actions | `support`, `finance`, `super_admin` |
-| Withdrawal queue, coin adjustments, revenue | `finance`, `super_admin` |
-| Audit log | `finance`, `support`, `super_admin` (read) |
+| Area                                                               | Roles allowed                              |
+| ------------------------------------------------------------------ | ------------------------------------------ |
+| Ad review queue, campaign moderation                               | `ad_reviewer`, `super_admin`               |
+| Users (suspend/ban/reinstate), advertiser verification, ad reports | `support`, `super_admin`                   |
+| Fraud dashboard actions                                            | `support`, `finance`, `super_admin`        |
+| Withdrawal queue, coin adjustments, revenue                        | `finance`, `super_admin`                   |
+| Audit log                                                          | `finance`, `support`, `super_admin` (read) |
 
 `GET /admin/me` returns the role. Large withdrawals (≥ `largeWithdrawalThresholdEtb`) require approvals from
 **two distinct** finance/super_admin accounts; coin adjustments require a **different** admin to approve than the

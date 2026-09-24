@@ -29,7 +29,14 @@ if (!cmd) {
   process.exit(2);
 }
 // Make workspace binaries resolvable even when not invoked through `pnpm run`.
-const binDirs = [path.resolve(__dirname, '..', 'node_modules', '.bin'), path.resolve(__dirname, '..', '..', '..', 'node_modules', '.bin')];
+const binDirs = [
+  path.resolve(__dirname, '..', 'node_modules', '.bin'),
+  path.resolve(__dirname, '..', '..', '..', 'node_modules', '.bin'),
+];
 process.env.PATH = [...binDirs, process.env.PATH ?? ''].join(path.delimiter);
-const result = spawnSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32', env: process.env });
+const result = spawnSync(cmd, args, {
+  stdio: 'inherit',
+  shell: process.platform === 'win32',
+  env: process.env,
+});
 process.exit(result.status ?? 1);

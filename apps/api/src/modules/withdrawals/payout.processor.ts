@@ -41,15 +41,31 @@ export class PayoutProcessor extends WorkerHost {
       return;
     }
     try {
-      const { provider, result } = await this.registry.initiateWithFailover(w.payoutMethod, w.userId, Number(w.amountEtb), w.payoutDestination, {
-        reference: w.id,
-        accountName: w.destinationName ?? undefined,
-        bankCode: w.bankCode ?? undefined,
-      });
+      const { provider, result } = await this.registry.initiateWithFailover(
+        w.payoutMethod,
+        w.userId,
+        Number(w.amountEtb),
+        w.payoutDestination,
+        {
+          reference: w.id,
+          accountName: w.destinationName ?? undefined,
+          bankCode: w.bankCode ?? undefined,
+        },
+      );
       await this.withdrawals.setProvider(w.id, provider.name, result.providerPayoutId, result.raw ?? {});
       if (result.status === 'completed') return this.withdrawals.markCompleted(w.id, result.raw);
-      if (result.status === 'failed') return this.withdrawals.markFailed(w.id, result.message ?? 'Provider rejected the payout', result.raw);
-      await this.schedulePoll({ withdrawalId: w.id, providerName: provider.name, payoutId: result.providerPayoutId, polls: 0 });
+      if (result.status === 'failed')
+        return this.withdrawals.markFailed(
+          w.id,
+          result.message ?? 'Provider rejected the payout',
+          result.raw,
+        );
+      await this.schedulePoll({
+        withdrawalId: w.id,
+        providerName: provider.name,
+        payoutId: result.providerPayoutId,
+        polls: 0,
+      });
     } catch (err) {
       await this.withdrawals.markFailed(w.id, `All payout providers failed: ${(err as Error).message}`);
     }
@@ -57,12 +73,25 @@ export class PayoutProcessor extends WorkerHost {
 
   private async poll(job: Job<PollJob>) {
     const provider = this.registry.byName(job.data.providerName);
-    if (!provider) return this.withdrawals.markFailed(job.data.withdrawalId, `Provider ${job.data.providerName} not registered`);
+    if (!provider)
+      return this.withdrawals.markFailed(
+        job.data.withdrawalId,
+        `Provider ${job.data.providerName} not registered`,
+      );
     const status = await provider.checkStatus(job.data.payoutId);
-    if (status.status === 'completed') return this.withdrawals.markCompleted(job.data.withdrawalId, status.raw);
-    if (status.status === 'failed') return this.withdrawals.markFailed(job.data.withdrawalId, status.failureReason ?? 'Payout failed at provider', status.raw);
+    if (status.status === 'completed')
+      return this.withdrawals.markCompleted(job.data.withdrawalId, status.raw);
+    if (status.status === 'failed')
+      return this.withdrawals.markFailed(
+        job.data.withdrawalId,
+        status.failureReason ?? 'Payout failed at provider',
+        status.raw,
+      );
     if (job.data.polls + 1 >= MAX_POLLS) {
-      return this.withdrawals.markFailed(job.data.withdrawalId, 'Payout status never became final; refunded for retry');
+      return this.withdrawals.markFailed(
+        job.data.withdrawalId,
+        'Payout status never became final; refunded for retry',
+      );
     }
     await this.schedulePoll({ ...job.data, polls: job.data.polls + 1 });
   }

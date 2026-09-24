@@ -22,7 +22,12 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
   app.set('trust proxy', 1);
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   // Keep the raw body for webhook signature verification.
-  app.use(json({ limit: '1mb', verify: (req, _res, buf) => ((req as { rawBody?: Buffer }).rawBody = Buffer.from(buf)) }));
+  app.use(
+    json({
+      limit: '1mb',
+      verify: (req, _res, buf) => ((req as { rawBody?: Buffer }).rawBody = Buffer.from(buf)),
+    }),
+  );
   app.use(urlencoded({ extended: true, limit: '1mb' }));
   app.enableCors({
     origin: config.corsOrigins.includes('*') ? true : config.corsOrigins,
@@ -38,7 +43,12 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
       forbidUnknownValues: false,
       transformOptions: { enableImplicitConversion: false },
       exceptionFactory: (errors) =>
-        new AppException(ErrorCode.VALIDATION_ERROR, 'Validation failed', HttpStatus.BAD_REQUEST, flattenValidationErrors(errors)),
+        new AppException(
+          ErrorCode.VALIDATION_ERROR,
+          'Validation failed',
+          HttpStatus.BAD_REQUEST,
+          flattenValidationErrors(errors),
+        ),
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
@@ -53,7 +63,10 @@ interface ValidationErrorLike {
   children?: ValidationErrorLike[];
 }
 
-export function flattenValidationErrors(errors: ValidationErrorLike[], parent = ''): Array<{ field: string; messages: string[] }> {
+export function flattenValidationErrors(
+  errors: ValidationErrorLike[],
+  parent = '',
+): Array<{ field: string; messages: string[] }> {
   const out: Array<{ field: string; messages: string[] }> = [];
   for (const e of errors) {
     const field = parent ? `${parent}.${e.property}` : e.property;

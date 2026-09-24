@@ -1,7 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PayoutMethod } from '@prisma/client';
 import { SecurityLogger } from '../../../infra/logger/logger.module';
-import { PAYOUT_PROVIDERS, type PayoutOptions, type PayoutProvider, type PayoutResult } from './payout-provider';
+import {
+  PAYOUT_PROVIDERS,
+  type PayoutOptions,
+  type PayoutProvider,
+  type PayoutResult,
+} from './payout-provider';
 
 /** Preferred provider order per payout method; later entries are failovers. */
 const ROUTING: Record<PayoutMethod, string[]> = {
@@ -55,12 +60,19 @@ export class PayoutProviderRegistry {
       try {
         const result = await provider.initiatePayout(userId, amountEtb, destination, options);
         if (index > 0) {
-          this.security.warn('payout.provider_failover', { method, failedOver: candidates.slice(0, index).map((p) => p.name), usedProvider: provider.name, reference: options.reference });
+          this.security.warn('payout.provider_failover', {
+            method,
+            failedOver: candidates.slice(0, index).map((p) => p.name),
+            usedProvider: provider.name,
+            reference: options.reference,
+          });
         }
         return { provider, result };
       } catch (err) {
         lastError = err as Error;
-        this.logger.warn(`Payout provider ${provider.name} failed for ${options.reference}: ${lastError.message}`);
+        this.logger.warn(
+          `Payout provider ${provider.name} failed for ${options.reference}: ${lastError.message}`,
+        );
       }
     }
     throw lastError ?? new Error('Payout failed');

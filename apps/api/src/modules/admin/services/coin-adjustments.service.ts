@@ -36,10 +36,20 @@ export class CoinAdjustmentsService {
     const p = pageArgs(query);
     const where: Prisma.CoinAdjustmentRequestWhereInput = { status: query.status, userId: query.userId };
     const [rows, total] = await Promise.all([
-      this.prisma.coinAdjustmentRequest.findMany({ where, include, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], skip: p.skip, take: p.take }),
+      this.prisma.coinAdjustmentRequest.findMany({
+        where,
+        include,
+        orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+        skip: p.skip,
+        take: p.take,
+      }),
       this.prisma.coinAdjustmentRequest.count({ where }),
     ]);
-    return paginated(rows.map((r) => this.toItem(r)), total, p);
+    return paginated(
+      rows.map((r) => this.toItem(r)),
+      total,
+      p,
+    );
   }
 
   async get(id: string) {
@@ -48,29 +58,67 @@ export class CoinAdjustmentsService {
     return this.toItem(r);
   }
 
-  async create(dto: { userId: string; amount: number; reason: string; reference?: string }, actor: AdminActor) {
-    if (!Number.isInteger(dto.amount) || dto.amount === 0) throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'amount must be a non-zero integer');
-    const user = await this.prisma.user.findUnique({ where: { id: dto.userId }, select: { id: true, coinBalance: true } });
+  async create(
+    dto: { userId: string; amount: number; reason: string; reference?: string },
+    actor: AdminActor,
+  ) {
+    if (!Number.isInteger(dto.amount) || dto.amount === 0)
+      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'amount must be a non-zero integer');
+    const user = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      select: { id: true, coinBalance: true },
+    });
     if (!user) throw AppException.notFound('User not found');
     if (dto.amount < 0 && user.coinBalance + dto.amount < 0) {
-      throw AppException.unprocessable(ErrorCode.INSUFFICIENT_BALANCE, 'Deduction exceeds the user balance', { coinBalance: user.coinBalance });
+      throw AppException.unprocessable(ErrorCode.INSUFFICIENT_BALANCE, 'Deduction exceeds the user balance', {
+        coinBalance: user.coinBalance,
+      });
     }
     const request = await this.prisma.$transaction(async (tx) => {
-      const r = await tx.coinAdjustmentRequest.create({ data: { userId: dto.userId, amount: dto.amount, reason: dto.reason.trim(), reference: dto.reference?.trim(), requestedBy: actor.adminId }, include });
-      await this.audit.record({ actorType: 'admin', actorId: actor.adminId, action: 'coin_adjustment.requested', targetType: 'coin_adjustment_request', targetId: r.id, after: { userId: dto.userId, amount: dto.amount, reason: dto.reason, status: r.status }, ipAddress: actor.ip }, tx);
+      const r = await tx.coinAdjustmentRequest.create({
+        data: {
+          userId: dto.userId,
+          amount: dto.amount,
+          reason: dto.reason.trim(),
+          reference: dto.reference?.trim(),
+          requestedBy: actor.adminId,
+        },
+        include,
+      });
+      await this.audit.record(
+        {
+          actorType: 'admin',
+          actorId: actor.adminId,
+          action: 'coin_adjustment.requested',
+          targetType: 'coin_adjustment_request',
+          targetId: r.id,
+          after: { userId: dto.userId, amount: dto.amount, reason: dto.reason, status: r.status },
+          ipAddress: actor.ip,
+        },
+        tx,
+      );
       return r;
     });
-    this.security.info('adjustment.requested', { requestId: request.id, userId: dto.userId, amount: dto.amount, requestedBy: actor.adminId });
+    this.security.info('adjustment.requested', {
+      requestId: request.id,
+      userId: dto.userId,
+      amount: dto.amount,
+      requestedBy: actor.adminId,
+    });
     return this.toItem(request);
   }
 
   async approve(id: string, note: string | undefined, actor: AdminActor) {
     const r = await this.prisma.coinAdjustmentRequest.findUnique({ where: { id } });
     if (!r) throw AppException.notFound('Adjustment request not found');
-    if (r.status !== 'pending_approval') throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, `Request is ${r.status}`);
+    if (r.status !== 'pending_approval')
+      throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, `Request is ${r.status}`);
     if (r.requestedBy === actor.adminId) {
       this.security.warn('adjustment.self_approval_blocked', { requestId: id, adminId: actor.adminId });
-      throw AppException.forbidden(ErrorCode.ADJUSTMENT_SELF_APPROVAL_FORBIDDEN, 'The requesting admin cannot approve their own adjustment');
+      throw AppException.forbidden(
+        ErrorCode.ADJUSTMENT_SELF_APPROVAL_FORBIDDEN,
+        'The requesting admin cannot approve their own adjustment',
+      );
     }
 
     const executed = await this.prisma.$transaction(async (tx) => {
@@ -79,12 +127,25 @@ export class CoinAdjustmentsService {
         where: { id, status: 'pending_approval' },
         data: { status: 'executed', approvedBy: actor.adminId, decisionNote: note, executedAt: new Date() },
       });
-      if (claimed.count === 0) throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, 'Request was decided concurrently');
+      if (claimed.count === 0)
+        throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, 'Request was decided concurrently');
       const write = await this.ledger.applyEntry(
-        { userId: r.userId, amount: r.amount, sourceType: 'admin_adjustment', sourceId: r.id, idempotencyKey: `adjustment:${r.id}`, description: r.reason, createdBy: r.requestedBy },
+        {
+          userId: r.userId,
+          amount: r.amount,
+          sourceType: 'admin_adjustment',
+          sourceId: r.id,
+          idempotencyKey: `adjustment:${r.id}`,
+          description: r.reason,
+          createdBy: r.requestedBy,
+        },
         tx,
       );
-      const updated = await tx.coinAdjustmentRequest.update({ where: { id }, data: { ledgerEntryId: write.entry.id }, include });
+      const updated = await tx.coinAdjustmentRequest.update({
+        where: { id },
+        data: { ledgerEntryId: write.entry.id },
+        include,
+      });
       await this.audit.record(
         {
           actorType: 'admin',
@@ -93,7 +154,15 @@ export class CoinAdjustmentsService {
           targetType: 'coin_adjustment_request',
           targetId: id,
           before: { status: 'pending_approval', approvedBy: null },
-          after: { status: 'executed', approvedBy: actor.adminId, requestedBy: r.requestedBy, amount: r.amount, ledgerEntryId: write.entry.id, balanceAfter: write.balanceAfter, note },
+          after: {
+            status: 'executed',
+            approvedBy: actor.adminId,
+            requestedBy: r.requestedBy,
+            amount: r.amount,
+            ledgerEntryId: write.entry.id,
+            balanceAfter: write.balanceAfter,
+            note,
+          },
           ipAddress: actor.ip,
         },
         tx,
@@ -101,12 +170,22 @@ export class CoinAdjustmentsService {
       return { updated, balanceAfter: write.balanceAfter };
     });
 
-    this.security.info('adjustment.executed', { requestId: id, userId: r.userId, amount: r.amount, requestedBy: r.requestedBy, approvedBy: actor.adminId, balanceAfter: executed.balanceAfter });
+    this.security.info('adjustment.executed', {
+      requestId: id,
+      userId: r.userId,
+      amount: r.amount,
+      requestedBy: r.requestedBy,
+      approvedBy: actor.adminId,
+      balanceAfter: executed.balanceAfter,
+    });
     await this.notifications.notify({
       userId: r.userId,
       type: 'system',
       title: r.amount > 0 ? 'Coins added to your balance' : 'Balance adjustment',
-      body: r.amount > 0 ? `${r.amount} coins were added to your balance: ${r.reason}` : `${-r.amount} coins were deducted from your balance: ${r.reason}`,
+      body:
+        r.amount > 0
+          ? `${r.amount} coins were added to your balance: ${r.reason}`
+          : `${-r.amount} coins were deducted from your balance: ${r.reason}`,
       data: { adjustmentId: id, amount: r.amount },
     });
     return this.toItem(executed.updated);
@@ -115,11 +194,28 @@ export class CoinAdjustmentsService {
   async reject(id: string, reason: string, actor: AdminActor) {
     const r = await this.prisma.coinAdjustmentRequest.findUnique({ where: { id } });
     if (!r) throw AppException.notFound('Adjustment request not found');
-    if (r.status !== 'pending_approval') throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, `Request is ${r.status}`);
+    if (r.status !== 'pending_approval')
+      throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, `Request is ${r.status}`);
     const updated = await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.coinAdjustmentRequest.updateMany({ where: { id, status: 'pending_approval' }, data: { status: 'rejected', rejectedBy: actor.adminId, decisionNote: reason } });
-      if (claimed.count === 0) throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, 'Request was decided concurrently');
-      await this.audit.record({ actorType: 'admin', actorId: actor.adminId, action: 'coin_adjustment.rejected', targetType: 'coin_adjustment_request', targetId: id, before: { status: 'pending_approval' }, after: { status: 'rejected', reason }, ipAddress: actor.ip }, tx);
+      const claimed = await tx.coinAdjustmentRequest.updateMany({
+        where: { id, status: 'pending_approval' },
+        data: { status: 'rejected', rejectedBy: actor.adminId, decisionNote: reason },
+      });
+      if (claimed.count === 0)
+        throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, 'Request was decided concurrently');
+      await this.audit.record(
+        {
+          actorType: 'admin',
+          actorId: actor.adminId,
+          action: 'coin_adjustment.rejected',
+          targetType: 'coin_adjustment_request',
+          targetId: id,
+          before: { status: 'pending_approval' },
+          after: { status: 'rejected', reason },
+          ipAddress: actor.ip,
+        },
+        tx,
+      );
       return tx.coinAdjustmentRequest.findUniqueOrThrow({ where: { id }, include });
     });
     return this.toItem(updated);
@@ -128,11 +224,28 @@ export class CoinAdjustmentsService {
   async cancel(id: string, actor: AdminActor) {
     const r = await this.prisma.coinAdjustmentRequest.findUnique({ where: { id } });
     if (!r) throw AppException.notFound('Adjustment request not found');
-    if (r.status !== 'pending_approval') throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, `Request is ${r.status}`);
-    if (r.requestedBy !== actor.adminId) throw AppException.forbidden(ErrorCode.FORBIDDEN, 'Only the requesting admin can cancel');
+    if (r.status !== 'pending_approval')
+      throw AppException.conflict(ErrorCode.ADJUSTMENT_NOT_PENDING, `Request is ${r.status}`);
+    if (r.requestedBy !== actor.adminId)
+      throw AppException.forbidden(ErrorCode.FORBIDDEN, 'Only the requesting admin can cancel');
     const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.coinAdjustmentRequest.updateMany({ where: { id, status: 'pending_approval' }, data: { status: 'cancelled', decisionNote: 'Cancelled by requester' } });
-      await this.audit.record({ actorType: 'admin', actorId: actor.adminId, action: 'coin_adjustment.cancelled', targetType: 'coin_adjustment_request', targetId: id, before: { status: 'pending_approval' }, after: { status: 'cancelled' }, ipAddress: actor.ip }, tx);
+      await tx.coinAdjustmentRequest.updateMany({
+        where: { id, status: 'pending_approval' },
+        data: { status: 'cancelled', decisionNote: 'Cancelled by requester' },
+      });
+      await this.audit.record(
+        {
+          actorType: 'admin',
+          actorId: actor.adminId,
+          action: 'coin_adjustment.cancelled',
+          targetType: 'coin_adjustment_request',
+          targetId: id,
+          before: { status: 'pending_approval' },
+          after: { status: 'cancelled' },
+          ipAddress: actor.ip,
+        },
+        tx,
+      );
       return tx.coinAdjustmentRequest.findUniqueOrThrow({ where: { id }, include });
     });
     return this.toItem(updated);

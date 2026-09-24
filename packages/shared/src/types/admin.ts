@@ -56,7 +56,10 @@ export interface PlatformConfigResponse {
 /* ---------- ad review ---------- */
 
 export interface AdReviewItem extends AdSummary {
-  campaign: Pick<CampaignSummary, 'id' | 'title' | 'status' | 'targetActionType' | 'costPerActionEtb' | 'budgetEtb'>;
+  campaign: Pick<
+    CampaignSummary,
+    'id' | 'title' | 'status' | 'targetActionType' | 'costPerActionEtb' | 'budgetEtb'
+  >;
   advertiser: { id: Uuid; businessName: string; verificationStatus: AdvertiserVerificationStatus };
   bannedTopicsChecklist: BannedTopicsChecklist | null;
   reviewedBy: Uuid | null;
@@ -206,7 +209,9 @@ export interface FraudMetrics {
   bannedUsers: number;
   lowTrustUsers: number;
   ledgerDriftsDetected: number;
-  daily: Array<DailyPoint & { rawCompletions: number; flaggedCompletions: number; rejectedCompletions: number }>;
+  daily: Array<
+    DailyPoint & { rawCompletions: number; flaggedCompletions: number; rejectedCompletions: number }
+  >;
 }
 
 export interface ResolveFlagDto {

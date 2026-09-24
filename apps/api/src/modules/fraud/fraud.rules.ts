@@ -80,7 +80,10 @@ export const COMPLETION_RULES: FraudRule[] = [
     severity: 'medium',
     scoreWeight: 20,
     trustScoreDelta: -3,
-    test: (s) => ({ hit: s.userCompletionsLastHour >= 12, detail: { userCompletionsLastHour: s.userCompletionsLastHour } }),
+    test: (s) => ({
+      hit: s.userCompletionsLastHour >= 12,
+      detail: { userCompletionsLastHour: s.userCompletionsLastHour },
+    }),
   },
   {
     id: 'LOW_TRUST_SCORE',
@@ -97,7 +100,9 @@ export const COMPLETION_RULES: FraudRule[] = [
     scoreWeight: 20,
     trustScoreDelta: -3,
     test: (s, t) => ({
-      hit: s.accountAgeHours < t.minAccountAgeHoursForFullTrust && s.todayCompletions >= Math.ceil(s.dailyLimit * 0.66),
+      hit:
+        s.accountAgeHours < t.minAccountAgeHoursForFullTrust &&
+        s.todayCompletions >= Math.ceil(s.dailyLimit * 0.66),
       detail: { accountAgeHours: Math.round(s.accountAgeHours), todayCompletions: s.todayCompletions },
     }),
   },
@@ -110,7 +115,10 @@ export const COMPLETION_RULES: FraudRule[] = [
     test: (s, t) => {
       if (s.expectedHeartbeats === 0) return { hit: false };
       const ratio = s.heartbeatCount / s.expectedHeartbeats;
-      return { hit: ratio >= t.minHeartbeatRatio && ratio < 0.85, detail: { heartbeatCount: s.heartbeatCount, expectedHeartbeats: s.expectedHeartbeats } };
+      return {
+        hit: ratio >= t.minHeartbeatRatio && ratio < 0.85,
+        detail: { heartbeatCount: s.heartbeatCount, expectedHeartbeats: s.expectedHeartbeats },
+      };
     },
   },
   {
@@ -119,7 +127,10 @@ export const COMPLETION_RULES: FraudRule[] = [
     severity: 'low',
     scoreWeight: 10,
     trustScoreDelta: 0,
-    test: (s) => ({ hit: s.watchDurationSeconds < s.adDurationSeconds, detail: { watchDurationSeconds: s.watchDurationSeconds, adDurationSeconds: s.adDurationSeconds } }),
+    test: (s) => ({
+      hit: s.watchDurationSeconds < s.adDurationSeconds,
+      detail: { watchDurationSeconds: s.watchDurationSeconds, adDurationSeconds: s.adDurationSeconds },
+    }),
   },
   {
     id: 'REPEAT_OFFENDER',
@@ -127,7 +138,10 @@ export const COMPLETION_RULES: FraudRule[] = [
     severity: 'high',
     scoreWeight: 30,
     trustScoreDelta: -5,
-    test: (s) => ({ hit: s.recentBadCompletions >= 3, detail: { recentBadCompletions: s.recentBadCompletions } }),
+    test: (s) => ({
+      hit: s.recentBadCompletions >= 3,
+      detail: { recentBadCompletions: s.recentBadCompletions },
+    }),
   },
 ];
 
@@ -158,14 +172,27 @@ export function evaluateCompletion(
       });
     }
   }
-  const score = Math.min(100, hits.reduce((sum, h) => sum + h.scoreWeight, 0));
-  const outcome = score >= thresholds.rejectThreshold ? 'rejected' : score >= thresholds.flagThreshold ? 'flagged' : 'valid';
+  const score = Math.min(
+    100,
+    hits.reduce((sum, h) => sum + h.scoreWeight, 0),
+  );
+  const outcome =
+    score >= thresholds.rejectThreshold
+      ? 'rejected'
+      : score >= thresholds.flagThreshold
+        ? 'flagged'
+        : 'valid';
   const trustScoreDelta = outcome === 'valid' ? 0 : hits.reduce((sum, h) => sum + h.trustScoreDelta, 0);
   return { score, outcome, hits, trustScoreDelta };
 }
 
 /** Penalty per open (not dismissed) fraud flag when recomputing a trust score. */
-export const SEVERITY_TRUST_PENALTY: Record<FraudSeverity, number> = { low: 2, medium: 5, high: 15, critical: 30 };
+export const SEVERITY_TRUST_PENALTY: Record<FraudSeverity, number> = {
+  low: 2,
+  medium: 5,
+  high: 15,
+  critical: 30,
+};
 
 export interface TrustScoreInputs {
   validCompletions: number;

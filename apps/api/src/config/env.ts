@@ -18,7 +18,7 @@ export const envSchema = z
     ADVERTISER_WEB_URL: z.string().default('http://localhost:5173'),
     ADMIN_WEB_URL: z.string().default('http://localhost:5174'),
     CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174,http://localhost:8081'),
-    LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+    LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
     LOG_PRETTY: bool.default(false),
     SECURITY_LOG_PATH: z.string().optional(),
     APP_VERSION: z.string().default('0.1.0'),
@@ -114,7 +114,11 @@ export const envSchema = z
         ctx.addIssue({ code: 'custom', path: ['OTP_DEV_ECHO'], message: 'must be false in production' });
       }
       if (env.OTP_DEV_FIXED_CODE) {
-        ctx.addIssue({ code: 'custom', path: ['OTP_DEV_FIXED_CODE'], message: 'must be unset in production' });
+        ctx.addIssue({
+          code: 'custom',
+          path: ['OTP_DEV_FIXED_CODE'],
+          message: 'must be unset in production',
+        });
       }
     }
     if (env.PLATFORM_TAKE_RATE < 0 || env.PLATFORM_TAKE_RATE >= 1) {

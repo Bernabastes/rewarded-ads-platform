@@ -18,7 +18,9 @@ export class HealthController {
 
   @Get()
   @ApiOperation({ summary: 'Liveness probe' })
-  @ApiOkResponse({ schema: { example: { status: 'ok', version: '0.1.0', time: '2026-01-01T00:00:00.000Z' } } })
+  @ApiOkResponse({
+    schema: { example: { status: 'ok', version: '0.1.0', time: '2026-01-01T00:00:00.000Z' } },
+  })
   live() {
     return { status: 'ok', version: this.config.env.APP_VERSION, time: new Date().toISOString() };
   }

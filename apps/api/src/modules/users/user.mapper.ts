@@ -18,7 +18,10 @@ export interface UserProfileView {
 export const DEFAULT_NOTIFICATION_PREFS = { rewards: true, withdrawals: true, offers: true };
 
 export function toUserProfile(user: User): UserProfileView {
-  const prefs = { ...DEFAULT_NOTIFICATION_PREFS, ...((user.notificationPrefs as Record<string, boolean>) ?? {}) };
+  const prefs = {
+    ...DEFAULT_NOTIFICATION_PREFS,
+    ...((user.notificationPrefs as Record<string, boolean>) ?? {}),
+  };
   return {
     id: user.id,
     phoneNumber: user.phoneNumber,
@@ -30,7 +33,9 @@ export function toUserProfile(user: User): UserProfileView {
     trustScore: user.trustScore,
     coinBalance: user.coinBalance,
     notificationPrefs: prefs,
-    profileComplete: Boolean(user.fullName && user.dateOfBirth && user.ageVerificationStatus === 'verified_adult'),
+    profileComplete: Boolean(
+      user.fullName && user.dateOfBirth && user.ageVerificationStatus === 'verified_adult',
+    ),
     createdAt: user.createdAt,
   };
 }

@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 import { PaginationQueryDto } from '../../../common/pagination';
 
 export class OffersQueryDto extends PaginationQueryDto {
@@ -17,7 +25,9 @@ export class SurveyAnswerDto {
   questionId: string;
 
   /** string (text / option index), string[] (multi choice) or number (rating). */
-  @ApiProperty({ oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }, { type: 'number' }] })
+  @ApiProperty({
+    oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }, { type: 'number' }],
+  })
   @IsNotEmpty()
   value: string | string[] | number;
 }

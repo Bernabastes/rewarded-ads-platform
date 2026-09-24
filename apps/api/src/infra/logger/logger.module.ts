@@ -77,12 +77,18 @@ export class SecurityLogger {
         pinoHttp: {
           level: config.isTest ? 'silent' : config.env.LOG_LEVEL,
           base: { channel: 'app', service: 'rap-api' },
-          transport: config.env.LOG_PRETTY ? { target: 'pino-pretty', options: { singleLine: true } } : undefined,
+          transport: config.env.LOG_PRETTY
+            ? { target: 'pino-pretty', options: { singleLine: true } }
+            : undefined,
           redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
           autoLogging: { ignore: (req) => (req.url ?? '').startsWith('/health') },
           customProps: () => ({ channel: 'app' }),
           serializers: {
-            req: (req: { id: unknown; method: string; url: string }) => ({ id: req.id, method: req.method, url: req.url }),
+            req: (req: { id: unknown; method: string; url: string }) => ({
+              id: req.id,
+              method: req.method,
+              url: req.url,
+            }),
           },
         },
       }),

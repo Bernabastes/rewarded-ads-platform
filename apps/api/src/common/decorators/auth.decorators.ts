@@ -48,6 +48,7 @@ export const ClientIp = createParamDecorator((_data: unknown, ctx: ExecutionCont
   extractClientIp(ctx.switchToHttp().getRequest<Request>()),
 );
 
-export const UserAgent = createParamDecorator((_data: unknown, ctx: ExecutionContext): string | undefined =>
-  ctx.switchToHttp().getRequest<Request>().headers['user-agent'],
+export const UserAgent = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): string | undefined =>
+    ctx.switchToHttp().getRequest<Request>().headers['user-agent'],
 );

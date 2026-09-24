@@ -1,4 +1,11 @@
-import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import {
+  type ArgumentsHost,
+  Catch,
+  type ExceptionFilter,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { type ApiErrorEnvelope, ErrorCode } from '@rap/shared';
 import type { Request, Response } from 'express';
 import { AppException } from '../errors/app.exception';
@@ -19,7 +26,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (envelope.statusCode >= 500) {
       this.logger.error(
-        { err: exception instanceof Error ? { message: exception.message, stack: exception.stack } : exception },
+        {
+          err:
+            exception instanceof Error ? { message: exception.message, stack: exception.stack } : exception,
+        },
         `Unhandled error on ${req.method} ${req.url}`,
       );
     }
@@ -51,7 +61,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const maybePrisma = exception as { code?: string; meta?: unknown; name?: string };
     if (maybePrisma?.name === 'PrismaClientKnownRequestError') {
       if (maybePrisma.code === 'P2002') {
-        return { statusCode: 409, code: ErrorCode.CONFLICT, message: 'Duplicate value', details: maybePrisma.meta };
+        return {
+          statusCode: 409,
+          code: ErrorCode.CONFLICT,
+          message: 'Duplicate value',
+          details: maybePrisma.meta,
+        };
       }
       if (maybePrisma.code === 'P2025') {
         return { statusCode: 404, code: ErrorCode.NOT_FOUND, message: 'Resource not found' };

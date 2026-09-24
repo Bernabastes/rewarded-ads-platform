@@ -79,31 +79,63 @@ export class WithdrawalsService {
     const p = this.config.platform;
     const amountEtb = new Prisma.Decimal(dto.amountEtb).toDecimalPlaces(2);
     if (amountEtb.lessThan(p.minWithdrawalEtb)) {
-      throw AppException.badRequest(ErrorCode.BELOW_MIN_WITHDRAWAL, `Minimum withdrawal is ${p.minWithdrawalEtb} ETB`, { minWithdrawalEtb: p.minWithdrawalEtb });
+      throw AppException.badRequest(
+        ErrorCode.BELOW_MIN_WITHDRAWAL,
+        `Minimum withdrawal is ${p.minWithdrawalEtb} ETB`,
+        { minWithdrawalEtb: p.minWithdrawalEtb },
+      );
     }
     const coinAmount = amountEtb.mul(p.coinsPerEtb).round().toNumber();
     const destination = this.validateDestination(dto);
     if (!this.registry.isMethodAvailable(dto.payoutMethod)) {
-      throw new AppException(ErrorCode.PAYOUT_METHOD_UNAVAILABLE, 'This payout method is temporarily unavailable', 503);
+      throw new AppException(
+        ErrorCode.PAYOUT_METHOD_UNAVAILABLE,
+        'This payout method is temporarily unavailable',
+        503,
+      );
     }
 
-    const rate = await this.redis.allow(`wd:${userId}:${utcDayKey()}`, p.dailyWithdrawalRequestLimit, secondsUntilEndOfUtcDay());
+    const rate = await this.redis.allow(
+      `wd:${userId}:${utcDayKey()}`,
+      p.dailyWithdrawalRequestLimit,
+      secondsUntilEndOfUtcDay(),
+    );
     if (!rate.allowed) {
       this.security.warn('withdrawal.rate_limited', { userId, count: rate.count, ip });
-      throw AppException.rateLimited(ErrorCode.WITHDRAWAL_RATE_LIMITED, 'Daily withdrawal request limit reached', { dailyRequestLimit: p.dailyWithdrawalRequestLimit });
+      throw AppException.rateLimited(
+        ErrorCode.WITHDRAWAL_RATE_LIMITED,
+        'Daily withdrawal request limit reached',
+        { dailyRequestLimit: p.dailyWithdrawalRequestLimit },
+      );
     }
 
     const [inFlight, completedCount, user] = await Promise.all([
-      this.prisma.withdrawal.count({ where: { userId, status: { in: ['pending', 'processing', 'flagged_for_review'] } } }),
+      this.prisma.withdrawal.count({
+        where: { userId, status: { in: ['pending', 'processing', 'flagged_for_review'] } },
+      }),
       this.prisma.withdrawal.count({ where: { userId, status: 'completed' } }),
-      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { trustScore: true, coinBalance: true } }),
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { trustScore: true, coinBalance: true },
+      }),
     ]);
-    if (inFlight > 0) throw AppException.conflict(ErrorCode.WITHDRAWAL_PENDING_EXISTS, 'You already have a withdrawal in progress');
+    if (inFlight > 0)
+      throw AppException.conflict(
+        ErrorCode.WITHDRAWAL_PENDING_EXISTS,
+        'You already have a withdrawal in progress',
+      );
     if (user.coinBalance < coinAmount) {
-      throw AppException.unprocessable(ErrorCode.INSUFFICIENT_BALANCE, 'Insufficient coin balance', { coinBalance: user.coinBalance, required: coinAmount });
+      throw AppException.unprocessable(ErrorCode.INSUFFICIENT_BALANCE, 'Insufficient coin balance', {
+        coinBalance: user.coinBalance,
+        required: coinAmount,
+      });
     }
 
-    const reviewReasons = this.reviewReasons({ isFirst: completedCount === 0, amountEtb, trustScore: user.trustScore });
+    const reviewReasons = this.reviewReasons({
+      isFirst: completedCount === 0,
+      amountEtb,
+      trustScore: user.trustScore,
+    });
     const requiresDualApproval = amountEtb.greaterThanOrEqualTo(p.largeWithdrawalThresholdEtb);
     const status: WithdrawalStatus = reviewReasons.length ? 'flagged_for_review' : 'pending';
 
@@ -125,19 +157,44 @@ export class WithdrawalsService {
       });
       // Hold the coins immediately, atomically with the request (throws INSUFFICIENT_BALANCE -> rollback).
       const hold = await this.ledger.applyEntry(
-        { userId, amount: -coinAmount, sourceType: 'withdrawal', sourceId: w.id, idempotencyKey: `withdrawal_hold:${w.id}`, description: `Withdrawal ${amountEtb.toFixed(2)} ETB via ${dto.payoutMethod}` },
+        {
+          userId,
+          amount: -coinAmount,
+          sourceType: 'withdrawal',
+          sourceId: w.id,
+          idempotencyKey: `withdrawal_hold:${w.id}`,
+          description: `Withdrawal ${amountEtb.toFixed(2)} ETB via ${dto.payoutMethod}`,
+        },
         tx,
       );
-      const updated = await tx.withdrawal.update({ where: { id: w.id }, data: { ledgerHoldEntryId: hold.entry.id } });
+      const updated = await tx.withdrawal.update({
+        where: { id: w.id },
+        data: { ledgerHoldEntryId: hold.entry.id },
+      });
       await this.audit.record(
-        { actorType: 'user', actorId: userId, action: 'withdrawal.requested', targetType: 'withdrawal', targetId: w.id, after: { status, amountEtb, coinAmount, reviewReasons, requiresDualApproval }, ipAddress: ip },
+        {
+          actorType: 'user',
+          actorId: userId,
+          action: 'withdrawal.requested',
+          targetType: 'withdrawal',
+          targetId: w.id,
+          after: { status, amountEtb, coinAmount, reviewReasons, requiresDualApproval },
+          ipAddress: ip,
+        },
         tx,
       );
       return updated;
     });
 
     if (status === 'flagged_for_review') {
-      this.security.warn('withdrawal.flagged_for_review', { withdrawalId: withdrawal.id, userId, amountEtb: amountEtb.toNumber(), reviewReasons, requiresDualApproval, ip });
+      this.security.warn('withdrawal.flagged_for_review', {
+        withdrawalId: withdrawal.id,
+        userId,
+        amountEtb: amountEtb.toNumber(),
+        reviewReasons,
+        requiresDualApproval,
+        ip,
+      });
     } else {
       await this.enqueuePayout(withdrawal.id);
     }
@@ -158,14 +215,27 @@ export class WithdrawalsService {
     const p = pageArgs(query);
     const where: Prisma.WithdrawalWhereInput = { userId, status: query.status };
     const [rows, total] = await Promise.all([
-      this.prisma.withdrawal.findMany({ where, orderBy: { requestedAt: 'desc' }, skip: p.skip, take: p.take, include: { _count: { select: { approvals: true } } } }),
+      this.prisma.withdrawal.findMany({
+        where,
+        orderBy: { requestedAt: 'desc' },
+        skip: p.skip,
+        take: p.take,
+        include: { _count: { select: { approvals: true } } },
+      }),
       this.prisma.withdrawal.count({ where }),
     ]);
-    return paginated(rows.map((w) => this.toUserView(w, w._count.approvals)), total, p);
+    return paginated(
+      rows.map((w) => this.toUserView(w, w._count.approvals)),
+      total,
+      p,
+    );
   }
 
   async getForUser(userId: string, id: string) {
-    const w = await this.prisma.withdrawal.findFirst({ where: { id, userId }, include: { _count: { select: { approvals: true } } } });
+    const w = await this.prisma.withdrawal.findFirst({
+      where: { id, userId },
+      include: { _count: { select: { approvals: true } } },
+    });
     if (!w) throw AppException.notFound('Withdrawal not found');
     return this.toUserView(w, w._count.approvals);
   }
@@ -176,10 +246,20 @@ export class WithdrawalsService {
     const p = pageArgs(query);
     const where: Prisma.WithdrawalWhereInput = { status: query.status, userId: query.userId };
     const [rows, total] = await Promise.all([
-      this.prisma.withdrawal.findMany({ where, orderBy: [{ status: 'asc' }, { requestedAt: 'asc' }], skip: p.skip, take: p.take, include: adminInclude }),
+      this.prisma.withdrawal.findMany({
+        where,
+        orderBy: [{ status: 'asc' }, { requestedAt: 'asc' }],
+        skip: p.skip,
+        take: p.take,
+        include: adminInclude,
+      }),
       this.prisma.withdrawal.count({ where }),
     ]);
-    return paginated(rows.map((w) => this.toAdminView(w)), total, p);
+    return paginated(
+      rows.map((w) => this.toAdminView(w)),
+      total,
+      p,
+    );
   }
 
   async getForAdmin(id: string) {
@@ -196,20 +276,34 @@ export class WithdrawalsService {
     this.assertFinanceRole(ctx);
     const w = await this.prisma.withdrawal.findUnique({ where: { id }, include: { approvals: true } });
     if (!w) throw AppException.notFound('Withdrawal not found');
-    if (!REVIEWABLE.includes(w.status)) throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, `Withdrawal is ${w.status}`);
+    if (!REVIEWABLE.includes(w.status))
+      throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, `Withdrawal is ${w.status}`);
     if (w.approvals.some((a) => a.adminId === ctx.adminId)) {
-      this.security.warn('withdrawal.decision', { withdrawalId: id, adminId: ctx.adminId, blocked: 'same_admin_second_approval' });
-      throw AppException.conflict(ErrorCode.DUAL_APPROVAL_SAME_ADMIN, 'A different admin must provide the second approval');
+      this.security.warn('withdrawal.decision', {
+        withdrawalId: id,
+        adminId: ctx.adminId,
+        blocked: 'same_admin_second_approval',
+      });
+      throw AppException.conflict(
+        ErrorCode.DUAL_APPROVAL_SAME_ADMIN,
+        'A different admin must provide the second approval',
+      );
     }
 
     const required = w.requiresDualApproval ? 2 : 1;
     const result = await this.prisma.$transaction(async (tx) => {
-      await tx.withdrawalApproval.create({ data: { withdrawalId: id, adminId: ctx.adminId, decision: 'approved', note } });
-      const approvals = await tx.withdrawalApproval.count({ where: { withdrawalId: id, decision: 'approved' } });
+      await tx.withdrawalApproval.create({
+        data: { withdrawalId: id, adminId: ctx.adminId, decision: 'approved', note },
+      });
+      const approvals = await tx.withdrawalApproval.count({
+        where: { withdrawalId: id, decision: 'approved' },
+      });
       const released = approvals >= required;
       const updated = await tx.withdrawal.update({
         where: { id },
-        data: released ? { status: 'pending', processedBy: ctx.adminId, reviewNote: note ?? w.reviewNote } : { reviewNote: note ?? w.reviewNote },
+        data: released
+          ? { status: 'pending', processedBy: ctx.adminId, reviewNote: note ?? w.reviewNote }
+          : { reviewNote: note ?? w.reviewNote },
       });
       await this.audit.record(
         {
@@ -228,10 +322,23 @@ export class WithdrawalsService {
       return { updated, released, approvals, required };
     });
 
-    this.security.info('withdrawal.decision', { withdrawalId: id, adminId: ctx.adminId, decision: 'approved', approvals: result.approvals, required, released: result.released });
+    this.security.info('withdrawal.decision', {
+      withdrawalId: id,
+      adminId: ctx.adminId,
+      decision: 'approved',
+      approvals: result.approvals,
+      required,
+      released: result.released,
+    });
     if (result.released) {
       await this.enqueuePayout(id);
-      await this.notifications.notify({ userId: w.userId, type: 'withdrawal_status', title: 'Withdrawal approved', body: `Your withdrawal of ${w.amountEtb.toFixed(2)} ETB was approved and is being paid out.`, data: { withdrawalId: id, status: 'pending' } });
+      await this.notifications.notify({
+        userId: w.userId,
+        type: 'withdrawal_status',
+        title: 'Withdrawal approved',
+        body: `Your withdrawal of ${w.amountEtb.toFixed(2)} ETB was approved and is being paid out.`,
+        data: { withdrawalId: id, status: 'pending' },
+      });
     }
     return this.getForAdmin(id);
   }
@@ -241,11 +348,25 @@ export class WithdrawalsService {
     this.assertFinanceRole(ctx);
     const w = await this.prisma.withdrawal.findUnique({ where: { id } });
     if (!w) throw AppException.notFound('Withdrawal not found');
-    if (!REJECTABLE.includes(w.status)) throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, `Withdrawal is ${w.status}`);
+    if (!REJECTABLE.includes(w.status))
+      throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, `Withdrawal is ${w.status}`);
 
     await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.withdrawal.updateMany({ where: { id, status: { in: REJECTABLE } }, data: { status: 'rejected', failureReason: `Rejected by admin: ${reason}`, processedAt: new Date(), processedBy: ctx.adminId, reviewNote: reason } });
-      if (claimed.count === 0) throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, 'Withdrawal changed state concurrently');
+      const claimed = await tx.withdrawal.updateMany({
+        where: { id, status: { in: REJECTABLE } },
+        data: {
+          status: 'rejected',
+          failureReason: `Rejected by admin: ${reason}`,
+          processedAt: new Date(),
+          processedBy: ctx.adminId,
+          reviewNote: reason,
+        },
+      });
+      if (claimed.count === 0)
+        throw AppException.conflict(
+          ErrorCode.WITHDRAWAL_NOT_REVIEWABLE,
+          'Withdrawal changed state concurrently',
+        );
       await tx.withdrawalApproval.upsert({
         where: { withdrawalId_adminId: { withdrawalId: id, adminId: ctx.adminId } },
         create: { withdrawalId: id, adminId: ctx.adminId, decision: 'rejected', note: reason },
@@ -253,12 +374,32 @@ export class WithdrawalsService {
       });
       await this.reverseHold(tx, w, `Withdrawal rejected: ${reason}`);
       await this.audit.record(
-        { actorType: 'admin', actorId: ctx.adminId, action: 'withdrawal.rejected', targetType: 'withdrawal', targetId: id, before: { status: w.status }, after: { status: 'rejected', reason }, ipAddress: ctx.ip },
+        {
+          actorType: 'admin',
+          actorId: ctx.adminId,
+          action: 'withdrawal.rejected',
+          targetType: 'withdrawal',
+          targetId: id,
+          before: { status: w.status },
+          after: { status: 'rejected', reason },
+          ipAddress: ctx.ip,
+        },
         tx,
       );
     });
-    this.security.info('withdrawal.decision', { withdrawalId: id, adminId: ctx.adminId, decision: 'rejected', reason });
-    await this.notifications.notify({ userId: w.userId, type: 'withdrawal_status', title: 'Withdrawal rejected', body: `Your withdrawal of ${w.amountEtb.toFixed(2)} ETB was not approved. The coins have been returned to your balance.`, data: { withdrawalId: id, status: 'rejected' } });
+    this.security.info('withdrawal.decision', {
+      withdrawalId: id,
+      adminId: ctx.adminId,
+      decision: 'rejected',
+      reason,
+    });
+    await this.notifications.notify({
+      userId: w.userId,
+      type: 'withdrawal_status',
+      title: 'Withdrawal rejected',
+      body: `Your withdrawal of ${w.amountEtb.toFixed(2)} ETB was not approved. The coins have been returned to your balance.`,
+      data: { withdrawalId: id, status: 'rejected' },
+    });
     return this.getForAdmin(id);
   }
 
@@ -267,16 +408,51 @@ export class WithdrawalsService {
     this.assertFinanceRole(ctx);
     const w = await this.prisma.withdrawal.findUnique({ where: { id } });
     if (!w) throw AppException.notFound('Withdrawal not found');
-    if (w.status !== 'failed') throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, 'Only failed withdrawals can be retried');
-    if (w.attempts >= this.config.env.PAYOUT_MAX_ATTEMPTS) throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, 'Maximum payout attempts reached');
+    if (w.status !== 'failed')
+      throw AppException.conflict(
+        ErrorCode.WITHDRAWAL_NOT_REVIEWABLE,
+        'Only failed withdrawals can be retried',
+      );
+    if (w.attempts >= this.config.env.PAYOUT_MAX_ATTEMPTS)
+      throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, 'Maximum payout attempts reached');
 
     await this.prisma.$transaction(async (tx) => {
       const hold = await this.ledger.applyEntry(
-        { userId: w.userId, amount: -w.coinAmount, sourceType: 'withdrawal', sourceId: w.id, idempotencyKey: `withdrawal_hold:${w.id}:retry${w.attempts + 1}`, description: `Withdrawal retry ${w.amountEtb.toFixed(2)} ETB` },
+        {
+          userId: w.userId,
+          amount: -w.coinAmount,
+          sourceType: 'withdrawal',
+          sourceId: w.id,
+          idempotencyKey: `withdrawal_hold:${w.id}:retry${w.attempts + 1}`,
+          description: `Withdrawal retry ${w.amountEtb.toFixed(2)} ETB`,
+        },
         tx,
       );
-      await tx.withdrawal.update({ where: { id }, data: { status: 'pending', failureReason: null, ledgerHoldEntryId: hold.entry.id, ledgerReversalEntryId: null, providerPayoutId: null, providerName: null, processedBy: ctx.adminId } });
-      await this.audit.record({ actorType: 'admin', actorId: ctx.adminId, action: 'withdrawal.retried', targetType: 'withdrawal', targetId: id, before: { status: 'failed', attempts: w.attempts }, after: { status: 'pending' }, ipAddress: ctx.ip }, tx);
+      await tx.withdrawal.update({
+        where: { id },
+        data: {
+          status: 'pending',
+          failureReason: null,
+          ledgerHoldEntryId: hold.entry.id,
+          ledgerReversalEntryId: null,
+          providerPayoutId: null,
+          providerName: null,
+          processedBy: ctx.adminId,
+        },
+      });
+      await this.audit.record(
+        {
+          actorType: 'admin',
+          actorId: ctx.adminId,
+          action: 'withdrawal.retried',
+          targetType: 'withdrawal',
+          targetId: id,
+          before: { status: 'failed', attempts: w.attempts },
+          after: { status: 'pending' },
+          ipAddress: ctx.ip,
+        },
+        tx,
+      );
     });
     await this.enqueuePayout(id);
     return this.getForAdmin(id);
@@ -285,7 +461,10 @@ export class WithdrawalsService {
   /* --------------------------- worker callbacks --------------------------- */
 
   async markProcessing(id: string): Promise<Withdrawal | null> {
-    const claimed = await this.prisma.withdrawal.updateMany({ where: { id, status: 'pending' }, data: { status: 'processing', attempts: { increment: 1 } } });
+    const claimed = await this.prisma.withdrawal.updateMany({
+      where: { id, status: 'pending' },
+      data: { status: 'processing', attempts: { increment: 1 } },
+    });
     if (claimed.count === 0) return null;
     return this.prisma.withdrawal.findUnique({ where: { id } });
   }
@@ -294,10 +473,29 @@ export class WithdrawalsService {
     const w = await this.prisma.withdrawal.findUnique({ where: { id } });
     if (!w || w.status !== 'processing') return;
     await this.prisma.$transaction(async (tx) => {
-      await tx.withdrawal.update({ where: { id }, data: { status: 'completed', processedAt: new Date(), providerStatusRaw: toJson(raw) } });
-      await this.audit.record({ actorType: 'system', action: 'withdrawal.completed', targetType: 'withdrawal', targetId: id, before: { status: 'processing' }, after: { status: 'completed', provider: w.providerName, providerPayoutId: w.providerPayoutId } }, tx);
+      await tx.withdrawal.update({
+        where: { id },
+        data: { status: 'completed', processedAt: new Date(), providerStatusRaw: toJson(raw) },
+      });
+      await this.audit.record(
+        {
+          actorType: 'system',
+          action: 'withdrawal.completed',
+          targetType: 'withdrawal',
+          targetId: id,
+          before: { status: 'processing' },
+          after: { status: 'completed', provider: w.providerName, providerPayoutId: w.providerPayoutId },
+        },
+        tx,
+      );
     });
-    await this.notifications.notify({ userId: w.userId, type: 'withdrawal_status', title: 'Withdrawal completed', body: `${w.amountEtb.toFixed(2)} ETB has been sent to your ${w.payoutMethod} account.`, data: { withdrawalId: id, status: 'completed' } });
+    await this.notifications.notify({
+      userId: w.userId,
+      type: 'withdrawal_status',
+      title: 'Withdrawal completed',
+      body: `${w.amountEtb.toFixed(2)} ETB has been sent to your ${w.payoutMethod} account.`,
+      data: { withdrawalId: id, status: 'completed' },
+    });
   }
 
   /** Terminal failure: refund the hold with a reversing ledger entry and notify. */
@@ -305,16 +503,49 @@ export class WithdrawalsService {
     const w = await this.prisma.withdrawal.findUnique({ where: { id } });
     if (!w || w.status !== 'processing') return;
     await this.prisma.$transaction(async (tx) => {
-      await tx.withdrawal.update({ where: { id }, data: { status: 'failed', failureReason: reason, processedAt: new Date(), providerStatusRaw: raw === undefined ? undefined : toJson(raw) } });
+      await tx.withdrawal.update({
+        where: { id },
+        data: {
+          status: 'failed',
+          failureReason: reason,
+          processedAt: new Date(),
+          providerStatusRaw: raw === undefined ? undefined : toJson(raw),
+        },
+      });
       await this.reverseHold(tx, w, `Payout failed: ${reason}`);
-      await this.audit.record({ actorType: 'system', action: 'withdrawal.failed', targetType: 'withdrawal', targetId: id, before: { status: 'processing' }, after: { status: 'failed', reason } }, tx);
+      await this.audit.record(
+        {
+          actorType: 'system',
+          action: 'withdrawal.failed',
+          targetType: 'withdrawal',
+          targetId: id,
+          before: { status: 'processing' },
+          after: { status: 'failed', reason },
+        },
+        tx,
+      );
     });
-    this.security.warn('withdrawal.payout_failed', { withdrawalId: id, userId: w.userId, provider: w.providerName, reason, attempts: w.attempts });
-    await this.notifications.notify({ userId: w.userId, type: 'withdrawal_status', title: 'Withdrawal failed', body: `We could not complete your withdrawal of ${w.amountEtb.toFixed(2)} ETB. The coins have been returned to your balance; please try again.`, data: { withdrawalId: id, status: 'failed' } });
+    this.security.warn('withdrawal.payout_failed', {
+      withdrawalId: id,
+      userId: w.userId,
+      provider: w.providerName,
+      reason,
+      attempts: w.attempts,
+    });
+    await this.notifications.notify({
+      userId: w.userId,
+      type: 'withdrawal_status',
+      title: 'Withdrawal failed',
+      body: `We could not complete your withdrawal of ${w.amountEtb.toFixed(2)} ETB. The coins have been returned to your balance; please try again.`,
+      data: { withdrawalId: id, status: 'failed' },
+    });
   }
 
   async setProvider(id: string, providerName: string, providerPayoutId: string, raw: unknown) {
-    await this.prisma.withdrawal.update({ where: { id }, data: { providerName, providerPayoutId, providerStatusRaw: toJson(raw) } });
+    await this.prisma.withdrawal.update({
+      where: { id },
+      data: { providerName, providerPayoutId, providerStatusRaw: toJson(raw) },
+    });
   }
 
   /* ------------------------------- helpers ------------------------------- */
@@ -322,14 +553,22 @@ export class WithdrawalsService {
   reviewReasons(input: { isFirst: boolean; amountEtb: Prisma.Decimal; trustScore: number }): string[] {
     const reasons: string[] = [];
     if (input.isFirst) reasons.push(REVIEW_REASON.firstWithdrawal);
-    if (input.amountEtb.greaterThanOrEqualTo(this.config.platform.largeWithdrawalThresholdEtb)) reasons.push(REVIEW_REASON.largeAmount);
+    if (input.amountEtb.greaterThanOrEqualTo(this.config.platform.largeWithdrawalThresholdEtb))
+      reasons.push(REVIEW_REASON.largeAmount);
     if (input.trustScore < 30) reasons.push(REVIEW_REASON.lowTrustScore);
     return reasons;
   }
 
   private async reverseHold(tx: Prisma.TransactionClient, w: Withdrawal, description: string) {
     const reversal = await this.ledger.applyEntry(
-      { userId: w.userId, amount: w.coinAmount, sourceType: 'withdrawal_reversal', sourceId: w.id, idempotencyKey: `withdrawal_reversal:${w.id}:${w.attempts}`, description },
+      {
+        userId: w.userId,
+        amount: w.coinAmount,
+        sourceType: 'withdrawal_reversal',
+        sourceId: w.id,
+        idempotencyKey: `withdrawal_reversal:${w.id}:${w.attempts}`,
+        description,
+      },
       tx,
     );
     await tx.withdrawal.update({ where: { id: w.id }, data: { ledgerReversalEntryId: reversal.entry.id } });
@@ -338,7 +577,11 @@ export class WithdrawalsService {
   private async enqueuePayout(withdrawalId: string) {
     if (!this.config.env.QUEUES_ENABLED || this.config.isTest) return;
     try {
-      await this.payoutQueue.add('initiate', { withdrawalId }, { jobId: `initiate-${withdrawalId}-${Date.now()}` });
+      await this.payoutQueue.add(
+        'initiate',
+        { withdrawalId },
+        { jobId: `initiate-${withdrawalId}-${Date.now()}` },
+      );
     } catch (err) {
       this.logger.error(`Could not enqueue payout for ${withdrawalId}: ${(err as Error).message}`);
     }
@@ -346,20 +589,44 @@ export class WithdrawalsService {
 
   private assertFinanceRole(ctx: WithdrawalDecisionContext) {
     if (ctx.role !== 'finance' && ctx.role !== 'super_admin') {
-      throw AppException.forbidden(ErrorCode.DUAL_APPROVAL_ROLE_REQUIRED, 'Only finance or super_admin can decide withdrawals');
+      throw AppException.forbidden(
+        ErrorCode.DUAL_APPROVAL_ROLE_REQUIRED,
+        'Only finance or super_admin can decide withdrawals',
+      );
     }
   }
 
-  validateDestination(dto: { payoutMethod: PayoutMethod; payoutDestination: string; destinationName?: string; bankCode?: string }): string {
+  validateDestination(dto: {
+    payoutMethod: PayoutMethod;
+    payoutDestination: string;
+    destinationName?: string;
+    bankCode?: string;
+  }): string {
     if (dto.payoutMethod === 'bank') {
       const acct = dto.payoutDestination.replace(/\s+/g, '');
-      if (!/^\d{6,30}$/.test(acct)) throw AppException.badRequest(ErrorCode.INVALID_PAYOUT_DESTINATION, 'Enter a valid bank account number');
-      if (!dto.destinationName?.trim()) throw AppException.badRequest(ErrorCode.INVALID_PAYOUT_DESTINATION, 'Account holder name is required for bank transfers');
-      if (!dto.bankCode?.trim()) throw AppException.badRequest(ErrorCode.INVALID_PAYOUT_DESTINATION, 'bankCode is required for bank transfers');
+      if (!/^\d{6,30}$/.test(acct))
+        throw AppException.badRequest(
+          ErrorCode.INVALID_PAYOUT_DESTINATION,
+          'Enter a valid bank account number',
+        );
+      if (!dto.destinationName?.trim())
+        throw AppException.badRequest(
+          ErrorCode.INVALID_PAYOUT_DESTINATION,
+          'Account holder name is required for bank transfers',
+        );
+      if (!dto.bankCode?.trim())
+        throw AppException.badRequest(
+          ErrorCode.INVALID_PAYOUT_DESTINATION,
+          'bankCode is required for bank transfers',
+        );
       return acct;
     }
     const phone = normalizeEthiopianPhone(dto.payoutDestination);
-    if (!phone) throw AppException.badRequest(ErrorCode.INVALID_PAYOUT_DESTINATION, 'Enter a valid Ethiopian mobile number');
+    if (!phone)
+      throw AppException.badRequest(
+        ErrorCode.INVALID_PAYOUT_DESTINATION,
+        'Enter a valid Ethiopian mobile number',
+      );
     return phone;
   }
 
@@ -390,7 +657,14 @@ export class WithdrawalsService {
       ...this.toUserView(w, w.approvals.filter((a) => a.decision === 'approved').length),
       user: w.user,
       isFirstWithdrawal: w.isFirstWithdrawal,
-      approvals: w.approvals.map((a) => ({ id: a.id, adminId: a.adminId, adminEmail: a.admin.email, decision: a.decision, note: a.note, createdAt: a.createdAt })),
+      approvals: w.approvals.map((a) => ({
+        id: a.id,
+        adminId: a.adminId,
+        adminEmail: a.admin.email,
+        decision: a.decision,
+        note: a.note,
+        createdAt: a.createdAt,
+      })),
       payoutDestinationFull: w.payoutDestination,
       bankCode: w.bankCode,
       reviewNote: w.reviewNote,

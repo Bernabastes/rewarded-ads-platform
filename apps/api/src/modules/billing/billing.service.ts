@@ -34,12 +34,21 @@ export class BillingService {
 
   async createTopup(advertiserId: string, amountEtb: number, returnUrl?: string) {
     if (amountEtb < this.config.platform.minTopupEtb) {
-      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, `Minimum top-up is ${this.config.platform.minTopupEtb} ETB`);
+      throw AppException.badRequest(
+        ErrorCode.VALIDATION_ERROR,
+        `Minimum top-up is ${this.config.platform.minTopupEtb} ETB`,
+      );
     }
     const advertiser = await this.prisma.advertiser.findUniqueOrThrow({ where: { id: advertiserId } });
     const txRef = `RAP-${Date.now().toString(36).toUpperCase()}-${randomBytes(4).toString('hex').toUpperCase()}`;
     const payment = await this.prisma.advertiserPayment.create({
-      data: { advertiserId, amountEtb: new Prisma.Decimal(amountEtb), txRef, gateway: this.gateway.name, mock: this.gateway.isMock },
+      data: {
+        advertiserId,
+        amountEtb: new Prisma.Decimal(amountEtb),
+        txRef,
+        gateway: this.gateway.name,
+        mock: this.gateway.isMock,
+      },
     });
     const [firstName, ...rest] = advertiser.businessName.split(' ');
     try {
@@ -70,29 +79,50 @@ export class BillingService {
         returnUrl: returnUrl ?? `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`,
       };
     } catch (err) {
-      await this.prisma.advertiserPayment.update({ where: { id: payment.id }, data: { status: 'failed', rawWebhook: { error: (err as Error).message } } });
+      await this.prisma.advertiserPayment.update({
+        where: { id: payment.id },
+        data: { status: 'failed', rawWebhook: { error: (err as Error).message } },
+      });
       this.logger.error(`Checkout creation failed for ${txRef}: ${(err as Error).message}`);
-      throw new AppException(ErrorCode.SERVICE_UNAVAILABLE, 'Payment gateway unavailable; try again later', 503);
+      throw new AppException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        'Payment gateway unavailable; try again later',
+        503,
+      );
     }
   }
 
   async listPayments(advertiserId: string, query: { page?: number; limit?: number }) {
     const p = pageArgs(query);
     const [rows, total] = await Promise.all([
-      this.prisma.advertiserPayment.findMany({ where: { advertiserId }, orderBy: { createdAt: 'desc' }, skip: p.skip, take: p.take, select: this.paymentSelect }),
+      this.prisma.advertiserPayment.findMany({
+        where: { advertiserId },
+        orderBy: { createdAt: 'desc' },
+        skip: p.skip,
+        take: p.take,
+        select: this.paymentSelect,
+      }),
       this.prisma.advertiserPayment.count({ where: { advertiserId } }),
     ]);
     return paginated(rows, total, p);
   }
 
   async getPayment(advertiserId: string, id: string) {
-    const payment = await this.prisma.advertiserPayment.findFirst({ where: { id, advertiserId }, select: this.paymentSelect });
+    const payment = await this.prisma.advertiserPayment.findFirst({
+      where: { id, advertiserId },
+      select: this.paymentSelect,
+    });
     if (!payment) throw AppException.notFound('Payment not found', { code: ErrorCode.PAYMENT_NOT_FOUND });
     // Real gateway: opportunistically verify pending payments when the advertiser polls.
     if (payment.status === 'pending' && !this.gateway.isMock) {
       const v = await this.gateway.verify(payment.txRef).catch(() => null);
-      if (v?.status === 'success') return this.settlePayment(payment.txRef, v.gatewayReference, v.raw, 'verify');
-      if (v?.status === 'failed') await this.prisma.advertiserPayment.update({ where: { id }, data: { status: 'failed', rawWebhook: v.raw as Prisma.InputJsonValue } });
+      if (v?.status === 'success')
+        return this.settlePayment(payment.txRef, v.gatewayReference, v.raw, 'verify');
+      if (v?.status === 'failed')
+        await this.prisma.advertiserPayment.update({
+          where: { id },
+          data: { status: 'failed', rawWebhook: v.raw as Prisma.InputJsonValue },
+        });
     }
     return payment;
   }
@@ -100,7 +130,12 @@ export class BillingService {
   /**
    * Chapa webhook: signature-verified, idempotent (settling twice is a no-op) and cross-checked with the verify API.
    */
-  async handleChapaWebhook(rawBody: Buffer | undefined, body: Record<string, unknown>, headers: Record<string, string | string[] | undefined>, ip: string) {
+  async handleChapaWebhook(
+    rawBody: Buffer | undefined,
+    body: Record<string, unknown>,
+    headers: Record<string, string | string[] | undefined>,
+    ip: string,
+  ) {
     if (!this.config.env.CHAPA_WEBHOOK_SECRET) {
       throw new AppException(ErrorCode.SERVICE_UNAVAILABLE, 'Webhook secret not configured', 503);
     }
@@ -113,35 +148,68 @@ export class BillingService {
     if (!txRef) throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'tx_ref missing');
 
     if (status !== 'success') {
-      await this.prisma.advertiserPayment.updateMany({ where: { txRef, status: 'pending' }, data: { status: 'failed', rawWebhook: body as Prisma.InputJsonValue } });
+      await this.prisma.advertiserPayment.updateMany({
+        where: { txRef, status: 'pending' },
+        data: { status: 'failed', rawWebhook: body as Prisma.InputJsonValue },
+      });
       return { received: true, txRef, status: 'failed' };
     }
     if (!this.gateway.isMock) {
       const v = await this.gateway.verify(txRef);
-      if (v.status !== 'success') throw AppException.badRequest(ErrorCode.PAYMENT_NOT_FOUND, 'Gateway did not confirm this payment');
+      if (v.status !== 'success')
+        throw AppException.badRequest(ErrorCode.PAYMENT_NOT_FOUND, 'Gateway did not confirm this payment');
     }
-    const payment = await this.settlePayment(txRef, body.reference ? String(body.reference) : undefined, body, 'webhook');
+    const payment = await this.settlePayment(
+      txRef,
+      body.reference ? String(body.reference) : undefined,
+      body,
+      'webhook',
+    );
     return { received: true, txRef, status: payment.status };
   }
 
   /** Credits the advertiser wallet exactly once per payment and issues an invoice. */
-  async settlePayment(txRef: string, gatewayReference: string | undefined, raw: unknown, via: 'webhook' | 'verify' | 'mock') {
+  async settlePayment(
+    txRef: string,
+    gatewayReference: string | undefined,
+    raw: unknown,
+    via: 'webhook' | 'verify' | 'mock',
+  ) {
     return this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM advertiser_payments WHERE tx_ref = ${txRef} FOR UPDATE`;
-      if (rows.length === 0) throw AppException.notFound('Payment not found', { code: ErrorCode.PAYMENT_NOT_FOUND });
-      const payment = await tx.advertiserPayment.findUniqueOrThrow({ where: { txRef }, select: this.paymentSelect });
+      const rows = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT id FROM advertiser_payments WHERE tx_ref = ${txRef} FOR UPDATE`;
+      if (rows.length === 0)
+        throw AppException.notFound('Payment not found', { code: ErrorCode.PAYMENT_NOT_FOUND });
+      const payment = await tx.advertiserPayment.findUniqueOrThrow({
+        where: { txRef },
+        select: this.paymentSelect,
+      });
       if (payment.status === 'completed') return payment;
       if (payment.status !== 'pending') {
         throw AppException.conflict(ErrorCode.PAYMENT_ALREADY_PROCESSED, `Payment is ${payment.status}`);
       }
       const now = new Date();
       await this.wallet.applyEntry(
-        { advertiserId: payment.advertiserId, amountEtb: payment.amountEtb, entryType: 'topup', referenceType: 'payment', referenceId: payment.id, idempotencyKey: `topup:${payment.id}`, description: `Top-up ${txRef}` },
+        {
+          advertiserId: payment.advertiserId,
+          amountEtb: payment.amountEtb,
+          entryType: 'topup',
+          referenceType: 'payment',
+          referenceId: payment.id,
+          idempotencyKey: `topup:${payment.id}`,
+          description: `Top-up ${txRef}`,
+        },
         tx,
       );
       const updated = await tx.advertiserPayment.update({
         where: { id: payment.id },
-        data: { status: 'completed', paidAt: now, gatewayReference: gatewayReference ?? payment.gatewayReference, rawWebhook: toJson(raw) },
+        data: {
+          status: 'completed',
+          paidAt: now,
+          gatewayReference: gatewayReference ?? payment.gatewayReference,
+          rawWebhook: toJson(raw),
+        },
         select: this.paymentSelect,
       });
       const vatRate = this.config.platform.invoiceVatRate;
@@ -155,13 +223,27 @@ export class BillingService {
           subtotalEtb: subtotal,
           vatEtb: vat,
           totalEtb: payment.amountEtb,
-          lineItems: [{ description: `Advertising wallet top-up (${txRef})`, quantity: 1, unitPriceEtb: Number(subtotal), totalEtb: Number(subtotal) }],
+          lineItems: [
+            {
+              description: `Advertising wallet top-up (${txRef})`,
+              quantity: 1,
+              unitPriceEtb: Number(subtotal),
+              totalEtb: Number(subtotal),
+            },
+          ],
           paymentId: payment.id,
           paidAt: now,
         },
       });
       await this.audit.record(
-        { actorType: 'system', action: `payment.settled_${via}`, targetType: 'advertiser_payment', targetId: payment.id, before: { status: 'pending' }, after: { status: 'completed', amountEtb: payment.amountEtb, gatewayReference } },
+        {
+          actorType: 'system',
+          action: `payment.settled_${via}`,
+          targetType: 'advertiser_payment',
+          targetId: payment.id,
+          before: { status: 'pending' },
+          after: { status: 'completed', amountEtb: payment.amountEtb, gatewayReference },
+        },
         tx,
       );
       return updated;
@@ -171,14 +253,23 @@ export class BillingService {
   async listInvoices(advertiserId: string, query: { page?: number; limit?: number }) {
     const p = pageArgs(query);
     const [rows, total] = await Promise.all([
-      this.prisma.invoice.findMany({ where: { advertiserId }, orderBy: { issuedAt: 'desc' }, skip: p.skip, take: p.take, select: this.invoiceSelect }),
+      this.prisma.invoice.findMany({
+        where: { advertiserId },
+        orderBy: { issuedAt: 'desc' },
+        skip: p.skip,
+        take: p.take,
+        select: this.invoiceSelect,
+      }),
       this.prisma.invoice.count({ where: { advertiserId } }),
     ]);
     return paginated(rows, total, p);
   }
 
   async getInvoice(advertiserId: string, id: string) {
-    const inv = await this.prisma.invoice.findFirst({ where: { id, advertiserId }, select: this.invoiceSelect });
+    const inv = await this.prisma.invoice.findFirst({
+      where: { id, advertiserId },
+      select: this.invoiceSelect,
+    });
     if (!inv) throw AppException.notFound('Invoice not found');
     return inv;
   }
@@ -187,20 +278,37 @@ export class BillingService {
 
   async mockCheckoutPage(txRef: string): Promise<string> {
     this.assertMock();
-    const payment = await this.prisma.advertiserPayment.findUnique({ where: { txRef }, include: { advertiser: { select: { businessName: true } } } });
+    const payment = await this.prisma.advertiserPayment.findUnique({
+      where: { txRef },
+      include: { advertiser: { select: { businessName: true } } },
+    });
     if (!payment) throw AppException.notFound('Payment not found', { code: ErrorCode.PAYMENT_NOT_FOUND });
     const returnUrl = `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`;
-    return mockCheckoutHtml({ txRef, amount: payment.amountEtb.toFixed(2), business: payment.advertiser.businessName, status: payment.status, payUrl: `${this.config.env.API_PUBLIC_URL}/api/v1/billing/mock-checkout/${txRef}/pay`, returnUrl });
+    return mockCheckoutHtml({
+      txRef,
+      amount: payment.amountEtb.toFixed(2),
+      business: payment.advertiser.businessName,
+      status: payment.status,
+      payUrl: `${this.config.env.API_PUBLIC_URL}/api/v1/billing/mock-checkout/${txRef}/pay`,
+      returnUrl,
+    });
   }
 
   async mockCheckoutPay(txRef: string, outcome: 'success' | 'failed' = 'success') {
     this.assertMock();
     if (outcome === 'failed') {
-      await this.prisma.advertiserPayment.updateMany({ where: { txRef, status: 'pending' }, data: { status: 'failed', rawWebhook: { mock: true, outcome } } });
+      await this.prisma.advertiserPayment.updateMany({
+        where: { txRef, status: 'pending' },
+        data: { status: 'failed', rawWebhook: { mock: true, outcome } },
+      });
       return { txRef, status: 'failed' as const };
     }
     const payment = await this.settlePayment(txRef, `MOCK-${txRef}`, { mock: true, outcome }, 'mock');
-    return { txRef, status: payment.status, returnUrl: `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}` };
+    return {
+      txRef,
+      status: payment.status,
+      returnUrl: `${this.config.env.ADVERTISER_WEB_URL}/billing?topup=${txRef}`,
+    };
   }
 
   private assertMock() {
@@ -241,7 +349,14 @@ function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
 }
 
-function mockCheckoutHtml(p: { txRef: string; amount: string; business: string; status: string; payUrl: string; returnUrl: string }): string {
+function mockCheckoutHtml(p: {
+  txRef: string;
+  amount: string;
+  business: string;
+  status: string;
+  payUrl: string;
+  returnUrl: string;
+}): string {
   const paid = p.status === 'completed';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Mock Chapa Checkout</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">

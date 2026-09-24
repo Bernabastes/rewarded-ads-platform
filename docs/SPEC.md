@@ -14,11 +14,11 @@ We are building a **rewarded advertising platform for Ethiopia**. It connects th
 
 The system must be built as **three connected surfaces sharing one backend and one database**:
 
-| Surface | Users | Format |
-|---|---|---|
-| **User Application** | Everyday consumers | Native-feeling cross-platform **mobile app** |
-| **Advertiser System** | Businesses running campaigns | **Web app** |
-| **Admin Dashboard** | Internal platform team | **Web app** |
+| Surface               | Users                        | Format                                       |
+| --------------------- | ---------------------------- | -------------------------------------------- |
+| **User Application**  | Everyday consumers           | Native-feeling cross-platform **mobile app** |
+| **Advertiser System** | Businesses running campaigns | **Web app**                                  |
+| **Admin Dashboard**   | Internal platform team       | **Web app**                                  |
 
 This is an MVP for a startup — it must be real, working, and demo-ready, but architected so it can scale to tens of thousands of users without a rewrite.
 
@@ -56,20 +56,20 @@ This is an MVP for a startup — it must be real, working, and demo-ready, but a
 
 ## 3. Recommended Tech Stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| Mobile app | **React Native (Expo)** | One codebase for iOS + Android, fast to build, huge ecosystem, easy OTA updates |
-| Advertiser + Admin web | **React + TypeScript + Vite**, **Tailwind CSS** | Fast, modern, easy to make visually strong |
-| Backend | **Node.js + TypeScript + NestJS** (or Express if simpler) | Type safety across the whole stack, matches frontend language, strong ecosystem |
-| Database | **PostgreSQL** | Explicitly required; relational integrity matters a lot for money/coins |
-| ORM | **Prisma** | Type-safe queries, easy migrations, works cleanly with Postgres |
-| Cache / Queues / Rate limiting | **Redis** | Needed for fraud rate-limiting, background jobs (payouts, fraud scoring) |
-| Auth | **JWT access + refresh tokens**, phone-number OTP for users, email+password for advertisers/admins | Matches the fraud requirement of phone-verified accounts |
-| File/video storage | **S3-compatible object storage** (AWS S3 or a local MinIO for dev) | Ad video/image assets |
-| Background jobs | **BullMQ** (Redis-based) | Payout processing, fraud scoring, notification sending |
-| Payments | **Abstracted provider interface** — build against telebirr and Chapa's APIs behind one internal interface (see Section 9) | Never hold money directly; always route through a licensed payout partner |
-| Push notifications | **Firebase Cloud Messaging** | Standard for React Native |
-| Hosting (MVP) | Single **Docker Compose** stack (API + Postgres + Redis + MinIO) runnable locally and on one VM | Keep it simple and cheap for MVP; document how each piece would scale later (managed Postgres, separate Redis, horizontal API replicas, CDN for video) |
+| Layer                          | Choice                                                                                                                    | Why                                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Mobile app                     | **React Native (Expo)**                                                                                                   | One codebase for iOS + Android, fast to build, huge ecosystem, easy OTA updates                                                                        |
+| Advertiser + Admin web         | **React + TypeScript + Vite**, **Tailwind CSS**                                                                           | Fast, modern, easy to make visually strong                                                                                                             |
+| Backend                        | **Node.js + TypeScript + NestJS** (or Express if simpler)                                                                 | Type safety across the whole stack, matches frontend language, strong ecosystem                                                                        |
+| Database                       | **PostgreSQL**                                                                                                            | Explicitly required; relational integrity matters a lot for money/coins                                                                                |
+| ORM                            | **Prisma**                                                                                                                | Type-safe queries, easy migrations, works cleanly with Postgres                                                                                        |
+| Cache / Queues / Rate limiting | **Redis**                                                                                                                 | Needed for fraud rate-limiting, background jobs (payouts, fraud scoring)                                                                               |
+| Auth                           | **JWT access + refresh tokens**, phone-number OTP for users, email+password for advertisers/admins                        | Matches the fraud requirement of phone-verified accounts                                                                                               |
+| File/video storage             | **S3-compatible object storage** (AWS S3 or a local MinIO for dev)                                                        | Ad video/image assets                                                                                                                                  |
+| Background jobs                | **BullMQ** (Redis-based)                                                                                                  | Payout processing, fraud scoring, notification sending                                                                                                 |
+| Payments                       | **Abstracted provider interface** — build against telebirr and Chapa's APIs behind one internal interface (see Section 9) | Never hold money directly; always route through a licensed payout partner                                                                              |
+| Push notifications             | **Firebase Cloud Messaging**                                                                                              | Standard for React Native                                                                                                                              |
+| Hosting (MVP)                  | Single **Docker Compose** stack (API + Postgres + Redis + MinIO) runnable locally and on one VM                           | Keep it simple and cheap for MVP; document how each piece would scale later (managed Postgres, separate Redis, horizontal API replicas, CDN for video) |
 
 State explicitly in your output: which parts of this stack you used as-is, and any substitutions you made, with reasoning.
 
@@ -80,37 +80,48 @@ State explicitly in your output: which parts of this stack you used as-is, and a
 Design full Prisma (or equivalent) schema and migrations covering at minimum the following entities. Add any supporting tables you judge necessary (e.g. junction tables, audit logs).
 
 ### `users`
+
 id, phone_number (unique, verified), full_name, date_of_birth, age_verification_status (`pending` / `verified_adult` / `rejected`), device_id, password_hash (or OTP-only auth), language_preference, coin_balance (derived from ledger, never edited directly), trust_score, status (`active` / `suspended` / `banned`), created_at, updated_at.
 
 ### `advertisers`
+
 id, business_name, business_registration_number, contact_email, contact_phone, verification_status, created_at.
 
 ### `campaigns`
+
 id, advertiser_id (FK), title, budget_etb, spent_etb, status (`draft` / `pending_review` / `active` / `paused` / `completed` / `rejected`), start_date, end_date, target_action_type (`video_view` / `survey` / `app_install`), reward_per_action_etb, created_at.
 
 ### `ads`
+
 id, campaign_id (FK), media_url, media_type, duration_seconds, review_status (`pending` / `approved` / `rejected`), reviewed_by (admin user id), rejection_reason, created_at.
 
 ### `ad_completions`
+
 id, user_id (FK), ad_id (FK), started_at, completed_at, watch_duration_seconds, server_verified (boolean), device_fingerprint, ip_address, fraud_flags (array/jsonb), coin_reward_amount, status (`valid` / `flagged` / `rejected`).
 
 ### `coin_ledger`
+
 id, user_id (FK), amount (can be negative for withdrawals), balance_after, source_type (`ad_view` / `survey` / `app_install` / `withdrawal` / `admin_adjustment`), source_id, created_by (nullable admin id, for manual adjustments — must require dual approval, see Section 8), created_at.
 **This table is append-only. `users.coin_balance` must be a derived/cached value recomputed from this ledger, never edited directly.**
 
 ### `withdrawals`
+
 id, user_id (FK), amount_etb, coin_amount, payout_method (`telebirr` / `bank` / etc.), payout_destination, status (`pending` / `processing` / `completed` / `failed` / `flagged_for_review`), requested_at, processed_at, processed_by (admin id, if manual).
 
 ### `surveys` / `app_install_offers`
+
 id, campaign_id (FK), details (jsonb), reward_etb, active (boolean).
 
 ### `fraud_flags`
+
 id, user_id (FK, nullable), related_entity_type, related_entity_id, flag_type, severity, description, resolved (boolean), resolved_by, created_at.
 
 ### `admin_users`
+
 id, email, password_hash, role (`super_admin` / `ad_reviewer` / `support` / `finance`), created_at.
 
 ### `audit_log`
+
 id, actor_type (`admin` / `system`), actor_id, action, target_type, target_id, before_state (jsonb), after_state (jsonb), created_at.
 **Every manual coin adjustment, withdrawal approval, and ad approval/rejection must write here.**
 
@@ -121,6 +132,7 @@ id, actor_type (`admin` / `system`), actor_id, action, target_type, target_id, b
 Build with **React Native (Expo)**, TypeScript, and a state management solution (Zustand or Redux Toolkit). Support **Amharic as the default language**, with English as a secondary option and the architecture ready for additional languages (Afaan Oromo, Tigrinya) via a proper i18n library (e.g. `i18next`) — do not hardcode any user-facing string.
 
 ### Screens required
+
 - **Onboarding / signup**: phone number entry → OTP verification → date of birth (server-side age calculation, block under-18 with a clear, respectful message) → language selection.
 - **Home / ad feed**: a clean, scrollable list of available ads/tasks, each showing thumbnail, reward amount, and estimated time. Make this visually the strongest screen in the app — see Design section.
 - **Ad player**: full-screen video player. Reward must only be granted after the server independently confirms sufficient watch duration — never trust a client-side "finished" event alone. Include a short one-question check after some ads to confirm attention (configurable per campaign).
@@ -132,6 +144,7 @@ Build with **React Native (Expo)**, TypeScript, and a state management solution 
 - **Notifications**: push notifications for reward confirmations, withdrawal status changes, and new high-value offers.
 
 ### Client-side technical requirements
+
 - Collect and send a stable **device fingerprint** with every session (for fraud detection).
 - Never store or trust a locally-computed coin balance as the source of truth — always re-fetch from the server.
 - Handle offline/interrupted connections gracefully: never lose an in-progress ad-watch state; resume or safely discard rather than double-crediting.
@@ -144,6 +157,7 @@ Build with **React Native (Expo)**, TypeScript, and a state management solution 
 Build with React + TypeScript + Tailwind. This is a **business tool** — clean, professional, data-forward, but should still feel modern and premium, not like a bare admin template.
 
 ### Pages required
+
 - **Sign up / login** (email + password, plus business verification fields: business name, registration number).
 - **Dashboard home**: overview cards (active campaigns, total spend, total views, estimated reach), with a real chart (spend over time, views over time) — use a real charting library (Recharts or similar), not static images.
 - **Create campaign wizard**: multi-step flow — campaign details → upload ad creative (video/image, with clear file requirements) → set budget and target action type → review → submit for approval.
@@ -159,6 +173,7 @@ Build with React + TypeScript + Tailwind. This is a **business tool** — clean,
 Build with React + TypeScript + Tailwind, styled distinctly from the advertiser portal (internal tool, information-dense, efficient).
 
 ### Pages required
+
 - **Login** with role-based access control (see roles in schema).
 - **Ad review queue**: every pending ad, with approve/reject actions, a rejection-reason field, and a visible banned-topics checklist (alcohol, gambling, certain medicines, political content) referenced during review.
 - **User management**: search/filter users, view trust score and flag history, suspend/ban with a reason and audit trail.
@@ -184,6 +199,7 @@ Build a versioned REST API (`/api/v1/...`). Group endpoints logically:
 - `/fraud/*` — internal endpoints for flag creation/resolution.
 
 **Non-negotiable backend rules, directly from our fraud and financial model:**
+
 - All coin balance changes happen through a single, transactional ledger-write function — never allow a direct `UPDATE users SET coin_balance = ...`.
 - Ad-completion reward logic must run **entirely server-side**: verify watch duration against server-recorded timestamps, check device/account fraud signals, and only then write to the ledger.
 - Rate-limit ad completions per user per day (configurable, default aligned with our 15/day assumption from the business model).
@@ -245,4 +261,4 @@ This must look and feel like a **funded, credible, modern startup product** — 
 
 ---
 
-*This specification is based on a full business proposal covering market research, financial modeling, legal compliance, and fraud prevention for the Ethiopian market. The technical requirements above (fraud controls, coin ledger integrity, payout provider abstraction, age verification, no chance-based reward mechanics) are not arbitrary engineering preferences — each one traces directly to a specific legal, financial, or trust risk identified in that research, and should not be simplified away for convenience.*
+_This specification is based on a full business proposal covering market research, financial modeling, legal compliance, and fraud prevention for the Ethiopian market. The technical requirements above (fraud controls, coin ledger integrity, payout provider abstraction, age verification, no chance-based reward mechanics) are not arbitrary engineering preferences — each one traces directly to a specific legal, financial, or trust risk identified in that research, and should not be simplified away for convenience._

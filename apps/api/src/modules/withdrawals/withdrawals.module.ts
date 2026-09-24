@@ -19,7 +19,10 @@ import { WithdrawalsService } from './withdrawals.service';
     {
       provide: PAYOUT_PROVIDERS,
       inject: [AppConfig],
-      useFactory: (config: AppConfig) => [new TelebirrPayoutProvider(config), new ChapaPayoutProvider(config)],
+      useFactory: (config: AppConfig) => [
+        new TelebirrPayoutProvider(config),
+        new ChapaPayoutProvider(config),
+      ],
     },
   ],
   exports: [WithdrawalsService, PayoutProviderRegistry],

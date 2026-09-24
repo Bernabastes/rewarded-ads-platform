@@ -8,7 +8,12 @@ import { LedgerService } from './ledger.service';
 
 @Global()
 @Module({
-  providers: [LedgerService, LedgerReconciliationService, LedgerReconciliationProcessor, LedgerReconciliationScheduler],
+  providers: [
+    LedgerService,
+    LedgerReconciliationService,
+    LedgerReconciliationProcessor,
+    LedgerReconciliationScheduler,
+  ],
   exports: [LedgerService, LedgerReconciliationService],
 })
 export class LedgerModule {}

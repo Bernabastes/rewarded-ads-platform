@@ -33,7 +33,12 @@ export interface PayoutProvider {
   readonly isMock: boolean;
   readonly supportedMethods: readonly PayoutMethod[];
   isAvailable(): boolean;
-  initiatePayout(userId: string, amountEtb: number, destination: string, options?: PayoutOptions): Promise<PayoutResult>;
+  initiatePayout(
+    userId: string,
+    amountEtb: number,
+    destination: string,
+    options?: PayoutOptions,
+  ): Promise<PayoutResult>;
   checkStatus(payoutId: string): Promise<PayoutStatus>;
 }
 
@@ -44,7 +49,12 @@ export function mockPayoutId(prefix: string): string {
   return `MOCK-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-export function mockPayoutStatus(payoutId: string, processingSeconds: number, failureRate: number, now = Date.now()): PayoutStatus {
+export function mockPayoutStatus(
+  payoutId: string,
+  processingSeconds: number,
+  failureRate: number,
+  now = Date.now(),
+): PayoutStatus {
   const parts = payoutId.split('-');
   const createdAt = Number(parts[2]);
   if (!Number.isFinite(createdAt)) return { status: 'failed', failureReason: 'Unknown mock payout id' };
@@ -54,6 +64,10 @@ export function mockPayoutStatus(payoutId: string, processingSeconds: number, fa
   for (const ch of payoutId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   const failed = hash % 1000 < Math.round(failureRate * 1000);
   return failed
-    ? { status: 'failed', failureReason: 'MOCK: partner rejected the transfer (simulated failure)', raw: { mock: true } }
+    ? {
+        status: 'failed',
+        failureReason: 'MOCK: partner rejected the transfer (simulated failure)',
+        raw: { mock: true },
+      }
     : { status: 'completed', raw: { mock: true, settledAt: new Date(now).toISOString() } };
 }

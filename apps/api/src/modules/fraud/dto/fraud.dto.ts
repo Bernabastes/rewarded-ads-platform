@@ -49,7 +49,11 @@ export class CreateFraudFlagDto {
   @MaxLength(1000)
   description: string;
 
-  @ApiPropertyOptional({ description: 'Signed trust-score change to apply immediately', minimum: -50, maximum: 50 })
+  @ApiPropertyOptional({
+    description: 'Signed trust-score change to apply immediately',
+    minimum: -50,
+    maximum: 50,
+  })
   @IsOptional()
   @IsInt()
   @Min(-50)

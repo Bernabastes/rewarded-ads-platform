@@ -44,7 +44,11 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /** Simple fixed-window rate limit. Throws nothing; returns whether the call is allowed. */
-  async allow(key: string, limit: number, windowSeconds: number): Promise<{ allowed: boolean; count: number }> {
+  async allow(
+    key: string,
+    limit: number,
+    windowSeconds: number,
+  ): Promise<{ allowed: boolean; count: number }> {
     const count = await this.incrWithTtl(key, windowSeconds);
     return { allowed: count <= limit, count };
   }

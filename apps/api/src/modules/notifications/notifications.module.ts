@@ -66,7 +66,16 @@ export class NotificationService {
         orderBy: { createdAt: 'desc' },
         skip: p.skip,
         take: p.take,
-        select: { id: true, type: true, title: true, body: true, data: true, readAt: true, pushStatus: true, createdAt: true },
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          body: true,
+          data: true,
+          readAt: true,
+          pushStatus: true,
+          createdAt: true,
+        },
       }),
       this.prisma.notification.count({ where: { userId } }),
     ]);
@@ -83,7 +92,12 @@ export class NotificationService {
     return this.prisma.notification.count({ where: { userId, readAt: null } });
   }
 
-  async registerPushToken(userId: string, token: string, platform: 'android' | 'ios' | 'web', deviceId?: string) {
+  async registerPushToken(
+    userId: string,
+    token: string,
+    platform: 'android' | 'ios' | 'web',
+    deviceId?: string,
+  ) {
     return this.prisma.devicePushToken.upsert({
       where: { token },
       create: { userId, token, platform, deviceId },
@@ -118,7 +132,10 @@ export class NotificationProcessor extends WorkerHost {
     const prefs = (notification.user.notificationPrefs ?? {}) as Record<string, boolean>;
     const tokens = notification.user.pushTokens.map((t) => t.token);
     if ((prefKey && prefs[prefKey] === false) || tokens.length === 0) {
-      await this.prisma.notification.update({ where: { id: notification.id }, data: { pushStatus: 'skipped' } });
+      await this.prisma.notification.update({
+        where: { id: notification.id },
+        data: { pushStatus: 'skipped' },
+      });
       return;
     }
 

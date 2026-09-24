@@ -61,7 +61,11 @@ export class FcmPushAdapter implements PushAdapter {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            message: { token: deviceToken, notification: { title: message.title, body: message.body }, data: message.data },
+            message: {
+              token: deviceToken,
+              notification: { title: message.title, body: message.body },
+              data: message.data,
+            },
           }),
         });
         if (res.ok) {
@@ -120,7 +124,9 @@ export class FcmPushAdapter implements PushAdapter {
           try {
             return new FcmPushAdapter(config.env.FCM_PROJECT_ID, JSON.parse(json));
           } catch {
-            new Logger('PushModule').warn('FCM_SERVICE_ACCOUNT_JSON is not valid JSON; using mock push adapter');
+            new Logger('PushModule').warn(
+              'FCM_SERVICE_ACCOUNT_JSON is not valid JSON; using mock push adapter',
+            );
           }
         }
         return new MockPushAdapter();

@@ -57,24 +57,39 @@ export class AuthGuard implements CanActivate {
       throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Invalid access token');
     }
 
-    const auth: AuthContext = { subjectType: claims.typ, subjectId: claims.sub, role: claims.role, tokenId: claims.jti };
+    const auth: AuthContext = {
+      subjectType: claims.typ,
+      subjectId: claims.sub,
+      role: claims.role,
+      tokenId: claims.jti,
+    };
     req.auth = auth;
 
     const subjects = this.reflector.getAllAndOverride<AuthSubjectType[] | undefined>(SUBJECTS_KEY, targets);
     if (subjects?.length && !subjects.includes(auth.subjectType)) {
-      throw AppException.forbidden(ErrorCode.FORBIDDEN, 'This endpoint is not available for your account type');
+      throw AppException.forbidden(
+        ErrorCode.FORBIDDEN,
+        'This endpoint is not available for your account type',
+      );
     }
 
     const roles = this.reflector.getAllAndOverride<AdminRole[] | undefined>(ROLES_KEY, targets);
     if (roles?.length) {
       if (auth.subjectType !== 'admin' || !auth.role || !roles.includes(auth.role)) {
-        throw AppException.forbidden(ErrorCode.ROLE_NOT_ALLOWED, 'Your admin role cannot perform this action', {
-          requiredRoles: roles,
-        });
+        throw AppException.forbidden(
+          ErrorCode.ROLE_NOT_ALLOWED,
+          'Your admin role cannot perform this action',
+          {
+            requiredRoles: roles,
+          },
+        );
       }
     }
 
-    await this.assertAccountUsable(auth, this.reflector.getAllAndOverride<boolean>(REQUIRE_VERIFIED_ADULT_KEY, targets));
+    await this.assertAccountUsable(
+      auth,
+      this.reflector.getAllAndOverride<boolean>(REQUIRE_VERIFIED_ADULT_KEY, targets),
+    );
     return true;
   }
 
@@ -86,24 +101,34 @@ export class AuthGuard implements CanActivate {
       });
       if (!user) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Account no longer exists');
       if (user.status === 'banned') throw AppException.forbidden(ErrorCode.ACCOUNT_BANNED, 'Account banned');
-      if (user.status === 'suspended') throw AppException.forbidden(ErrorCode.ACCOUNT_SUSPENDED, 'Account suspended');
+      if (user.status === 'suspended')
+        throw AppException.forbidden(ErrorCode.ACCOUNT_SUSPENDED, 'Account suspended');
       if (user.ageVerificationStatus === 'rejected') {
         throw AppException.forbidden(ErrorCode.AGE_RESTRICTED, 'You must be at least 18 to use this service');
       }
       if (requireVerifiedAdult && user.ageVerificationStatus !== 'verified_adult') {
-        throw AppException.forbidden(ErrorCode.PROFILE_INCOMPLETE, 'Complete your profile (date of birth) first');
+        throw AppException.forbidden(
+          ErrorCode.PROFILE_INCOMPLETE,
+          'Complete your profile (date of birth) first',
+        );
       }
       return;
     }
     if (auth.subjectType === 'admin') {
-      const admin = await this.prisma.adminUser.findUnique({ where: { id: auth.subjectId }, select: { active: true, role: true } });
+      const admin = await this.prisma.adminUser.findUnique({
+        where: { id: auth.subjectId },
+        select: { active: true, role: true },
+      });
       if (!admin) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Account no longer exists');
       if (!admin.active) throw AppException.forbidden(ErrorCode.ADMIN_INACTIVE, 'Admin account deactivated');
       // role changes take effect without re-login
       auth.role = admin.role;
       return;
     }
-    const advertiser = await this.prisma.advertiser.findUnique({ where: { id: auth.subjectId }, select: { id: true } });
+    const advertiser = await this.prisma.advertiser.findUnique({
+      where: { id: auth.subjectId },
+      select: { id: true },
+    });
     if (!advertiser) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Account no longer exists');
   }
 }

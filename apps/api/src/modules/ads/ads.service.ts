@@ -60,7 +60,11 @@ export class AdsService {
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { trustScore: true } }),
       this.countTodayCompletions(userId),
     ]);
-    const meta = { dailyLimit: limit, dailyCompleted: todayCompletions, dailyRemaining: Math.max(0, limit - todayCompletions) };
+    const meta = {
+      dailyLimit: limit,
+      dailyCompleted: todayCompletions,
+      dailyRemaining: Math.max(0, limit - todayCompletions),
+    };
 
     if (todayCompletions >= limit || user.trustScore < this.config.fraud.minTrustScoreForFeed) {
       return paginated([], 0, p, meta);
@@ -69,12 +73,19 @@ export class AdsService {
     const [idRows, countRow] = await Promise.all([
       this.prisma.$queryRaw<Array<{ id: string }>>`
         ${this.eligibleAdsSql(userId)} ORDER BY c.reward_per_action_etb DESC, a.created_at DESC LIMIT ${p.take} OFFSET ${p.skip}`,
-      this.prisma.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM (${this.eligibleAdsSql(userId)}) e`,
+      this.prisma.$queryRaw<
+        Array<{ count: bigint }>
+      >`SELECT COUNT(*)::bigint AS count FROM (${this.eligibleAdsSql(userId)}) e`,
     ]);
     const ids = idRows.map((r) => r.id);
-    const ads = ids.length ? await this.prisma.ad.findMany({ where: { id: { in: ids } }, include: adInclude }) : [];
+    const ads = ids.length
+      ? await this.prisma.ad.findMany({ where: { id: { in: ids } }, include: adInclude })
+      : [];
     const byId = new Map(ads.map((a) => [a.id, a]));
-    const data = ids.map((id) => byId.get(id)).filter(Boolean).map((ad) => this.toFeedItem(ad!));
+    const data = ids
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+      .map((ad) => this.toFeedItem(ad!));
     return paginated(data, Number(countRow[0]?.count ?? 0), p, meta);
   }
 
@@ -106,15 +117,21 @@ export class AdsService {
   ) {
     const now = new Date();
     const cfg = this.config.platform;
-    const eligible = await this.prisma.$queryRaw<Array<{ id: string }>>`${this.eligibleAdsSql(userId)} AND a.id = ${adId}::uuid`;
+    const eligible = await this.prisma.$queryRaw<
+      Array<{ id: string }>
+    >`${this.eligibleAdsSql(userId)} AND a.id = ${adId}::uuid`;
     if (eligible.length === 0) {
       throw AppException.badRequest(ErrorCode.AD_NOT_AVAILABLE, 'This ad is not available to you right now');
     }
     const todayCompletions = await this.countTodayCompletions(userId);
     if (todayCompletions >= cfg.dailyAdCompletionLimit) {
-      throw AppException.badRequest(ErrorCode.DAILY_LIMIT_REACHED, 'Daily ad limit reached; come back tomorrow', {
-        dailyLimit: cfg.dailyAdCompletionLimit,
-      });
+      throw AppException.badRequest(
+        ErrorCode.DAILY_LIMIT_REACHED,
+        'Daily ad limit reached; come back tomorrow',
+        {
+          dailyLimit: cfg.dailyAdCompletionLimit,
+        },
+      );
     }
     const attemptsToday = await this.prisma.adWatchSession.count({
       where: { userId, adId, startedAt: { gte: startOfUtcDay(now) } },
@@ -123,13 +140,19 @@ export class AdsService {
       throw AppException.badRequest(ErrorCode.TOO_MANY_WATCH_ATTEMPTS, 'Too many attempts for this ad today');
     }
 
-    const ad = await this.prisma.ad.findUniqueOrThrow({ where: { id: adId }, include: { ...adInclude, attentionQuestions: true } });
+    const ad = await this.prisma.ad.findUniqueOrThrow({
+      where: { id: adId },
+      include: { ...adInclude, attentionQuestions: true },
+    });
     const askQuestion = ad.campaign.attentionCheckEnabled && ad.attentionQuestions.length > 0;
     const question = askQuestion ? ad.attentionQuestions[randomInt(0, ad.attentionQuestions.length)] : null;
 
     const session = await this.prisma.$transaction(async (tx) => {
       // one active session per user: abandon the others so a stale tab cannot be completed later
-      await tx.adWatchSession.updateMany({ where: { userId, status: 'active' }, data: { status: 'abandoned' } });
+      await tx.adWatchSession.updateMany({
+        where: { userId, status: 'active' },
+        data: { status: 'abandoned' },
+      });
       return tx.adWatchSession.create({
         data: {
           userId,
@@ -146,7 +169,9 @@ export class AdsService {
       });
     });
     if (input.deviceId) {
-      await this.prisma.user.update({ where: { id: userId }, data: { deviceId: input.deviceId } }).catch(() => undefined);
+      await this.prisma.user
+        .update({ where: { id: userId }, data: { deviceId: input.deviceId } })
+        .catch(() => undefined);
     }
 
     const rewardCoins = this.rewardCoins(ad.campaign.rewardPerActionEtb);
@@ -161,7 +186,12 @@ export class AdsService {
       expiresAt: session.expiresAt,
       rewardCoins,
       attentionQuestion: question
-        ? { id: question.id, prompt: question.prompt, promptAm: question.promptAm, options: question.options as string[] }
+        ? {
+            id: question.id,
+            prompt: question.prompt,
+            promptAm: question.promptAm,
+            options: question.options as string[],
+          }
         : null,
     };
   }
@@ -169,7 +199,8 @@ export class AdsService {
   async heartbeat(userId: string, sessionId: string) {
     const now = new Date();
     const session = await this.prisma.adWatchSession.findUnique({ where: { id: sessionId } });
-    if (!session || session.userId !== userId) throw AppException.notFound('Watch session not found', { code: ErrorCode.WATCH_SESSION_NOT_FOUND });
+    if (!session || session.userId !== userId)
+      throw AppException.notFound('Watch session not found', { code: ErrorCode.WATCH_SESSION_NOT_FOUND });
     if (session.status !== 'active') {
       throw AppException.badRequest(ErrorCode.WATCH_SESSION_NOT_ACTIVE, `Watch session is ${session.status}`);
     }
@@ -224,7 +255,9 @@ export class AdsService {
         adDurationSeconds: session.expectedDurationSeconds,
         heartbeatCount: session.heartbeatCount,
         lastHeartbeatAt: session.lastHeartbeatAt,
-        attentionQuestion: session.attentionQuestion ? { correctIndex: session.attentionQuestion.correctIndex } : null,
+        attentionQuestion: session.attentionQuestion
+          ? { correctIndex: session.attentionQuestion.correctIndex }
+          : null,
         attentionAnswerIndex: input.attentionAnswerIndex,
         todayCompletions,
       },
@@ -257,16 +290,33 @@ export class AdsService {
     if (!verification.ok) {
       const code = verification.code!;
       const result = await this.runClaimed(session.id, async (tx) => {
-        await tx.adWatchSession.update({ where: { id: session.id }, data: { status: 'rejected', completedAt: now, rejectionCode: code } });
+        await tx.adWatchSession.update({
+          where: { id: session.id },
+          data: { status: 'rejected', completedAt: now, rejectionCode: code },
+        });
         const completion = await tx.adCompletion.create({
-          data: { ...baseData, status: 'rejected', rejectionCode: code, fraudFlags: [], fraudScore: 0 },
+          data: {
+            ...baseData,
+            status: 'rejected',
+            rejectionCode: code,
+            fraudFlags: [],
+            fraudScore: 0,
+            coinRewardAmount: 0,
+          },
         });
         if (code === ErrorCode.ATTENTION_CHECK_FAILED || code === ErrorCode.DAILY_LIMIT_REACHED) {
           await this.fraud.adjustTrustScore(tx, userId, -2, `completion_${code.toLowerCase()}`);
         }
         return this.toResult(completion, session.id, false);
       });
-      this.security.warn('completion.rejected', { userId, sessionId, adId: session.adId, code, watchDurationSeconds: verification.watchDurationSeconds, ip: meta.ip });
+      this.security.warn('completion.rejected', {
+        userId,
+        sessionId,
+        adId: session.adId,
+        code,
+        watchDurationSeconds: verification.watchDurationSeconds,
+        ip: meta.ip,
+      });
       return result;
     }
 
@@ -288,8 +338,13 @@ export class AdsService {
       // Serialise per user: lock the row so the daily cap and the (user, ad) uniqueness checks are race-free.
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
       const [todayInTx, duplicate] = await Promise.all([
-        tx.adCompletion.count({ where: { userId, status: { in: CAP_STATUSES }, completedAt: { gte: startOfUtcDay(now) } } }),
-        tx.adCompletion.findFirst({ where: { userId, adId: session.adId, status: { in: CAP_STATUSES } }, select: { id: true } }),
+        tx.adCompletion.count({
+          where: { userId, status: { in: CAP_STATUSES }, completedAt: { gte: startOfUtcDay(now) } },
+        }),
+        tx.adCompletion.findFirst({
+          where: { userId, adId: session.adId, status: { in: CAP_STATUSES } },
+          select: { id: true },
+        }),
       ]);
 
       let status: CompletionStatus = evaluation.outcome;
@@ -317,7 +372,11 @@ export class AdsService {
 
       await tx.adWatchSession.update({
         where: { id: session.id },
-        data: { status: status === 'rejected' ? 'rejected' : 'completed', completedAt: now, rejectionCode: reasonCode },
+        data: {
+          status: status === 'rejected' ? 'rejected' : 'completed',
+          completedAt: now,
+          rejectionCode: reasonCode,
+        },
       });
       const completion = await tx.adCompletion.create({
         data: {
@@ -348,9 +407,15 @@ export class AdsService {
         newBalance = write.balanceAfter;
         if (evaluation.hits.length) {
           // low-score hits on a valid completion are still recorded (informational, no trust penalty)
-          await this.fraud.persistHits(tx, userId, 'ad_completion', completion.id, evaluation.hits, { ...evaluation, trustScoreDelta: 0 });
+          await this.fraud.persistHits(tx, userId, 'ad_completion', completion.id, evaluation.hits, {
+            ...evaluation,
+            trustScoreDelta: 0,
+          });
         }
-      } else if (evaluation.hits.length && (evaluation.outcome === 'flagged' || evaluation.outcome === 'rejected')) {
+      } else if (
+        evaluation.hits.length &&
+        (evaluation.outcome === 'flagged' || evaluation.outcome === 'rejected')
+      ) {
         await this.fraud.persistHits(tx, userId, 'ad_completion', completion.id, evaluation.hits, evaluation);
       }
       return { ...this.toResult(completion, session.id, false), newBalance };
@@ -366,11 +431,17 @@ export class AdsService {
    * Atomically claims the active session (UPDATE ... WHERE status = 'active'); if another request already
    * claimed it, the stored result is replayed so a retry can never double-credit.
    */
-  private async runClaimed(sessionId: string, work: (tx: Prisma.TransactionClient) => Promise<CompletionResultView>) {
+  private async runClaimed(
+    sessionId: string,
+    work: (tx: Prisma.TransactionClient) => Promise<CompletionResultView>,
+  ) {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          const claimed = await tx.adWatchSession.updateMany({ where: { id: sessionId, status: 'active' }, data: { status: 'active' } });
+          const claimed = await tx.adWatchSession.updateMany({
+            where: { id: sessionId, status: 'active' },
+            data: { status: 'active' },
+          });
           if (claimed.count === 0) throw new SessionAlreadyClaimed();
           // Re-check under the row lock taken by updateMany (Postgres locks updated rows until commit).
           return work(tx);
@@ -379,9 +450,15 @@ export class AdsService {
       );
     } catch (err) {
       if (err instanceof SessionAlreadyClaimed) {
-        const again = await this.prisma.adWatchSession.findUnique({ where: { id: sessionId }, include: { completion: true } });
+        const again = await this.prisma.adWatchSession.findUnique({
+          where: { id: sessionId },
+          include: { completion: true },
+        });
         if (again?.completion) return this.toResult(again.completion, sessionId, true);
-        throw AppException.badRequest(ErrorCode.WATCH_SESSION_NOT_ACTIVE, 'Watch session is no longer active');
+        throw AppException.badRequest(
+          ErrorCode.WATCH_SESSION_NOT_ACTIVE,
+          'Watch session is no longer active',
+        );
       }
       throw err;
     }
@@ -399,19 +476,34 @@ export class AdsService {
       RETURNING spent_etb, budget_etb`;
     if (rows.length === 0) {
       const c = await tx.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
-      return { ok: false, reason: c?.status === 'active' ? ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED : ErrorCode.CAMPAIGN_NOT_ACTIVE };
+      return {
+        ok: false,
+        reason: c?.status === 'active' ? ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED : ErrorCode.CAMPAIGN_NOT_ACTIVE,
+      };
     }
     const { spent_etb, budget_etb } = rows[0];
     if (new Prisma.Decimal(budget_etb).minus(spent_etb).lessThan(cost)) {
-      await tx.campaign.update({ where: { id: campaignId }, data: { status: 'paused', pausedReason: 'budget_exhausted' } });
+      await tx.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'paused', pausedReason: 'budget_exhausted' },
+      });
       this.logger.log(`Campaign ${campaignId} paused: budget exhausted`);
     }
     return { ok: true };
   }
 
-  private async afterCompletion(userId: string, adId: string, adTitle: string, result: CompletionResultView, ip: string, score: number) {
+  private async afterCompletion(
+    userId: string,
+    adId: string,
+    adTitle: string,
+    result: CompletionResultView,
+    ip: string,
+    score: number,
+  ) {
     if (result.status !== 'rejected') {
-      await this.redis.incrWithTtl(`ads:daily:${userId}:${utcDayKey()}`, secondsUntilEndOfUtcDay()).catch(() => undefined);
+      await this.redis
+        .incrWithTtl(`ads:daily:${userId}:${utcDayKey()}`, secondsUntilEndOfUtcDay())
+        .catch(() => undefined);
     }
     await this.fraud.recordCompletionVelocity(ip, userId);
 
@@ -424,7 +516,14 @@ export class AdsService {
         data: { completionId: result.completionId, adId, coins: result.coinReward },
       });
     } else if (result.status === 'flagged') {
-      this.security.warn('completion.flagged', { userId, adId, completionId: result.completionId, score, flags: result.fraudFlags, ip });
+      this.security.warn('completion.flagged', {
+        userId,
+        adId,
+        completionId: result.completionId,
+        score,
+        flags: result.fraudFlags,
+        ip,
+      });
       await this.notifications.notify({
         userId,
         type: 'reward_flagged',
@@ -433,7 +532,15 @@ export class AdsService {
         data: { completionId: result.completionId, adId },
       });
     } else {
-      this.security.warn('completion.rejected', { userId, adId, completionId: result.completionId, code: result.reasonCode, score, flags: result.fraudFlags, ip });
+      this.security.warn('completion.rejected', {
+        userId,
+        adId,
+        completionId: result.completionId,
+        code: result.reasonCode,
+        score,
+        flags: result.fraudFlags,
+        ip,
+      });
     }
   }
 
@@ -459,7 +566,14 @@ export class AdsService {
   }
 
   private toResult(
-    c: { id: string; status: CompletionStatus; coinRewardAmount: number; watchDurationSeconds: number; rejectionCode: string | null; fraudFlags: Prisma.JsonValue },
+    c: {
+      id: string;
+      status: CompletionStatus;
+      coinRewardAmount: number;
+      watchDurationSeconds: number;
+      rejectionCode: string | null;
+      fraudFlags: Prisma.JsonValue;
+    },
     sessionId: string,
     replayed: boolean,
   ): CompletionResultView {

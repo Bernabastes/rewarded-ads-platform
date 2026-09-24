@@ -1,7 +1,25 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { type AuthContext, ClientIp, CurrentAuth, Public, Subjects } from '../../common/decorators/auth.decorators';
+import {
+  type AuthContext,
+  ClientIp,
+  CurrentAuth,
+  Public,
+  Subjects,
+} from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/pagination';
 import { BillingService } from './billing.service';
 import { CreateTopupDto } from './dto/billing.dto';
@@ -33,7 +51,8 @@ export class BillingController {
   @Subjects('advertiser')
   @ApiOperation({
     summary: 'Start a wallet top-up via the payment gateway',
-    description: 'Returns a `checkoutUrl` to redirect the browser to. Without CHAPA_SECRET_KEY the API serves a local mock checkout page (`mock: true`).',
+    description:
+      'Returns a `checkoutUrl` to redirect the browser to. Without CHAPA_SECRET_KEY the API serves a local mock checkout page (`mock: true`).',
   })
   createTopup(@CurrentAuth() auth: AuthContext, @Body() dto: CreateTopupDto) {
     return this.billing.createTopup(auth.subjectId, dto.amountEtb, dto.returnUrl);

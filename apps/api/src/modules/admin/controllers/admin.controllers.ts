@@ -1,6 +1,12 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { type AuthContext, ClientIp, CurrentAuth, Roles, Subjects } from '../../../common/decorators/auth.decorators';
+import {
+  type AuthContext,
+  ClientIp,
+  CurrentAuth,
+  Roles,
+  Subjects,
+} from '../../../common/decorators/auth.decorators';
 import { FraudService } from '../../fraud/fraud.service';
 import { FraudFlagsQueryDto, ResolveFraudFlagDto } from '../../fraud/dto/fraud.dto';
 import { WithdrawalsService } from '../../withdrawals/withdrawals.service';
@@ -67,9 +73,26 @@ export class AdminHomeController {
 }
 
 export const PERMISSIONS: Record<string, string[]> = {
-  super_admin: ['ads.review', 'campaigns.moderate', 'users.moderate', 'advertisers.verify', 'fraud.manage', 'withdrawals.decide', 'adjustments.manage', 'revenue.view', 'audit.view'],
+  super_admin: [
+    'ads.review',
+    'campaigns.moderate',
+    'users.moderate',
+    'advertisers.verify',
+    'fraud.manage',
+    'withdrawals.decide',
+    'adjustments.manage',
+    'revenue.view',
+    'audit.view',
+  ],
   ad_reviewer: ['ads.review', 'campaigns.moderate', 'reports.review'],
-  support: ['users.moderate', 'advertisers.verify', 'fraud.manage', 'reports.review', 'audit.view', 'offers.verify'],
+  support: [
+    'users.moderate',
+    'advertisers.verify',
+    'fraud.manage',
+    'reports.review',
+    'audit.view',
+    'offers.verify',
+  ],
   finance: ['withdrawals.decide', 'adjustments.manage', 'revenue.view', 'audit.view', 'fraud.manage'],
 };
 
@@ -101,14 +124,24 @@ export class AdminReviewController {
   @Post('ads/:id/approve')
   @Roles('super_admin', 'ad_reviewer')
   @ApiOperation({ summary: 'Approve an ad (every banned topic must be checked off)' })
-  approveAd(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ApproveAdDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  approveAd(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApproveAdDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.review.approveAd(id, dto.bannedTopicsChecklist, dto.note, actorOf(auth, ip));
   }
 
   @Post('ads/:id/reject')
   @Roles('super_admin', 'ad_reviewer')
   @ApiOperation({ summary: 'Reject an ad (reason required)' })
-  rejectAd(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectAdDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  rejectAd(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectAdDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.review.rejectAd(id, dto.reason, dto.bannedTopicsChecklist, actorOf(auth, ip));
   }
 
@@ -129,28 +162,47 @@ export class AdminReviewController {
   @Post('campaigns/:id/approve')
   @Roles('super_admin', 'ad_reviewer')
   @ApiOperation({ summary: 'Approve a pending campaign (pending_review -> active)' })
-  approveCampaign(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OptionalNoteDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  approveCampaign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OptionalNoteDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.review.approveCampaign(id, actorOf(auth, ip), dto.note);
   }
 
   @Post('campaigns/:id/reject')
   @Roles('super_admin', 'ad_reviewer')
   @ApiOperation({ summary: 'Reject a campaign (reason required; unspent budget is refunded)' })
-  rejectCampaign(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  rejectCampaign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.review.rejectCampaign(id, dto.reason, actorOf(auth, ip));
   }
 
   @Post('campaigns/:id/pause')
   @Roles('super_admin', 'ad_reviewer', 'support')
   @ApiOperation({ summary: 'Pause an active campaign (platform-initiated)' })
-  pauseCampaign(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  pauseCampaign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.review.pauseCampaign(id, dto.reason, actorOf(auth, ip));
   }
 
   @Post('campaigns/:id/resume')
   @Roles('super_admin', 'ad_reviewer', 'support')
   @ApiOperation({ summary: 'Resume a paused campaign' })
-  resumeCampaign(@Param('id', ParseUUIDPipe) id: string, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  resumeCampaign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.review.resumeCampaign(id, actorOf(auth, ip));
   }
 
@@ -164,7 +216,12 @@ export class AdminReviewController {
   @Post('ad-reports/:id/review')
   @Roles('super_admin', 'ad_reviewer', 'support')
   @ApiOperation({ summary: 'Close an ad report (optionally pulling the ad)' })
-  reviewReport(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReviewAdReportDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  reviewReport(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewAdReportDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.review.reviewAdReport(id, dto, actorOf(auth, ip));
   }
 }
@@ -197,21 +254,36 @@ export class AdminUsersController {
   @Post('users/:id/suspend')
   @Roles('super_admin', 'support')
   @ApiOperation({ summary: 'Suspend a user (reason required; sessions revoked)' })
-  suspend(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  suspend(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.users.moderateUser(id, 'suspend', dto.reason, actorOf(auth, ip));
   }
 
   @Post('users/:id/ban')
   @Roles('super_admin', 'support')
   @ApiOperation({ summary: 'Ban a user (reason required; sessions revoked)' })
-  ban(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  ban(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.users.moderateUser(id, 'ban', dto.reason, actorOf(auth, ip));
   }
 
   @Post('users/:id/reinstate')
   @Roles('super_admin', 'support')
   @ApiOperation({ summary: 'Reinstate a suspended/banned user' })
-  reinstate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  reinstate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.users.moderateUser(id, 'reinstate', dto.reason, actorOf(auth, ip));
   }
 
@@ -232,14 +304,24 @@ export class AdminUsersController {
   @Post('advertisers/:id/verify')
   @Roles('super_admin', 'support')
   @ApiOperation({ summary: 'Verify an advertiser business registration' })
-  verifyAdvertiser(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OptionalNoteDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  verifyAdvertiser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OptionalNoteDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.users.decideAdvertiser(id, 'verified', dto.note, actorOf(auth, ip));
   }
 
   @Post('advertisers/:id/reject')
   @Roles('super_admin', 'support')
   @ApiOperation({ summary: 'Reject an advertiser verification (reason required)' })
-  rejectAdvertiser(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  rejectAdvertiser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.users.decideAdvertiser(id, 'rejected', dto.reason, actorOf(auth, ip));
   }
 }
@@ -260,7 +342,9 @@ export class AdminFraudController {
   ) {}
 
   @Get('metrics')
-  @ApiOperation({ summary: 'Aggregate fraud metrics (weekly flagged rate, open flags by severity, daily series)' })
+  @ApiOperation({
+    summary: 'Aggregate fraud metrics (weekly flagged rate, open flags by severity, daily series)',
+  })
   metrics() {
     return this.fraud.metrics();
   }
@@ -278,20 +362,37 @@ export class AdminFraudController {
   }
 
   @Post('flags/:id/dismiss')
-  @ApiOperation({ summary: 'Dismiss (false positive). A flagged completion whose flags are all dismissed is credited.' })
-  dismiss(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ResolveFraudFlagDto | OptionalNoteDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  @ApiOperation({
+    summary: 'Dismiss (false positive). A flagged completion whose flags are all dismissed is credited.',
+  })
+  dismiss(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResolveFraudFlagDto | OptionalNoteDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.reports.dismissFlag(id, (dto as OptionalNoteDto).note ?? 'Dismissed', actorOf(auth, ip));
   }
 
   @Post('flags/:id/escalate')
   @ApiOperation({ summary: 'Escalate for deeper investigation (trust score -10)' })
-  escalate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OptionalNoteDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  escalate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OptionalNoteDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.reports.escalateFlag(id, dto.note ?? 'Escalated', actorOf(auth, ip));
   }
 
   @Post('flags/:id/suspend-user')
   @ApiOperation({ summary: 'Confirm the flag and suspend the user' })
-  suspend(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  suspend(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.reports.suspendUserFromFlag(id, dto.reason, actorOf(auth, ip));
   }
 }
@@ -321,14 +422,26 @@ export class AdminWithdrawalsController {
   }
 
   @Post(':id/approve')
-  @ApiOperation({ summary: 'Approve a held withdrawal. Large amounts need two DISTINCT finance/super_admin approvals.' })
-  approve(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OptionalNoteDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  @ApiOperation({
+    summary: 'Approve a held withdrawal. Large amounts need two DISTINCT finance/super_admin approvals.',
+  })
+  approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OptionalNoteDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.withdrawals.approve(id, { adminId: auth.subjectId, role: auth.role!, ip }, dto.note);
   }
 
   @Post(':id/reject')
   @ApiOperation({ summary: 'Reject a held/pending withdrawal (coins refunded via reversing ledger entry)' })
-  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  reject(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.withdrawals.reject(id, { adminId: auth.subjectId, role: auth.role!, ip }, dto.reason);
   }
 
@@ -372,13 +485,23 @@ export class AdminCoinAdjustmentsController {
 
   @Post(':id/approve')
   @ApiOperation({ summary: 'Step 2: a DIFFERENT admin approves; the ledger is written exactly once' })
-  approve(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OptionalNoteDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OptionalNoteDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.adjustments.approve(id, dto.note, actorOf(auth, ip));
   }
 
   @Post(':id/reject')
   @ApiOperation({ summary: 'Reject a pending request' })
-  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  reject(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.adjustments.reject(id, dto.reason, actorOf(auth, ip));
   }
 
@@ -402,7 +525,9 @@ export class AdminReportsController {
 
   @Get('revenue/overview')
   @Roles('super_admin', 'finance')
-  @ApiOperation({ summary: 'Revenue dashboard: spend, rewards, platform revenue, payouts, top-ups; daily + by advertiser' })
+  @ApiOperation({
+    summary: 'Revenue dashboard: spend, rewards, platform revenue, payouts, top-ups; daily + by advertiser',
+  })
   revenue(@Query() query: RevenueQueryDto) {
     return this.reports.revenue(query);
   }
@@ -424,14 +549,24 @@ export class AdminReportsController {
   @Post('offers/app-install-completions/:id/verify')
   @Roles('super_admin', 'support')
   @ApiOperation({ summary: 'Verify an install (credits the user via the ledger)' })
-  verifyInstall(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OptionalNoteDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  verifyInstall(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OptionalNoteDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.reports.decideAppInstall(id, 'valid', dto.note, actorOf(auth, ip));
   }
 
   @Post('offers/app-install-completions/:id/reject')
   @Roles('super_admin', 'support')
   @ApiOperation({ summary: 'Reject an install claim' })
-  rejectInstall(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectWithReasonDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+  rejectInstall(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectWithReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
     return this.reports.decideAppInstall(id, 'rejected', dto.reason, actorOf(auth, ip));
   }
 }

@@ -45,7 +45,10 @@ export function expectedHeartbeats(minWatch: number, heartbeatIntervalSeconds: n
 }
 
 export function verifyWatchSession(input: VerificationInput, cfg: VerificationConfig): VerificationResult {
-  const watchDurationSeconds = Math.max(0, Math.floor((input.now.getTime() - input.startedAt.getTime()) / 1000));
+  const watchDurationSeconds = Math.max(
+    0,
+    Math.floor((input.now.getTime() - input.startedAt.getTime()) / 1000),
+  );
   const minWatch = minWatchSeconds(input.adDurationSeconds, cfg.minWatchRatio);
   const expected = expectedHeartbeats(minWatch, cfg.heartbeatIntervalSeconds);
   const base = {
@@ -54,7 +57,12 @@ export function verifyWatchSession(input: VerificationInput, cfg: VerificationCo
     expectedHeartbeats: expected,
     attentionAnswerCorrect: null as boolean | null,
   };
-  const fail = (code: ErrorCode, extra: Partial<VerificationResult> = {}): VerificationResult => ({ ...base, ...extra, ok: false, code });
+  const fail = (code: ErrorCode, extra: Partial<VerificationResult> = {}): VerificationResult => ({
+    ...base,
+    ...extra,
+    ok: false,
+    code,
+  });
 
   if (input.todayCompletions >= cfg.dailyLimit) return fail(ErrorCode.DAILY_LIMIT_REACHED);
   if (input.now > input.expiresAt) return fail(ErrorCode.WATCH_SESSION_EXPIRED);

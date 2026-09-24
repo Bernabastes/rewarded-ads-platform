@@ -45,10 +45,21 @@ export class CampaignLifecycleService {
     return this.prisma.$transaction(async (tx) => {
       const c = await tx.campaign.findUnique({ where: { id: campaignId } });
       if (!c || !['active', 'paused'].includes(c.status)) return c;
-      const updated = await tx.campaign.update({ where: { id: campaignId }, data: { status: 'completed', completedAt: new Date(), pausedReason: null } });
+      const updated = await tx.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'completed', completedAt: new Date(), pausedReason: null },
+      });
       await this.refundUnspent(tx, c, reason);
       await this.audit.record(
-        { actorType: actorId ? 'admin' : 'system', actorId, action: 'campaign.completed', targetType: 'campaign', targetId: campaignId, before: { status: c.status }, after: { status: 'completed', reason } },
+        {
+          actorType: actorId ? 'admin' : 'system',
+          actorId,
+          action: 'campaign.completed',
+          targetType: 'campaign',
+          targetId: campaignId,
+          before: { status: c.status },
+          after: { status: 'completed', reason },
+        },
         tx,
       );
       return updated;
@@ -65,9 +76,14 @@ export class CampaignLifecycleService {
         select: { id: true },
       });
       for (const c of ended) await this.complete(c.id, 'end_date_reached');
-      const expired = await this.prisma.adWatchSession.updateMany({ where: { status: 'active', expiresAt: { lt: new Date() } }, data: { status: 'expired' } });
+      const expired = await this.prisma.adWatchSession.updateMany({
+        where: { status: 'active', expiresAt: { lt: new Date() } },
+        data: { status: 'expired' },
+      });
       if (ended.length || expired.count) {
-        this.logger.log(`Maintenance: completed ${ended.length} campaign(s), expired ${expired.count} watch session(s)`);
+        this.logger.log(
+          `Maintenance: completed ${ended.length} campaign(s), expired ${expired.count} watch session(s)`,
+        );
       }
     } catch (err) {
       this.logger.warn(`Maintenance failed: ${(err as Error).message}`);

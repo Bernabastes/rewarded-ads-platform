@@ -1,6 +1,12 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { type AuthContext, ClientIp, CurrentAuth, RequireVerifiedAdult, Subjects } from '../../common/decorators/auth.decorators';
+import {
+  type AuthContext,
+  ClientIp,
+  CurrentAuth,
+  RequireVerifiedAdult,
+  Subjects,
+} from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/pagination';
 import { CompleteAppInstallDto, CompleteSurveyDto, OffersQueryDto } from './dto/offers.dto';
 import { OffersService } from './offers.service';
@@ -14,7 +20,9 @@ export class OffersController {
   constructor(private readonly offers: OffersService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Surveys and app-install offers available to the user (higher value than plain ads)' })
+  @ApiOperation({
+    summary: 'Surveys and app-install offers available to the user (higher value than plain ads)',
+  })
   list(@CurrentAuth() auth: AuthContext, @Query() query: OffersQueryDto) {
     return this.offers.list(auth.subjectId, query);
   }
@@ -49,8 +57,14 @@ export class OffersController {
   }
 
   @Post('app-installs/:id/complete')
-  @ApiOperation({ summary: 'Report an app install (recorded as pending verification; credited after admin verification)' })
-  completeAppInstall(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CompleteAppInstallDto) {
+  @ApiOperation({
+    summary: 'Report an app install (recorded as pending verification; credited after admin verification)',
+  })
+  completeAppInstall(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteAppInstallDto,
+  ) {
     return this.offers.completeAppInstall(auth.subjectId, id, dto);
   }
 }

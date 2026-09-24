@@ -1,6 +1,12 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { type AuthContext, ClientIp, CurrentAuth, Roles, Subjects } from '../../common/decorators/auth.decorators';
+import {
+  type AuthContext,
+  ClientIp,
+  CurrentAuth,
+  Roles,
+  Subjects,
+} from '../../common/decorators/auth.decorators';
 import { CreateFraudFlagDto, ResolveFraudFlagDto } from './dto/fraud.dto';
 import { FraudService } from './fraud.service';
 
