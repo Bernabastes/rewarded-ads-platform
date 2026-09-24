@@ -1,0 +1,49 @@
+{
+  "common": {
+    "appName": "Gize",
+    "tagline": "Yeroon keessan gatii qaba.",
+    "continue": "Itti fufi",
+    "back": "Duubatti deebi'i",
+    "cancel": "Haqi",
+    "retry": "Irra deebi'ii yaali",
+    "loading": "Fe'amaa jira…",
+    "today": "Har'a",
+    "yesterday": "Kaleessa"
+  },
+  "money": {
+    "coins": "Qarshii-koyinii {{count, number}}",
+    "coinsLabel": "koyinii",
+    "etb": "Birrii {{amount}}",
+    "etbLabel": "Birrii",
+    "rate": "koyinii {{coins}} = Birrii 1"
+  },
+  "languages": {
+    "am": "Amaariffa",
+    "en": "Ingiliffa",
+    "om": "Afaan Oromoo",
+    "ti": "Tigriffaa"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Yeroon keessan gatii qaba.",
+      "cta": "Jalqabi"
+    },
+    "language": {
+      "title": "Afaan keessan filadhaa",
+      "subtitle": "Kana yeroo barbaaddan piroofaayilii keessan irraa jijjiiruu dandeessu."
+    }
+  },
+  "tabs": {
+    "home": "Mana",
+    "offers": "Hojiiwwan",
+    "wallet": "Boorsaa",
+    "profile": "Piroofaayilii"
+  },
+  "home": {
+    "greetingMorning": "Akkam bultan",
+    "greetingAfternoon": "Akkam ooltan",
+    "greetingEvening": "Akkam galtan",
+    "greetingWithName": "{{greeting}}, {{name}}",
+    "balanceTitle": "Baalaansii keessan"
+  }
+}
