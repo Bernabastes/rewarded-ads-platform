@@ -1,0 +1,49 @@
+{
+  "common": {
+    "appName": "ጊዜ",
+    "tagline": "ግዜኹም ዋጋ ኣለዎ።",
+    "continue": "ቀጽሉ",
+    "back": "ተመለሱ",
+    "cancel": "ይትረፍ",
+    "retry": "እንደገና ፈትኑ",
+    "loading": "ይጽዓን ኣሎ…",
+    "today": "ሎሚ",
+    "yesterday": "ትማሊ"
+  },
+  "money": {
+    "coins": "{{count, number}} ኮይን",
+    "coinsLabel": "ኮይን",
+    "etb": "{{amount}} ብር",
+    "etbLabel": "ብር",
+    "rate": "{{coins}} ኮይን = 1 ብር"
+  },
+  "languages": {
+    "am": "ኣምሓርኛ",
+    "en": "እንግሊዝኛ",
+    "om": "ኦሮምኛ",
+    "ti": "ትግርኛ"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "ግዜኹም ዋጋ ኣለዎ።",
+      "cta": "ጀምሩ"
+    },
+    "language": {
+      "title": "ቋንቋኹም ምረጹ",
+      "subtitle": "እዚ ኣብ መግለጺኹም ኣብ ዝኾነ እዋን ክትቀይሩዎ ትኽእሉ።"
+    }
+  },
+  "tabs": {
+    "home": "መበገሲ",
+    "offers": "ዕማማት",
+    "wallet": "ቦርሳ",
+    "profile": "መግለጺ"
+  },
+  "home": {
+    "greetingMorning": "ከመይ ሓዲርኩም",
+    "greetingAfternoon": "ከመይ ውዒልኩም",
+    "greetingEvening": "ከመይ ኣምሲኹም",
+    "greetingWithName": "{{greeting}}፣ {{name}}",
+    "balanceTitle": "ተረፍ ሕሳብኩም"
+  }
+}
