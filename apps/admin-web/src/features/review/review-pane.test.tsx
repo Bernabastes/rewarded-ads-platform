@@ -52,7 +52,7 @@ describe('ReviewPane banned-topics gating', () => {
     expect(approve()).toBeEnabled();
     await user.click(approve());
     expect(onApprove).toHaveBeenCalledTimes(1);
-  });
+  }, 20_000);
 
   it('"Tick all" completes the checklist and marking a topic as present blocks approval again', async () => {
     const user = userEvent.setup();

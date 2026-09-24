@@ -13,6 +13,21 @@ export interface CommandPaletteProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/**
+ * Predictable ranking: prefix match on the label wins, then label substring, then keyword substring,
+ * then all query words somewhere. cmdk's default fuzzy scorer would rank "F-r-a-u-d" above "Audit log" for "audit".
+ */
+export function commandFilter(value: string, search: string, keywords?: string[]): number {
+  const q = search.trim().toLowerCase();
+  if (!q) return 1;
+  const label = value.toLowerCase();
+  const hay = [label, ...(keywords ?? []).map((k) => k.toLowerCase())].join(' ');
+  if (label.startsWith(q)) return 1;
+  if (label.includes(q)) return 0.8;
+  if (hay.includes(q)) return 0.5;
+  return q.split(/\s+/).every((w) => hay.includes(w)) ? 0.3 : 0;
+}
+
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { can, logout } = useAuth();
@@ -42,7 +57,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         inputRef.current?.focus();
       }}
     >
-      <Command label="Command palette" className="-m-5 [&_[cmdk-input]]:outline-none">
+      <Command label="Command palette" filter={commandFilter} className="-m-5 [&_[cmdk-input]]:outline-none">
         <div className="flex items-center gap-2 border-b px-4">
           <Search className="size-4 shrink-0 text-fg-subtle" aria-hidden />
           <Command.Input
@@ -60,7 +75,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
           {looksLikePhone && can('users') ? (
             <Command.Group heading="Users">
-              <Command.Item value={`search user ${search}`} onSelect={() => run(() => navigate(`/users?q=${encodeURIComponent(search.trim())}`))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+              <Command.Item value={`Search users for ${search.trim()}`} onSelect={() => run(() => navigate(`/users?q=${encodeURIComponent(search.trim())}`))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
                 <UserSearch className="size-4 text-fg-subtle" />
                 Search users for <span className="font-mono">{search.trim()}</span>
               </Command.Item>
@@ -75,7 +90,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 {items.map((item) => (
                   <Command.Item
                     key={item.to}
-                    value={`${item.label} ${item.description ?? ''}`}
+                    value={item.label}
+                    keywords={[item.description ?? '', section.title, item.to]}
                     onSelect={() => run(() => navigate(item.to))}
                     className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg"
                   >
@@ -95,19 +111,19 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           })}
 
           <Command.Group heading="Appearance">
-            <Command.Item value="theme light" onSelect={() => run(() => setTheme('light'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+            <Command.Item value="Light theme" keywords={['theme', 'appearance']} onSelect={() => run(() => setTheme('light'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
               <Sun className="size-4 text-fg-subtle" /> Light theme
             </Command.Item>
-            <Command.Item value="theme dark" onSelect={() => run(() => setTheme('dark'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+            <Command.Item value="Dark theme" keywords={['theme', 'appearance']} onSelect={() => run(() => setTheme('dark'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
               <Moon className="size-4 text-fg-subtle" /> Dark theme
             </Command.Item>
-            <Command.Item value="theme system" onSelect={() => run(() => setTheme('system'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+            <Command.Item value="Follow system theme" keywords={['theme', 'appearance', 'auto']} onSelect={() => run(() => setTheme('system'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
               <SunMoon className="size-4 text-fg-subtle" /> Follow system theme
             </Command.Item>
           </Command.Group>
 
           <Command.Group heading="Session">
-            <Command.Item value="sign out logout" onSelect={() => run(() => void logout('manual'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-danger">
+            <Command.Item value="Sign out" keywords={['logout', 'log out', 'session']} onSelect={() => run(() => void logout('manual'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-danger">
               <LogOut className="size-4" /> Sign out
             </Command.Item>
           </Command.Group>

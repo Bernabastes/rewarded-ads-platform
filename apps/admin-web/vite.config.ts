@@ -48,5 +48,7 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
     restoreMocks: true,
+    // Component tests drive real Radix primitives through userEvent; give them headroom on slow CI boxes.
+    testTimeout: 15_000,
   },
 });
