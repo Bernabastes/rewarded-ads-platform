@@ -30,8 +30,8 @@ RUN node scripts/build-shared.mjs \
 FROM base AS runtime
 ENV NODE_ENV=production
 RUN apk add --no-cache wget
-COPY --from=deps /repo/node_modules ./node_modules
-COPY --from=deps /repo/package.json ./package.json
+COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/package.json ./package.json
 COPY --from=build /repo/packages/shared/package.json ./packages/shared/package.json
 COPY --from=build /repo/packages/shared/dist ./packages/shared/dist
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json

@@ -10,13 +10,13 @@
   },
   "scripts": {
     "postinstall": "node scripts/build-shared.mjs",
-    "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
+    "build": "node scripts/run-workspace.mjs build",
+    "typecheck": "node scripts/run-workspace.mjs typecheck",
+    "lint": "node scripts/run-workspace.mjs lint",
+    "test": "node scripts/run-workspace.mjs test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "dev:api": "pnpm --filter @rap/api dev",
+    "dev:api": "node scripts/run-workspace.mjs dev --filter @rap/api",
     "infra:up": "docker compose up -d postgres redis minio minio-init",
     "infra:down": "docker compose down",
     "smoke": "powershell -ExecutionPolicy Bypass -File scripts/smoke.ps1"
