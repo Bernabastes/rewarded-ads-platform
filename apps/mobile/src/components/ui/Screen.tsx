@@ -135,9 +135,14 @@ export function Screen({
     ? { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xxxl }
     : {};
 
+  // The ScrollView itself must be clamped to the remaining viewport height (flex: 1); only its
+  // content container grows, so short pages still push footers down while long pages can scroll.
+  // On react-native-web a bare flexGrow: 1 sizes the container to its content and nothing scrolls.
+  const { style: scrollStyle, ...restScrollProps } = scrollProps ?? {};
   const body = scroll ? (
     <ScrollView
       keyboardShouldPersistTaps="handled"
+      style={[styles.flex, scrollStyle]}
       contentContainerStyle={[styles.grow, bodyPadding, contentStyle]}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -151,12 +156,12 @@ export function Screen({
           />
         ) : undefined
       }
-      {...scrollProps}
+      {...restScrollProps}
     >
       {children}
     </ScrollView>
   ) : (
-    <View style={[styles.grow, bodyPadding, contentStyle]}>{children}</View>
+    <View style={[styles.flex, bodyPadding, contentStyle]}>{children}</View>
   );
 
   const content = (
@@ -178,9 +183,9 @@ export function Screen({
   );
 
   return (
-    <View style={[styles.grow, { backgroundColor: backgroundColor ?? colors.background }, padding, style]} testID={testID}>
+    <View style={[styles.flex, { backgroundColor: backgroundColor ?? colors.background }, padding, style]} testID={testID}>
       {keyboardAvoiding ? (
-        <KeyboardAvoidingView style={styles.grow} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           {content}
         </KeyboardAvoidingView>
       ) : (
@@ -191,6 +196,9 @@ export function Screen({
 }
 
 const styles = StyleSheet.create({
+  /** Fill the parent and allow shrinking (flexGrow 1 / flexShrink 1 / flexBasis 0) so overflow can scroll. */
+  flex: { flex: 1, minHeight: 0 },
+  /** Content-container only: grow to fill, but never constrain height. */
   grow: { flexGrow: 1 },
   navRow: { flexDirection: 'row', alignItems: 'center' },
   navSide: { width: 56, justifyContent: 'center' },
