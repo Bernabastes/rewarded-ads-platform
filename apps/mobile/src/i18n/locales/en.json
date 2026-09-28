@@ -290,7 +290,8 @@
       "withdrawal": "Withdrawal",
       "withdrawal_reversal": "Withdrawal refunded",
       "admin_adjustment": "Adjustment by {{brand}}",
-      "reconciliation": "Balance correction"
+      "reconciliation": "Balance correction",
+      "referral": "Referral bonus"
     },
     "conversionTitle": "How coins work",
     "integrityOk": "Verified against your full ledger"

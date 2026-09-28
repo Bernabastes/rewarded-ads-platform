@@ -24,6 +24,6 @@ allowBuilds:
   core-js-pure: true
   '@parcel/watcher': true
   msgpackr-extract: true
-  ffmpeg-static: true
   '@scarf/scarf': false
   msw: false
+  ffmpeg-static: set this to true or false

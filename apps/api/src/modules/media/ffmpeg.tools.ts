@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { AppConfig } from '../../config/app-config';
 
 export interface ProbeResult {
@@ -23,21 +24,28 @@ export interface MediaTools {
 export const MEDIA_TOOLS = Symbol('MEDIA_TOOLS');
 
 /**
- * Resolves binaries in this order: explicit env path (the Docker image installs `apk ffmpeg`), the
- * `ffmpeg-static` / `ffprobe-static` npm packages (developer machines), then plain `ffmpeg`/`ffprobe` on PATH.
+ * Resolves binaries in this order: explicit env path (the Docker image installs `apk ffmpeg`), the desktop binaries
+ * installed by `pnpm media:tools` into <repo>/tools/media, a dependency named `ffmpeg-static` / `ffprobe-static`
+ * (if a developer added one), then plain `ffmpeg`/`ffprobe` on PATH.
  */
 export function resolveBinary(kind: 'ffmpeg' | 'ffprobe', explicit?: string): string {
   if (explicit) return explicit;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require(kind === 'ffmpeg' ? 'ffmpeg-static' : 'ffprobe-static') as
-      | string
-      | { path?: string }
-      | null;
-    const candidate = typeof mod === 'string' ? mod : mod?.path;
-    if (candidate && existsSync(candidate)) return candidate;
-  } catch {
-    /* package not installed - fall through to PATH */
+  const pkg = kind === 'ffmpeg' ? 'ffmpeg-static' : 'ffprobe-static';
+  const candidates = [
+    resolve(process.cwd(), 'tools', 'media', 'node_modules', pkg),
+    resolve(process.cwd(), '..', '..', 'tools', 'media', 'node_modules', pkg),
+    resolve(__dirname, '..', '..', '..', '..', '..', 'tools', 'media', 'node_modules', pkg),
+    pkg,
+  ];
+  for (const candidate of candidates) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require(candidate) as string | { path?: string } | null;
+      const bin = typeof mod === 'string' ? mod : mod?.path;
+      if (bin && existsSync(bin)) return bin;
+    } catch {
+      /* not installed here - try the next location */
+    }
   }
   return kind;
 }

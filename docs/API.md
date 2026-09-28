@@ -38,6 +38,49 @@ Human-readable companion to the machine contract:
 | `BELOW_MIN_WITHDRAWAL`, `INSUFFICIENT_BALANCE`, `INVALID_PAYOUT_DESTINATION`, `WITHDRAWAL_PENDING_EXISTS`, `WITHDRAWAL_RATE_LIMITED`, `PAYOUT_METHOD_UNAVAILABLE`                                                                                  | withdrawals                                        | Inline validation using `GET /withdrawals/config`                            |
 | `ADVERTISER_NOT_VERIFIED`, `INSUFFICIENT_WALLET_BALANCE`, `CAMPAIGN_INVALID_STATE`, `CAMPAIGN_HAS_NO_ADS`, `UPLOAD_TYPE_NOT_ALLOWED`                                                                                                               | advertiser portal                                  | Guide to verification / billing / fix state                                  |
 | `ROLE_NOT_ALLOWED`, `DUAL_APPROVAL_SAME_ADMIN`, `DUAL_APPROVAL_ROLE_REQUIRED`, `ADJUSTMENT_SELF_APPROVAL_FORBIDDEN`, `ADJUSTMENT_NOT_PENDING`, `WITHDRAWAL_NOT_REVIEWABLE`, `AD_NOT_PENDING`, `REJECTION_REASON_REQUIRED`, `FLAG_ALREADY_RESOLVED` | admin                                              | Disable actions proactively based on role/state; show the reason             |
+| `CONSENT_REQUIRED` (403)                                                                                                                                                                                                                           | `/ads/*`, `/offers/*`, `POST /withdrawals`, campaign submit | Show the consent screen for `details.requiresConsent` kinds, then `POST /users/me/consents` (or `/advertisers/me/consents`) and retry |
+| `CONSENT_VERSION_OUTDATED` (409)                                                                                                                                                                                                                   | consents                                           | Reload `GET /legal/current` and accept the current version                  |
+| `DESTINATION_NOT_VERIFIED`, `DESTINATION_OTP_REQUIRED`, `DESTINATION_NOT_FOUND` (422)                                                                                                                                                              | `POST /withdrawals`, destinations                  | NEW destination: run resolve → show account name → OTP request/verify → retry; NOT_FOUND = ask the user to check the number |
+| `KYC_REQUIRED` (422)                                                                                                                                                                                                                               | `POST /withdrawals`                                | Explain the monthly limit (`details.thresholdEtb`, `projectedEtb`) and open the KYC flow          |
+| `KYC_SUBMISSION_PENDING`, `KYC_ALREADY_VERIFIED`, `KYC_NOT_PENDING`                                                                                                                                                                                | KYC                                                | Show the pending state / disable resubmission                                |
+| `IDEMPOTENCY_KEY_REUSED` (409)                                                                                                                                                                                                                     | money POSTs with `Idempotency-Key`                 | `details.inProgress` true → wait and poll; false → the client sent a different payload with an old key (bug): generate a new key |
+| `FREQUENCY_CAP_REACHED`                                                                                                                                                                                                                            | `reasonCode` on a `rejected` completion            | "You've reached today's limit for this advertiser" – refresh the feed        |
+| `MEDIA_NOT_READY` (422)                                                                                                                                                                                                                            | admin ad approve                                   | Disable Approve while `mediaStatus` is `processing`/`failed`; offer "reprocess media" |
+| `REFERRAL_CODE_INVALID`, `REFERRAL_SELF_NOT_ALLOWED`, `REFERRAL_ALREADY_APPLIED`                                                                                                                                                                   | `POST /auth/otp/verify` with `referralCode`        | Inline error on the code field (the login itself did not happen; retry without the code or with a valid one) |
+| `DELETION_REQUEST_PENDING`, `DELETION_BLOCKED_PENDING_WITHDRAWALS`, `DELETION_REQUEST_NOT_PENDING`, `DATA_EXPORT_IN_PROGRESS`                                                                                                                      | data rights                                        | Show the existing request / explain the block                                |
+| `IMPERSONATION_READ_ONLY` (403)                                                                                                                                                                                                                    | any mutation with an impersonation token           | Admin UI: hide/disable write actions while impersonating                     |
+| `ALERT_ALREADY_ACKNOWLEDGED` (409)                                                                                                                                                                                                                 | `POST /admin/alerts/:id/ack`                       | Refresh the list                                                             |
+
+### Idempotency keys on money POSTs (Phase 4A)
+
+`POST /withdrawals`, `POST /billing/topups`, `POST /admin/coin-adjustments`, `POST /offers/surveys/:id/complete` and
+`POST /offers/app-installs/:id/complete` accept an optional `Idempotency-Key` header (1–128 chars of `[A-Za-z0-9_-:.]`,
+scoped per authenticated actor, valid 24 h). Generate a fresh UUID per user intent (e.g. per "Submit" tap) and reuse
+it on network retries:
+
+- same key + same payload → the stored response is replayed (same status code) with `Idempotent-Replayed: true`;
+- same key + different payload → `409 IDEMPOTENCY_KEY_REUSED` (`details.inProgress: false`);
+- same key while the first request is still running → `409 IDEMPOTENCY_KEY_REUSED` (`details.inProgress: true`);
+- error responses are not memoised: after a 4xx/5xx the same key may be retried.
+
+`IDEMPOTENCY_KEY_HEADER` / `IDEMPOTENT_REPLAYED_HEADER` / `IDEMPOTENT_ENDPOINTS` live in `@rap/shared`.
+
+---
+
+## Legal (`/legal`, public) and consent
+
+| Method | Path                                                 | Notes                                                                                                                                                                       |
+| ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/legal/current?locale=am\|en\|om\|ti&audience=user\|advertiser` | `CurrentLegalDocumentsResponse` – one `LegalDocumentItem` per kind (`terms`, `privacy`; advertisers: `terms` only) in the locale (falls back to `en`). Markdown + URL. |
+| GET    | `/users/me/consents`                                 | `{ consents: UserConsentState[], requiresConsent: LegalDocumentKind[] }` (also embedded in `UserProfile`)                                                                     |
+| POST   | `/users/me/consents`                                 | `AcceptConsentDto { kind, version }` – `version` must be the current one → updated state                                                                                     |
+| GET/POST | `/advertisers/me/consents`                         | Same for advertisers (`terms`). `AdvertiserProfile` carries `acceptedTermsVersion`, `currentTermsVersion`, `requiresTermsAcceptance`; campaign submit needs the current version |
+
+Mobile: after `otp/verify` (and after `complete-profile`) check `user.requiresConsent`; when non-empty show the consent
+screen (render `contentMarkdown` from `/legal/current`) before the home feed – every `/ads/*`, `/offers/*` and
+`POST /withdrawals` call returns `403 CONSENT_REQUIRED` until accepted. Publishing a new version re-triggers the screen.
+Advertiser portal: send `termsVersion` in `POST /auth/advertiser/register`; show a banner with an "Accept" action when
+`requiresTermsAcceptance` is true.
 
 ---
 
@@ -46,13 +89,13 @@ Human-readable companion to the machine contract:
 | Method | Path                               | Auth       | Body → Response                                                                                                     |
 | ------ | ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/auth/otp/request`                | public     | `{ phoneNumber }` → `{ phoneNumber, expiresInSeconds, resendAfterSeconds, devCode? }`                               |
-| POST   | `/auth/otp/verify`                 | public     | `{ phoneNumber, code, deviceId?, deviceFingerprint? }` → `{ tokens, user, isNewUser }`                              |
-| POST   | `/auth/users/complete-profile`     | user       | `{ fullName, dateOfBirth: 'YYYY-MM-DD', languagePreference? }` → `UserProfile` (403 `AGE_RESTRICTED` if < 18)       |
-| POST   | `/auth/advertiser/register`        | public     | `AdvertiserRegisterDto` → `{ tokens, advertiser }` (verificationStatus `pending`)                                   |
+| POST   | `/auth/otp/verify`                 | public     | `{ phoneNumber, code, deviceId?, deviceFingerprint?, referralCode? }` → `{ tokens, user, isNewUser, referralApplied? }` (`referralCode` honoured on the FIRST login only; invalid → 400 `REFERRAL_CODE_INVALID`) |
+| POST   | `/auth/users/complete-profile`     | user       | `{ fullName, dateOfBirth?: 'YYYY-MM-DD', dateOfBirthEthiopian?: { year, month 1–13, day }, languagePreference? }` – exactly one DOB form; Ethiopian dates are converted/validated server-side (Pagume, leap years) → `UserProfile` (403 `AGE_RESTRICTED` if < 18) |
+| POST   | `/auth/advertiser/register`        | public     | `AdvertiserRegisterDto` (+ `termsVersion?` from `GET /legal/current?audience=advertiser`) → `{ tokens, advertiser }` (verificationStatus `pending`) |
 | POST   | `/auth/advertiser/login`           | public     | `{ email, password }` → `{ tokens, advertiser }`                                                                    |
 | POST   | `/auth/admin/login`                | public     | `{ email, password }` → `{ tokens, admin }` (`admin.role`)                                                          |
 | POST   | `/auth/refresh`                    | public     | `{ refreshToken }` → `AuthTokens`                                                                                   |
-| POST   | `/auth/logout`                     | public     | `{ refreshToken }` → 204                                                                                            |
+| POST   | `/auth/logout`                     | public     | `{ refreshToken }` (+ the current access token as Bearer) → 204. The refresh family is revoked AND the presented access token is denylisted immediately (F2) |
 | POST   | `/auth/advertiser/change-password` | advertiser | `{ currentPassword, newPassword }` ? `{ changed, sessionsRevoked }` (all refresh tokens revoked; re-login required) |
 
 Mobile onboarding flow: `otp/request` → `otp/verify` → if `user.profileComplete === false` → `complete-profile` →
@@ -71,12 +114,21 @@ Mobile onboarding flow: `otp/request` → `otp/verify` → if `user.profileCompl
 | POST   | `/users/me/push-tokens`      | `{ token, platform, deviceId? }`; `DELETE /users/me/push-tokens/:token`                                                                                             |
 | GET    | `/users/me/recently-watched` | `{ data: RecentlyWatchedItem[] }` � last 20 ads the user opened (from server-side watch sessions), newest first, with a `reported` flag for the "report an ad" flow |
 | POST   | `/users/me/ad-reports`       | `{ adId, reason, details? }` → `AdReport` (one per user per ad)                                                                                                     |
+| GET    | `/users/me/kyc`              | `MyKycResponse` – `kycTier`, latest submission, `canSubmit`, `requiredAboveMonthlyEtb`, `monthlyPayoutTotalEtb`, upload limits                                        |
+| POST   | `/users/me/kyc/uploads/presign` | `KycPresignDto { kind: document_front\|document_back\|selfie, contentType, sizeBytes }` → presigned PUT into the PRIVATE prefix (`publicUrl` is empty on purpose)  |
+| POST   | `/users/me/kyc`              | `CreateKycSubmissionDto` (idType, idNumber, fullName, DOB Gregorian or Ethiopian, document keys) → `KycSubmissionItem` (pending). One pending at a time                |
+| GET    | `/users/me/referrals`        | `MyReferralsResponse` – my code, `shareText` (en/am), `shareUrl`, bonus amounts, totals, `referredBy`, list of invited friends                                      |
+| POST   | `/users/me/data-export`      | 202 → `DataExportItem` (async). `GET /users/me/data-export` (list) / `GET /users/me/data-export/:id` (`downloadUrl` presigned when `ready`)                         |
+| POST   | `/users/me/delete-request`   | `{ reason? }` → `DeletionRequestItem` (`scheduledFor` = now + 14 days). `GET` shows the latest; `DELETE /users/me/delete-request` cancels while pending. 409 while withdrawals are in flight |
+
+`UserProfile` now also carries `dateOfBirthEthiopian`, `kycTier`, `referralCode`, `consents[]` and `requiresConsent[]`.
+A `UserStatus` of `deleted` exists (anonymised accounts); tokens of such accounts fail with `INVALID_TOKEN`.
 
 ## Ads (`/ads`, user token, verified adult)
 
 | Method | Path                                 | Notes                                                                                                                                                                      |
 | ------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/ads/feed?page&limit`               | `Paginated<AdFeedItem, AdFeedMeta>`; `meta.dailyRemaining`. Empty when cap reached or trust too low.                                                                       |
+| GET    | `/ads/feed?page&limit`               | `Paginated<AdFeedItem, AdFeedMeta>`; `meta.dailyRemaining`, `meta.hiddenByFrequencyCap` (ads hidden today by campaign/advertiser caps). Empty when cap reached or trust too low. |
 | GET    | `/ads/:id`                           | `AdDetail` (+ `minWatchSeconds`, `heartbeatIntervalSeconds`, `alreadyCompleted`)                                                                                           |
 | POST   | `/ads/:id/watch-sessions`            | `{ deviceFingerprint, deviceId? }` → `WatchSessionResponse` (`sessionId`, `minWatchSeconds`, `heartbeatIntervalSeconds`, `expiresAt`, `rewardCoins`, `attentionQuestion?`) |
 | POST   | `/ads/watch-sessions/:sid/heartbeat` | `{ positionSeconds? }` → `{ ok, heartbeatCount, elapsedSeconds, serverTime }` – call every `heartbeatIntervalSeconds` while playing                                        |
@@ -91,9 +143,14 @@ Player rules for the mobile app:
 3. When the video ends, show the attention question (if provided) and call `complete` with the chosen option index.
 4. Render the result from `status`: `valid` → coin animation with `coinReward`; `flagged` → "under review"; `rejected` →
    `reasonCode` message. Then re-fetch `/users/me/balance`.
-5. Completion is idempotent – on network errors retry the same call; `replayed: true` means it had already been processed.
+5. Completion is idempotent – on network errors retry the same call; `replayed: true` means it had already been processed
+   and `newBalance` is the user's CURRENT balance (F3).
 6. If the app is killed mid-watch, discard the session locally (the server expires it); starting a new session for the same
    ad is allowed up to 3 times per day.
+7. Frequency caps (Phase 4A): each campaign allows `frequencyCapPerUserPerDay` rewarded completions per user per UTC day
+   (advertiser-set, 1–5) and a user may complete at most `ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY` (3) distinct ads of
+   the same advertiser per day. Capped ads simply disappear from the feed (`meta.hiddenByFrequencyCap` counts them for
+   the empty state); a race at completion time yields `rejected` with `reasonCode: FREQUENCY_CAP_REACHED`.
 
 ## Offers (`/offers`, user token, verified adult)
 
@@ -108,12 +165,27 @@ Player rules for the mobile app:
 
 ## Withdrawals (`/withdrawals`, user token)
 
-| Method | Path                  | Notes                                                                                                                                                                                                    |
-| ------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/withdrawals/config` | `WithdrawalConfig` – `minWithdrawalEtb`, `coinsPerEtb`, `largeWithdrawalThresholdEtb`, `dailyRequestLimit`, `methods[] { method, label, destinationHint, destinationKind, available }`, `conversionNote` |
-| POST   | `/withdrawals`        | `{ amountEtb, payoutMethod, payoutDestination, destinationName?, bankCode? }` → `WithdrawalItem`. Status `flagged_for_review` (first / large / low trust) or `pending`. Coins are held immediately.      |
-| GET    | `/withdrawals?status` | `Paginated<WithdrawalItem>` (destination masked)                                                                                                                                                         |
-| GET    | `/withdrawals/:id`    | `WithdrawalItem` – poll for `processing → completed                                                                                                                                                      | failed` (failed = coins refunded) |
+| Method | Path                                    | Notes                                                                                                                                                                                                                                                                       |
+| ------ | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/withdrawals/config`                   | `WithdrawalConfig` – `minWithdrawalEtb`, `coinsPerEtb`, `largeWithdrawalThresholdEtb`, `dailyRequestLimit`, `methods[]`, `conversionNote`, **`kycTier`, `kycRequiredAboveMonthlyEtb`, `monthlyPayoutTotalEtb`, `destinationResolveTtlMinutes`, `knownDestinations[]`** |
+| GET    | `/withdrawals/destinations`             | `PayoutDestinationItem[]` – destinations the user verified/used (masked); `known: true` = usable without lookup/OTP                                                                                                                                                         |
+| POST   | `/withdrawals/destinations/resolve`     | `ResolveDestinationDto { payoutMethod, payoutDestination, bankCode? }` → `ResolveDestinationResponse { accountName, normalizedDestination, provider, mock, known, otpRequired, validUntil }` (422 `DESTINATION_NOT_FOUND`)                                                  |
+| POST   | `/withdrawals/destinations/otp/request` | sends a `destination_change` OTP to the user's own phone → `{ phoneNumber (masked), expiresInSeconds, resendAfterSeconds, devCode? }`                                                                                                                                       |
+| POST   | `/withdrawals/destinations/otp/verify`  | `VerifyDestinationOtpDto { code, payoutMethod, payoutDestination, bankCode? }` → `PayoutDestinationItem`                                                                                                                                                                    |
+| POST   | `/withdrawals`                          | `{ amountEtb, payoutMethod, payoutDestination, destinationName?, bankCode? }` (+ `Idempotency-Key`) → `WithdrawalItem`. Status `flagged_for_review` (first / large / low trust) or `pending`. Coins are held immediately.                                                    |
+| GET    | `/withdrawals?status`                   | `Paginated<WithdrawalItem>` (destination masked)                                                                                                                                                                                                                            |
+| GET    | `/withdrawals/:id`                      | `WithdrawalItem` – poll for `processing → completed \| failed` (failed = coins refunded)                                                                                                                                                                                    |
+
+Gates evaluated by `POST /withdrawals`, in order: minimum → destination format → method available → daily request
+limit → single in-flight → balance → **KYC tier** (`phone_only` users: completed + in-flight payouts of the rolling 30
+days + this request must stay ≤ `kycRequiredAboveMonthlyEtb`, else `422 KYC_REQUIRED` with `details.projectedEtb`) →
+**destination verification** (a destination never used for a successful request needs a `resolve` AND an OTP verify
+within the last `destinationResolveTtlMinutes`, else `422 DESTINATION_NOT_VERIFIED` / `DESTINATION_OTP_REQUIRED`).
+
+Recommended mobile flow for a new destination: user enters the number → `resolve` → show "Pay **Abebe Tesfaye** on
+telebirr?" (the partner's account name; `mock: true` in demo) → confirm → `otp/request` → enter code → `otp/verify` →
+`POST /withdrawals` with `normalizedDestination`. Known destinations (chips from `knownDestinations`) skip straight to
+the request. `WithdrawalItem.destinationAccountName` / `destinationVerifiedAt` show what was verified.
 
 Status meanings for the UI: `flagged_for_review` "under review by our team" (show `reviewReasons`), `pending` "queued",
 `processing` "sending to <provider>", `completed`, `failed` (`failureReason`, coins returned), `rejected` (coins returned).
@@ -131,11 +203,11 @@ Status meanings for the UI: `flagged_for_review` "under review by our team" (sho
 | -------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | GET      | `/campaigns/overview`              | `AdvertiserOverview` – cards + 30-day daily series (`spendEtb`, `validCompletions`, `rawViews`)                                                                          |
 | GET      | `/campaigns?status&page&limit`     | `Paginated<CampaignSummary>`                                                                                                                                             |
-| POST     | `/campaigns`                       | `CreateCampaignDto` → `CampaignSummary` (draft). `rewardPerActionEtb`/`rewardCoins` are computed by the server.                                                          |
+| POST     | `/campaigns`                       | `CreateCampaignDto` (+ `frequencyCapPerUserPerDay?` 1–5, default 1) → `CampaignSummary` (draft). `rewardPerActionEtb`/`rewardCoins` are computed by the server.                |
 | GET      | `/campaigns/:id`                   | `CampaignDetail` (`ads[]`)                                                                                                                                               |
 | PATCH    | `/campaigns/:id`                   | draft/rejected: any field; paused: budget increase (+dates/text) only                                                                                                    |
 | DELETE   | `/campaigns/:id`                   | draft only → 204                                                                                                                                                         |
-| POST     | `/campaigns/:id/submit`            | reserves the budget from the wallet → `pending_review` (`422 INSUFFICIENT_WALLET_BALANCE`, `403 ADVERTISER_NOT_VERIFIED`, `400 CAMPAIGN_HAS_NO_ADS` for video campaigns) |
+| POST     | `/campaigns/:id/submit`            | reserves the budget from the wallet → `pending_review` (`422 INSUFFICIENT_WALLET_BALANCE`, `403 ADVERTISER_NOT_VERIFIED`, `403 CONSENT_REQUIRED` (terms), `400 CAMPAIGN_HAS_NO_ADS` for video campaigns) |
 | POST     | `/campaigns/:id/pause` / `resume`  | active ⇄ paused (resume refused while `pausedReason = admin_paused` or budget exhausted)                                                                                 |
 | POST     | `/campaigns/uploads/presign`       | `{ fileName, contentType, sizeBytes }` → `{ method: 'PUT', uploadUrl, headers, storageKey, publicUrl, expiresInSeconds }`                                                |
 | GET/POST | `/campaigns/:id/ads`               | list / add creative `CreateAdDto` (`storageKey` from presign or `mediaUrl`, `mediaType`, `durationSeconds`, `attentionQuestions?`)                                       |
@@ -144,6 +216,15 @@ Status meanings for the UI: `flagged_for_review` "under review by our team" (sho
 
 Upload flow: `presign` → `PUT uploadUrl` with the file and the returned `headers` → `POST /campaigns/:id/ads` with
 `storageKey`. Limits: video mp4/webm ≤ 100 MB, image jpeg/png/webp ≤ 5 MB (`UPLOAD_LIMITS`).
+
+Media pipeline (Phase 4A): every video creative is created with `mediaStatus: processing` and a `media.process` job
+runs ffprobe (true duration, codec, dimensions → `mediaProbe`), corrects `durationSeconds` when the declared value is
+off by more than 1 s (`mediaStatus: duration_corrected`, `durationDeclaredSeconds` / `durationProbedSeconds` kept),
+transcodes to a 720p H.264 MP4 that becomes `mediaUrl` (the upload stays reachable as `originalMediaUrl` server-side)
+and generates a poster when no `thumbnailUrl` was supplied. Terminal states: `ready`, `duration_corrected`, `failed`
+(`mediaError`). Poll `GET /campaigns/:id/ads` after upload and show a "processing" badge; reviewers cannot approve
+while `processing`/`failed` (`422 MEDIA_NOT_READY`) and can trigger `POST /admin/ads/:id/reprocess-media`. Only
+`ready`/`duration_corrected` ads are served in the feed; the watch session `minWatchSeconds` uses the probed duration.
 
 ## Billing (`/billing`, advertiser token unless noted)
 
@@ -173,6 +254,22 @@ Upload flow: `presign` → `PUT uploadUrl` with the file and the returned `heade
 | Revenue                  | `GET /admin/revenue/overview?from&to` → `RevenueOverview` (totals, daily, byAdvertiser, byActionType)                                                                                                                                                                                                | finance, super_admin                                                  |
 | Audit log                | `GET /admin/audit-log?actorId&actorType&action&targetType&targetId&q&from&to`                                                                                                                                                                                                                        | finance, support, super_admin                                         |
 | App-install verification | `GET /admin/offers/app-install-completions?status`, `POST …/:id/verify { note? }`, `…/:id/reject { reason }`                                                                                                                                                                                         | support, super_admin                                                  |
+| KYC queue (4A)           | `GET /admin/kyc?status&idType&q` (default pending), `GET /admin/kyc/:id` (`AdminKycDetail`: 5-minute presigned `documents.front/back/selfie` URLs, `profileMatch`, `duplicateIdentityUsers`, provider pre-check), `POST /admin/kyc/:id/approve { note? }` (→ user `id_verified`), `POST /admin/kyc/:id/reject { reason }` | support, finance, super_admin                                         |
+| Alerts (4A)              | `GET /admin/alerts?type&severity&acknowledged&from&to` (`meta.openCount`, `meta.notifiers`), `POST /admin/alerts/:id/ack`, `POST /admin/alerts/run-rules` (super_admin; evaluates all rules now)                                                                                                    | support, finance, super_admin                                         |
+| Referrals (4A)           | `GET /admin/referrals?status&referrerId&refereeId` (`AdminReferralItem`), `GET /admin/referrals/metrics` (`AdminReferralMetrics`)                                                                                                                                                                   | support, finance, super_admin                                         |
+| Deletion requests (4A)   | `GET /admin/deletion-requests?status` (default pending; `pendingWithdrawals` per row), `POST …/:id/execute { note? }` (anonymise now), `POST …/:id/cancel { note? }`                                                                                                                                | support, super_admin                                                  |
+| Impersonation (4A)       | `POST /admin/users/:id/impersonate { reason }` → `ImpersonationTokenResponse` (10-min READ-ONLY user token; audited on issue and on every request). `GET /admin/users/:id` now includes `kyc`, `deletionRequest`, `referralStats`                                                                    | support, super_admin                                                  |
+| Media (4A)               | `POST /admin/ads/:id/reprocess-media` (re-run probe/transcode); review items carry `mediaStatus`, `mediaProbe`, `durationDeclaredSeconds`, `durationProbedSeconds`, `mediaError`                                                                                                                    | ad_reviewer, super_admin                                              |
+| Advertiser wallet        | `GET /admin/advertisers/:id/wallet`                                                                                                                                                                                                                                                                  | support, finance, super_admin                                         |
+
+`GET /admin/config` additionally exposes `kycRequiredAboveMonthlyEtb`, `defaultFrequencyCap`,
+`advertiserImpressionCapPerUserPerDay`, `referralBonusCoins`, `refereeBonusCoins`, `referralMaxPerReferrerPerDay`,
+`accountDeletionGraceDays`, `destinationResolveTtlMinutes`, `alerts {…thresholds}` and `mocks.idVerification / alerts /
+destinationLookup`. `GET /admin/revenue/overview` totals gain `referralBonusesEtb` (platform cost) and
+`netPlatformRevenueEtb`; daily points gain `referralBonusesEtb`.
+
+Impersonation UI rules: show a persistent banner "Viewing as <user> (read-only, expires HH:MM)" while the token is in
+use, hide every write action, and never store the token beyond the session.
 
 Admin UI rules: large withdrawals (`requiresDualApproval`) show `approvalsCount/2` and must disable "Approve" for an admin
 already listed in `approvals`; coin adjustments must disable "Approve" for `requestedBy === me`. Every decision needs a
@@ -202,3 +299,15 @@ so dashboards can gate navigation immediately after login without a second reque
 - Coin adjustment awaiting second approval: requested by `finance@rap.et` – approve with `super@rap.et`/`finance2@rap.et`.
 - Users `+251911002466`, `+251911002603`, `+251911002740` share a device fingerprint (fraud flags); `+251911003151` is
   banned; `+251911002877` / `+251911003014` are suspended.
+- Phase 4A: legal documents v1.0 (`terms`, `privacy`, en + am) are published and every seeded user/advertiser has
+  accepted them (new accounts must accept before `/ads`, `/offers`, `POST /withdrawals`).
+- KYC queue: 3 pending submissions (`+251911001233` Fayda, `+251911001644` national id, `+251911001918` Fayda with a
+  registry name mismatch), 3 approved (`+251911000137`, `+251911000411`, `+251911000685` are `id_verified`), 1 rejected.
+  Document links are placeholder PNGs from the private prefix.
+- Referrals: `+251911000137` referred two paid friends; one `pending`, one `qualified` (referrer daily cap) and one
+  `rejected` (shared device, flags on both accounts). Every user has a 6-char `referralCode` (deterministic per seed).
+- Alerts: 4 seeded (`PAYOUT_FAILURE_RATE` acknowledged, `ACCOUNT_MINTING` critical, `SPEND_VELOCITY`, `OTP_SPIKE`
+  open). `POST /admin/alerts/run-rules` evaluates the live rules.
+- One pending account-deletion request (`+251911002192`, scheduled in 12 days) for the deletion queue.
+- Payout destinations of users with withdrawal history are `known` (no lookup/OTP needed); any other number is NEW and
+  goes through resolve → OTP. In MOCK mode a destination ending in `0000` is "not found".

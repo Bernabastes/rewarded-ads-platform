@@ -23,6 +23,8 @@ const prisma = new PrismaClient();
 
 const COINS_PER_ETB = Number(process.env.COINS_PER_ETB ?? 100);
 const TAKE_RATE = Number(process.env.PLATFORM_TAKE_RATE ?? 0.5);
+const REFERRAL_BONUS_COINS = Number(process.env.REFERRAL_BONUS_COINS ?? 500);
+const REFEREE_BONUS_COINS = Number(process.env.REFEREE_BONUS_COINS ?? 200);
 const ADMIN_PASSWORD = 'Admin123!';
 const ADVERTISER_PASSWORD = 'Advertiser123!';
 
@@ -121,6 +123,15 @@ async function uploadSeedMedia() {
   console.log(`Uploaded ${files.length} demo media files to ${S3_ENDPOINT}/${S3_BUCKET}/${MEDIA_PREFIX}/`);
 }
 
+/** Deterministic 6-char referral codes (same alphabet as the API) so README/demo scripts can reference them. */
+const REFERRAL_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function referralCodeFor(i: number): string {
+  const h = sha(`referral:${i}`);
+  let code = '';
+  for (let k = 0; k < 6; k++) code += REFERRAL_ALPHABET[parseInt(h.slice(k * 2, k * 2 + 2), 16) % REFERRAL_ALPHABET.length];
+  return code;
+}
+
 const USER_NAMES = [
   'አበበ ቢቂላ',
   'Tigist Haile',
@@ -194,6 +205,7 @@ async function reset() {
     'coin_adjustment_requests',
     'withdrawal_approvals',
     'withdrawals',
+    'payout_destinations',
     'fraud_flags',
     'coin_ledger',
     'ad_completions',
@@ -208,10 +220,19 @@ async function reset() {
     'invoices',
     'advertiser_payments',
     'advertiser_wallet_ledger',
+    'advertiser_consents',
     'advertisers',
     'refresh_tokens',
     'otp_codes',
     'ledger_reconciliation_runs',
+    'idempotency_keys',
+    'kyc_submissions',
+    'legal_documents',
+    'user_consents',
+    'platform_alerts',
+    'referrals',
+    'data_export_requests',
+    'account_deletion_requests',
     'admin_users',
     'users',
   ];
@@ -400,6 +421,8 @@ async function main() {
     rejectionReason?: string;
     reserve?: boolean;
     attention?: boolean;
+    /** Completed campaigns whose spend is derived from generated completions: refund is written afterwards. */
+    deferRefund?: boolean;
   }) {
     const c = await prisma.campaign.create({
       data: {
@@ -455,7 +478,7 @@ async function main() {
           },
         });
         await tx.advertiser.update({ where: { id: data.advertiserId }, data: { walletBalanceEtb: after } });
-        if (data.status === 'completed' || data.status === 'rejected') {
+        if ((data.status === 'completed' || data.status === 'rejected') && !data.deferRefund) {
           const refund = dec(data.budget).minus(data.spent ?? 0);
           if (refund.greaterThan(0)) {
             await tx.advertiserWalletLedger.create({
@@ -579,13 +602,13 @@ async function main() {
   const cOld = await campaign({
     advertiserId: fintech.id,
     title: 'AddisPay launch (Q2)',
-    description: 'Launch campaign, fully delivered.',
-    budget: 3000,
+    description: 'Launch campaign; ended on its end date. Spend is derived from real completions (F10).',
+    budget: 150,
     cost: 2,
     type: 'video_view',
     status: 'completed',
-    spent: 3000,
     createdDaysAgo: 34,
+    deferRefund: true,
   });
   const cDraft = await campaign({
     advertiserId: sheger.id,
@@ -639,6 +662,19 @@ async function main() {
         description: `${title} - demo creative`,
         ...v,
         mediaType: 'video',
+        // seeded clips are already H.264 480x270; report them as probed + ready (the pipeline runs for uploads)
+        mediaStatus: 'ready',
+        durationDeclaredSeconds: v.durationSeconds,
+        durationProbedSeconds: v.durationSeconds,
+        mediaProbe: {
+          durationSeconds: v.durationSeconds,
+          codec: 'h264',
+          width: 480,
+          height: 270,
+          bitrate: 180_000,
+          container: 'mov,mp4,m4a,3gp,3g2,mj2',
+        },
+        mediaProcessedAt: daysAgo(int(2, 25)),
         reviewStatus: status,
         reviewedBy: status === 'pending' ? null : reviewer.id,
         reviewedAt: status === 'pending' ? null : daysAgo(int(5, 20)),
@@ -701,6 +737,8 @@ async function main() {
   ]);
   await ad(cEid.id, 'Eid promo - 15s', 6, 'pending');
   const adOld = await ad(cOld.id, 'AddisPay launch film', 7, 'approved');
+  const adOld2 = await ad(cOld.id, 'AddisPay launch - 15s cut', 5, 'approved');
+  const adOld3 = await ad(cOld.id, 'AddisPay launch - vertical', 2, 'approved');
   await ad(cDraft.id, 'Meskel lookbook', 1, 'pending');
   await ad(
     cSave.id,
@@ -826,6 +864,11 @@ async function main() {
         createdAt,
         lastLoginAt: daysAgo(int(0, 2)),
         lastIp: `196.188.${int(1, 254)}.${int(1, 254)}`,
+        signupIp: `196.188.${int(1, 254)}.${int(1, 254)}`,
+        signupDeviceFingerprint: device,
+        referralCode: referralCodeFor(i),
+        // three demo users already passed KYC (higher monthly payout tier)
+        kycTier: [1, 3, 5].includes(i) ? 'id_verified' : 'phone_only',
       },
     });
     users.push({ id: u.id, name, phone, device, trust: u.trustScore, status, createdAt });
@@ -852,6 +895,8 @@ async function main() {
     { ad: adSave1, campaign: cSave },
     { ad: adSave2, campaign: cSave },
     { ad: adOld, campaign: cOld },
+    { ad: adOld2, campaign: cOld },
+    { ad: adOld3, campaign: cOld },
   ];
   const spentByCampaign = new Map<string, Prisma.Decimal>();
   let flaggedCount = 0;
@@ -864,7 +909,7 @@ async function main() {
       const pair = pick(approvedAds);
       if (seen.has(pair.ad.id)) continue;
       seen.add(pair.ad.id);
-      const when = daysAgo(int(0, 27));
+      const when = pair.campaign.id === cOld.id ? daysAgo(int(4, 27)) : daysAgo(int(0, 27));
       const startedAt = new Date(when.getTime() - (pair.ad.durationSeconds + int(0, 5)) * 1000);
       const isBadDevice = user.device === sharedDevice;
       const roll = rand();
@@ -988,9 +1033,40 @@ async function main() {
     data: { resolvedBy: support.id },
   });
   await prisma.$executeRaw`UPDATE fraud_flags SET resolved_at = created_at + interval '1 day', resolution_note = 'Reviewed during weekly fraud sweep' WHERE resolved = true`;
+  // F10: spend identity (spent_etb == valid completions x cost) holds for EVERY seeded campaign, including the
+  // completed one, whose unspent reservation is refunded to the wallet only now that the real spend is known.
   for (const [campaignId, spent] of spentByCampaign) {
-    if (campaignId === cOld.id) continue;
     await prisma.campaign.update({ where: { id: campaignId }, data: { spentEtb: spent } });
+  }
+  {
+    const spentOld = spentByCampaign.get(cOld.id) ?? dec(0);
+    await prisma.campaign.update({
+      where: { id: cOld.id },
+      data: { spentEtb: spentOld, budgetReservedEtb: spentOld },
+    });
+    const refund = cOld.budgetEtb.minus(spentOld);
+    if (refund.greaterThan(0)) {
+      await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<
+          Array<{ wallet_balance_etb: Prisma.Decimal }>
+        >`SELECT wallet_balance_etb FROM advertisers WHERE id = ${fintech.id}::uuid FOR UPDATE`;
+        const after = dec(rows[0].wallet_balance_etb).plus(refund);
+        await tx.advertiserWalletLedger.create({
+          data: {
+            advertiserId: fintech.id,
+            amountEtb: refund,
+            balanceAfterEtb: after,
+            entryType: 'campaign_budget_refund',
+            referenceType: 'campaign',
+            referenceId: cOld.id,
+            idempotencyKey: `campaign_budget_refund:${cOld.id}:seed`,
+            description: `Unspent budget released for "${cOld.title}"`,
+            createdAt: daysAgo(3),
+          },
+        });
+        await tx.advertiser.update({ where: { id: fintech.id }, data: { walletBalanceEtb: after } });
+      });
+    }
   }
 
   /* survey responses + app installs */
@@ -1442,6 +1518,370 @@ async function main() {
     before: { verificationStatus: 'pending' },
     after: { verificationStatus: 'verified' },
     createdAt: daysAgo(35),
+  });
+
+  /* ---------------------------- Phase 4A demo data ---------------------------- */
+
+  /* legal documents (terms + privacy v1.0 in en + am) and consents for every seeded account */
+  const LEGAL_VERSION = '1.0';
+  const legalDocs: Array<{ kind: 'terms' | 'privacy'; locale: 'en' | 'am'; title: string; body: string }> = [
+    {
+      kind: 'terms',
+      locale: 'en',
+      title: 'Gize Terms of Service',
+      body: '# Gize Terms of Service (v1.0)\n\nBy using Gize you agree to watch advertisements honestly, to hold one account per person, and to withdraw only to payout accounts you own. Rewards are decided by our servers; fraudulent activity leads to suspension. Advertisers agree to the banned-topics policy and prepaid billing. Full text: https://gize.app/legal/terms',
+    },
+    {
+      kind: 'terms',
+      locale: 'am',
+      title: 'የGize የአገልግሎት ውል',
+      body: '# የGize የአገልግሎት ውል (v1.0)\n\nGize በመጠቀም ማስታወቂያዎችን በታማኝነት ለመመልከት፣ በአንድ ሰው አንድ መለያ ብቻ ለመያዝ እና ወደ ራስዎ የክፍያ መለያ ብቻ ገንዘብ ለማውጣት ተስማምተዋል። ሽልማቶች በአገልጋዮቻችን ይወሰናሉ፤ ማጭበርበር መለያውን ወደ መታገድ ያመራል። ሙሉ ጽሑፍ፦ https://gize.app/legal/terms',
+    },
+    {
+      kind: 'privacy',
+      locale: 'en',
+      title: 'Gize Privacy Notice',
+      body: '# Gize Privacy Notice (v1.0)\n\nWe process your phone number, date of birth, device fingerprint and IP address to pay rewards and to prevent fraud. Payout details are shared with our licensed payout partners (telebirr, Chapa). You can export or delete your data from Profile > Privacy. Full text: https://gize.app/legal/privacy',
+    },
+    {
+      kind: 'privacy',
+      locale: 'am',
+      title: 'የGize የግላዊነት መግለጫ',
+      body: '# የGize የግላዊነት መግለጫ (v1.0)\n\nሽልማት ለመክፈል እና ማጭበርበርን ለመከላከል ስልክ ቁጥርዎን፣ የልደት ቀንዎን፣ የመሣሪያ አሻራዎን እና IP አድራሻዎን እናስተናግዳለን። የክፍያ መረጃ ለፈቃድ ካላቸው አጋሮቻችን (telebirr፣ Chapa) ይጋራል። መረጃዎን ከመገለጫ > ግላዊነት ማውረድ ወይም መሰረዝ ይችላሉ። ሙሉ ጽሑፍ፦ https://gize.app/legal/privacy',
+    },
+  ];
+  for (const doc of legalDocs) {
+    await prisma.legalDocument.create({
+      data: {
+        kind: doc.kind,
+        version: LEGAL_VERSION,
+        locale: doc.locale,
+        title: doc.title,
+        url: `https://gize.app/legal/${doc.kind}?v=${LEGAL_VERSION}&lang=${doc.locale}`,
+        contentMarkdown: doc.body,
+        publishedAt: daysAgo(60),
+        createdAt: daysAgo(60),
+      },
+    });
+  }
+  for (const user of users) {
+    if (user.status === 'banned') continue;
+    for (const kind of ['terms', 'privacy'] as const) {
+      await prisma.userConsent.create({
+        data: { userId: user.id, kind, version: LEGAL_VERSION, acceptedAt: user.createdAt, deviceId: `dev-${user.phone.slice(-2)}` },
+      });
+    }
+  }
+  for (const adv of [habesha, fintech, sheger]) {
+    await prisma.advertiserConsent.create({
+      data: { advertiserId: adv.id, kind: 'terms', version: LEGAL_VERSION, acceptedAt: adv.createdAt },
+    });
+  }
+
+  /* known payout destinations for users with withdrawal history (verified + OTP'd + used) */
+  const withdrawalRows = await prisma.withdrawal.findMany({
+    select: { id: true, userId: true, payoutMethod: true, payoutDestination: true, bankCode: true, destinationName: true, requestedAt: true },
+  });
+  const destinationIds = new Map<string, string>();
+  for (const w of withdrawalRows) {
+    const key = `${w.userId}:${w.payoutMethod}:${w.payoutDestination}`;
+    if (!destinationIds.has(key)) {
+      const d = await prisma.payoutDestination.create({
+        data: {
+          userId: w.userId,
+          payoutMethod: w.payoutMethod,
+          destination: w.payoutDestination,
+          bankCode: w.bankCode,
+          accountName: w.destinationName ?? users.find((u) => u.id === w.userId)?.name ?? null,
+          providerName: w.payoutMethod === 'bank' ? 'chapa' : 'telebirr',
+          providerMock: true,
+          verifiedAt: new Date(w.requestedAt.getTime() - 120_000),
+          otpVerifiedAt: new Date(w.requestedAt.getTime() - 60_000),
+          lastUsedAt: w.requestedAt,
+          useCount: 1,
+          createdAt: new Date(w.requestedAt.getTime() - 120_000),
+        },
+      });
+      destinationIds.set(key, d.id);
+    } else {
+      await prisma.payoutDestination.update({
+        where: { id: destinationIds.get(key)! },
+        data: { useCount: { increment: 1 }, lastUsedAt: w.requestedAt },
+      });
+    }
+    await prisma.withdrawal.update({
+      where: { id: w.id },
+      data: {
+        payoutDestinationId: destinationIds.get(key),
+        destinationAccountName: w.destinationName ?? users.find((u) => u.id === w.userId)?.name ?? null,
+        destinationVerifiedAt: new Date(w.requestedAt.getTime() - 120_000),
+      },
+    });
+  }
+
+  /* KYC submissions in every status (documents = placeholder PNGs uploaded to the private prefix) */
+  async function kycDocument(userId: string, kind: string, file: string) {
+    const key = `private/kyc/${userId}/${kind}/${sha(`${userId}:${kind}`).slice(0, 12)}.png`;
+    try {
+      const s3 = new S3Client({
+        region: process.env.S3_REGION ?? 'us-east-1',
+        endpoint: S3_ENDPOINT,
+        forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'true') !== 'false',
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY ?? 'minioadmin',
+          secretAccessKey: process.env.S3_SECRET_KEY ?? 'minioadmin',
+        },
+      });
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: key,
+          Body: readFileSync(path.resolve(__dirname, 'seed-assets', file)),
+          ContentType: 'image/png',
+        }),
+      );
+    } catch {
+      /* storage offline: the key is still stored; admin links will 404 */
+    }
+    return key;
+  }
+  async function kyc(
+    userIdx: number,
+    status: 'pending' | 'approved' | 'rejected',
+    idType: 'fayda' | 'national_id' | 'passport',
+    idNumber: string,
+    opts: { reason?: string; daysAgo?: number; score?: number } = {},
+  ) {
+    const user = users[userIdx];
+    const when = daysAgo(opts.daysAgo ?? int(0, 6));
+    const s = await prisma.kycSubmission.create({
+      data: {
+        userId: user.id,
+        idType,
+        idNumberHash: sha(`${idType}:${idNumber}`),
+        idNumberLast4: idNumber.slice(-4),
+        fullName: user.name,
+        dateOfBirth: new Date(Date.UTC(1985 + userIdx % 15, userIdx % 12, 1 + (userIdx % 27))),
+        documentFrontKey: await kycDocument(user.id, 'document_front', 'loyalty-card.png'),
+        documentBackKey: idType === 'passport' ? null : await kycDocument(user.id, 'document_back', 'origin-story.png'),
+        selfieKey: await kycDocument(user.id, 'selfie', 'morning-roast.png'),
+        status,
+        providerName: 'fayda',
+        providerResult: {
+          provider: 'fayda',
+          mock: true,
+          found: (opts.score ?? 0.97) > 0,
+          score: opts.score ?? 0.97,
+          match: { fullName: (opts.score ?? 0.97) > 0.5, dateOfBirth: (opts.score ?? 0.97) > 0 },
+          duplicateIdentityUsers: 0,
+        },
+        reviewedBy: status === 'pending' ? null : support.id,
+        reviewedAt: status === 'pending' ? null : new Date(when.getTime() + 3600_000),
+        reason: status === 'rejected' ? opts.reason : status === 'approved' ? 'Documents legible, selfie matches' : null,
+        createdAt: when,
+      },
+    });
+    await audit({
+      actorType: 'user',
+      actorId: user.id,
+      action: 'kyc.submitted',
+      targetType: 'kyc_submission',
+      targetId: s.id,
+      after: { idType, idNumberLast4: s.idNumberLast4 },
+      createdAt: when,
+    });
+    if (status !== 'pending') {
+      await audit({
+        actorType: 'admin',
+        actorId: support.id,
+        action: `kyc.${status}`,
+        targetType: 'kyc_submission',
+        targetId: s.id,
+        before: { status: 'pending' },
+        after: { status, reason: opts.reason },
+        createdAt: s.reviewedAt!,
+      });
+      await prisma.notification.create({
+        data: {
+          userId: user.id,
+          type: 'kyc_status',
+          title: status === 'approved' ? 'Identity verified' : 'Identity verification not approved',
+          body: status === 'approved' ? 'Higher monthly payout limits are now available.' : `We could not verify your identity: ${opts.reason}`,
+          data: { submissionId: s.id, status },
+          pushStatus: 'sent',
+          sentAt: s.reviewedAt!,
+          createdAt: s.reviewedAt!,
+        },
+      });
+    }
+    return s;
+  }
+  await kyc(1, 'approved', 'fayda', '3101199012345678', { daysAgo: 12 });
+  await kyc(3, 'approved', 'national_id', 'AA-2019-0045612', { daysAgo: 9 });
+  await kyc(5, 'approved', 'passport', 'EP1234567', { daysAgo: 20 });
+  await kyc(9, 'pending', 'fayda', '3101199555554321', { daysAgo: 0 });
+  await kyc(12, 'pending', 'national_id', 'AA-2021-0098877', { daysAgo: 1 });
+  await kyc(14, 'pending', 'fayda', '3101199000000099', { daysAgo: 1, score: 0.4 }); // registry name mismatch
+  await kyc(16, 'rejected', 'fayda', '3101198700001111', { daysAgo: 5, reason: 'Document photo is blurry; selfie does not match' });
+
+  /* referrals: paid, pending, qualified (cap), rejected (shared device) */
+  async function referral(
+    referrerIdx: number,
+    refereeIdx: number,
+    status: 'pending' | 'qualified' | 'paid' | 'rejected',
+    opts: { reason?: string; daysAgo?: number } = {},
+  ) {
+    const referrer = users[referrerIdx];
+    const referee = users[refereeIdx];
+    const when = daysAgo(opts.daysAgo ?? int(1, 20));
+    const r = await prisma.referral.create({
+      data: {
+        referrerId: referrer.id,
+        refereeId: referee.id,
+        code: referralCodeFor(referrerIdx),
+        status,
+        signupIp: `196.188.${int(1, 254)}.${int(1, 254)}`,
+        signupDeviceFingerprint: referee.device,
+        referrerBonusCoins: status === 'paid' ? REFERRAL_BONUS_COINS : 0,
+        refereeBonusCoins: status === 'paid' ? REFEREE_BONUS_COINS : 0,
+        qualifiedAt: status === 'pending' ? null : new Date(when.getTime() + 86_400_000),
+        paidAt: status === 'paid' ? new Date(when.getTime() + 86_400_000) : null,
+        rejectionReason: status === 'rejected' || status === 'qualified' ? opts.reason : null,
+        createdAt: when,
+      },
+    });
+    if (status === 'paid') {
+      const paidAt = r.paidAt!;
+      await prisma.$transaction(async (tx) => {
+        await ledger(tx, {
+          userId: referrer.id,
+          amount: REFERRAL_BONUS_COINS,
+          sourceType: 'referral',
+          sourceId: r.id,
+          idempotencyKey: `referral_referrer:${r.id}`,
+          description: 'Referral bonus: your friend completed their first ad',
+        });
+        await ledger(tx, {
+          userId: referee.id,
+          amount: REFEREE_BONUS_COINS,
+          sourceType: 'referral',
+          sourceId: r.id,
+          idempotencyKey: `referral_referee:${r.id}`,
+          description: 'Welcome bonus for joining with a referral code',
+        });
+      });
+      await audit({
+        actorType: 'system',
+        action: 'referral.paid',
+        targetType: 'referral',
+        targetId: r.id,
+        before: { status: 'pending' },
+        after: { status: 'paid', referrerBonus: REFERRAL_BONUS_COINS, refereeBonus: REFEREE_BONUS_COINS },
+        createdAt: paidAt,
+      });
+    }
+    if (status === 'rejected') {
+      for (const uid of [referrer.id, referee.id]) {
+        await prisma.fraudFlag.create({
+          data: {
+            userId: uid,
+            relatedEntityType: 'referral',
+            relatedEntityId: r.id,
+            flagType: 'REFERRAL_SELF_REFERRAL',
+            severity: 'medium',
+            description: `Referral rejected: ${opts.reason?.replace(/_/g, ' ')}`,
+            metadata: { reason: opts.reason },
+            trustScoreDelta: -5,
+            resolved: false,
+            createdAt: r.qualifiedAt!,
+          },
+        });
+      }
+    }
+    return r;
+  }
+  await referral(1, 13, 'paid', { daysAgo: 18 });
+  await referral(1, 15, 'paid', { daysAgo: 12 });
+  await referral(3, 17, 'paid', { daysAgo: 7 });
+  await referral(4, 24, 'pending', { daysAgo: 0 });
+  await referral(6, 22, 'pending', { daysAgo: 2 });
+  await referral(7, 19, 'qualified', { daysAgo: 4, reason: 'referrer_daily_cap' });
+  await referral(18, 20, 'rejected', { daysAgo: 3, reason: 'self_referral_device' });
+
+  /* platform alerts (money-day alerting) */
+  const alertRows = [
+    {
+      type: 'PAYOUT_FAILURE_RATE',
+      severity: 'warning' as const,
+      title: 'Payout failure rate 33% over the last hour (2/6)',
+      payload: { failed: 2, completed: 4, rate: 0.333, threshold: 0.2 },
+      dedupeKey: 'payout_failure_rate',
+      acknowledged: true,
+      daysAgo: 2,
+    },
+    {
+      type: 'ACCOUNT_MINTING',
+      severity: 'critical' as const,
+      title: '4 accounts created from one device in the last hour',
+      payload: { deviceFingerprint: sharedDevice, accounts: 4, threshold: 3 },
+      dedupeKey: `account_minting:${sharedDevice}`,
+      acknowledged: false,
+      daysAgo: 1,
+    },
+    {
+      type: 'SPEND_VELOCITY',
+      severity: 'warning' as const,
+      title: 'Campaign "Save with AddisPay" spent 96.00 ETB in the last hour (avg 6.40 ETB/h)',
+      payload: { campaignId: cSave.id, advertiserName: 'Addis Fintech Solutions', lastHourEtb: 96, trailingHourlyAvgEtb: 6.4, multiplier: 5 },
+      dedupeKey: `spend_velocity:${cSave.id}`,
+      acknowledged: false,
+      daysAgo: 0,
+    },
+    {
+      type: 'OTP_SPIKE',
+      severity: 'warning' as const,
+      title: '27 OTP requests from 196.188.12.7 in the last hour',
+      payload: { ip: '196.188.12.7', requests: 27, threshold: 20 },
+      dedupeKey: 'otp_spike:196.188.12.7',
+      acknowledged: false,
+      daysAgo: 0,
+    },
+  ];
+  for (const a of alertRows) {
+    const when = daysAgo(a.daysAgo, int(1, 12));
+    await prisma.platformAlert.create({
+      data: {
+        type: a.type,
+        severity: a.severity,
+        title: a.title,
+        payload: a.payload,
+        dedupeKey: a.dedupeKey,
+        deliveries: [{ notifier: 'log', ok: true }],
+        acknowledgedBy: a.acknowledged ? finance.id : null,
+        acknowledgedAt: a.acknowledged ? new Date(when.getTime() + 1800_000) : null,
+        createdAt: when,
+      },
+    });
+  }
+
+  /* one pending account deletion request (grace period) */
+  const deletion = await prisma.accountDeletionRequest.create({
+    data: {
+      userId: users[16].id,
+      reason: 'Not using the app anymore',
+      scheduledFor: daysAgo(-12),
+      requestedAt: daysAgo(2),
+      ipAddress: '196.188.44.10',
+    },
+  });
+  await audit({
+    actorType: 'user',
+    actorId: users[16].id,
+    action: 'account_deletion.requested',
+    targetType: 'account_deletion_request',
+    targetId: deletion.id,
+    after: { scheduledFor: deletion.scheduledFor },
+    createdAt: deletion.requestedAt,
   });
 
   /* reconciliation run record */

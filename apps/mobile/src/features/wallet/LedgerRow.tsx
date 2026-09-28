@@ -18,6 +18,7 @@ export const SOURCE_ICONS: Record<LedgerSourceType, IconName> = {
   withdrawal_reversal: 'arrowDownLeft',
   admin_adjustment: 'sliders',
   reconciliation: 'refresh',
+  referral: 'gift',
 };
 
 export interface LedgerSection {

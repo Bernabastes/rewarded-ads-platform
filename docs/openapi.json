@@ -265,8 +265,18 @@
     },
     "/api/v1/auth/logout": {
       "post": {
+        "description": "Send the refresh token in the body and the current access token as the Bearer header: the access token is denylisted for its remaining lifetime so it stops working right away on this device.",
         "operationId": "logout",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -282,7 +292,7 @@
             "description": ""
           }
         },
-        "summary": "Revoke a refresh token family",
+        "summary": "Revoke a refresh token family (and immediately deny the presented access token)",
         "tags": [
           "auth"
         ]
@@ -318,6 +328,119 @@
         "summary": "Change the advertiser password (revokes all refresh tokens; re-login required)",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/legal/current": {
+      "get": {
+        "description": "One document per kind in the requested locale (`am` default; falls back to `en`). `audience=advertiser` returns the advertiser terms only. Clients show these before asking for consent.",
+        "operationId": "current",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Current terms of service and privacy notice",
+        "tags": [
+          "legal"
+        ]
+      }
+    },
+    "/api/v1/users/me/consents": {
+      "get": {
+        "operationId": "state",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Consent state per legal document kind",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "description": "Returns the updated consent state. 409 CONSENT_VERSION_OUTDATED when `version` is not current.",
+        "operationId": "accept",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptConsentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Accept the current version of the terms or privacy notice",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/advertisers/me/consents": {
+      "get": {
+        "operationId": "state",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Advertiser terms acceptance state",
+        "tags": [
+          "advertisers"
+        ]
+      },
+      "post": {
+        "operationId": "accept",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptConsentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Accept the current advertiser terms version (required before submitting campaigns)",
+        "tags": [
+          "advertisers"
         ]
       }
     },
@@ -436,6 +559,410 @@
         "summary": "Recompute a user trust score from completions, withdrawals and open flags",
         "tags": [
           "fraud"
+        ]
+      }
+    },
+    "/api/v1/admin/alerts": {
+      "get": {
+        "description": "`meta.openCount` = unacknowledged alerts; `meta.notifiers` lists the configured delivery channels.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Money-day alerts (ledger drift, payout failure rate, account minting, spend velocity, OTP spikes)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/alerts/run-rules": {
+      "post": {
+        "operationId": "run",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Evaluate all alert rules now (normally runs on ALERT_RULES_CRON)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/alerts/{id}/ack": {
+      "post": {
+        "operationId": "ack",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Acknowledge an alert (audited)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/users/me/referrals": {
+      "get": {
+        "description": "Bonuses are credited only when the invited friend completes their FIRST valid ad (same transaction). Referrals from the same device or IP are rejected and flagged.",
+        "operationId": "mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My referral code, share text, invited friends and bonus totals",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/admin/referrals": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "All referrals (filter by status / referrer / referee)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/referrals/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Referral programme metrics (counts, bonus cost, top referrers)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/users/me/kyc": {
+      "get": {
+        "operationId": "mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My KYC tier, latest submission and whether a new one may be submitted",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "description": "One pending submission at a time (409 KYC_SUBMISSION_PENDING). Only a hash + last 4 digits of the id number are stored. The id-registry pre-check (mock Fayda) is advisory; an admin decides.",
+        "operationId": "submit",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKycSubmissionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Submit identity documents for review (Fayda / national id / passport)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/kyc/uploads/presign": {
+      "post": {
+        "description": "Upload with the returned headers, then POST /users/me/kyc with the storage keys. Documents are never public.",
+        "operationId": "presign",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycPresignDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Presigned PUT for a KYC document (front/back/selfie) into the private storage prefix",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "KYC review queue (default: pending)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc/{id}": {
+      "get": {
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "KYC submission detail with 5-minute presigned document links",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc/{id}/approve": {
+      "post": {
+        "operationId": "approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve: promotes the user to id_verified (audited)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc/{id}/reject": {
+      "post": {
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject (reason required; shown to the user)",
+        "tags": [
+          "admin"
         ]
       }
     },
@@ -766,7 +1293,7 @@
     },
     "/api/v1/ads/feed": {
       "get": {
-        "description": "Only approved ads of active, funded campaigns the user has not been credited for. Empty when the daily cap is reached or the trust score is too low. `meta` includes dailyLimit/dailyCompleted/dailyRemaining.",
+        "description": "Only approved ads of active, funded campaigns the user has not been credited for. Empty when the daily cap is reached or the trust score is too low. `meta` includes dailyLimit/dailyCompleted/dailyRemaining and `hiddenByFrequencyCap` (ads hidden today by campaign/advertiser frequency caps).",
         "operationId": "feed",
         "parameters": [
           {
@@ -1974,7 +2501,7 @@
             "bearer": []
           }
         ],
-        "summary": "Current advertiser profile (fresh verificationStatus, wallet balance, preferences)",
+        "summary": "Current advertiser profile (fresh verificationStatus, wallet balance, preferences, terms acceptance)",
         "tags": [
           "advertisers"
         ]
@@ -2011,6 +2538,7 @@
     },
     "/api/v1/withdrawals/config": {
       "get": {
+        "description": "Includes the caller's `kycTier`, rolling 30-day `monthlyPayoutTotalEtb`, the `kycRequiredAboveMonthlyEtb` threshold and `knownDestinations` (already used, no lookup/OTP needed).",
         "operationId": "config",
         "parameters": [],
         "responses": {
@@ -2023,7 +2551,120 @@
             "bearer": []
           }
         ],
-        "summary": "Withdrawal thresholds, conversion rate and available payout methods",
+        "summary": "Withdrawal thresholds, conversion rate, payout methods, KYC tier and known destinations",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/withdrawals/destinations": {
+      "get": {
+        "operationId": "listDestinations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Payout destinations the user has verified / used (masked)",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/withdrawals/destinations/resolve": {
+      "post": {
+        "description": "Calls the payout partner (telebirr / Chapa; MOCK returns a deterministic name). Valid for `destinationResolveTtlMinutes`. The response says whether an OTP re-check is still required (`otpRequired`). Send back `normalizedDestination` as `payoutDestination`.",
+        "operationId": "resolve",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDestinationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "422": {
+            "description": "DESTINATION_NOT_FOUND"
+          },
+          "503": {
+            "description": "PAYOUT_METHOD_UNAVAILABLE | SERVICE_UNAVAILABLE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Look up the account holder name for a payout destination (required for NEW destinations)",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/withdrawals/destinations/otp/request": {
+      "post": {
+        "operationId": "requestDestinationOtp",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "429": {
+            "description": "OTP_RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send an OTP (purpose destination_change) to the user's own phone before paying out to a NEW destination",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/withdrawals/destinations/otp/verify": {
+      "post": {
+        "operationId": "verifyDestinationOtp",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyDestinationOtpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "401": {
+            "description": "OTP_INVALID | OTP_EXPIRED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Confirm the destination_change OTP for a specific destination",
         "tags": [
           "withdrawals"
         ]
@@ -2031,7 +2672,7 @@
     },
     "/api/v1/withdrawals": {
       "post": {
-        "description": "Converts ETB to coins and holds them in the same transaction. First-ever withdrawals, amounts >= the large threshold and low-trust accounts are held for manual review (`flagged_for_review`); otherwise the payout is queued immediately (`pending`). The platform never holds funds: payouts execute through telebirr/Chapa.",
+        "description": "Converts ETB to coins and holds them in the same transaction. First-ever withdrawals, amounts >= the large threshold and low-trust accounts are held for manual review (`flagged_for_review`); otherwise the payout is queued immediately (`pending`). NEW destinations need a fresh lookup + OTP re-check; phone_only users are capped by KYC_REQUIRED_ABOVE_MONTHLY_ETB per rolling 30 days. The platform never holds funds: payouts execute through telebirr/Chapa.",
         "operationId": "request",
         "parameters": [],
         "requestBody": {
@@ -2051,11 +2692,14 @@
           "400": {
             "description": "BELOW_MIN_WITHDRAWAL | INVALID_PAYOUT_DESTINATION"
           },
+          "403": {
+            "description": "CONSENT_REQUIRED"
+          },
           "409": {
-            "description": "WITHDRAWAL_PENDING_EXISTS"
+            "description": "WITHDRAWAL_PENDING_EXISTS | IDEMPOTENCY_KEY_REUSED"
           },
           "422": {
-            "description": "INSUFFICIENT_BALANCE"
+            "description": "INSUFFICIENT_BALANCE | KYC_REQUIRED | DESTINATION_NOT_VERIFIED | DESTINATION_OTP_REQUIRED"
           },
           "429": {
             "description": "WITHDRAWAL_RATE_LIMITED"
@@ -2066,7 +2710,7 @@
             "bearer": []
           }
         ],
-        "summary": "Request a withdrawal",
+        "summary": "Request a withdrawal (supports Idempotency-Key)",
         "tags": [
           "withdrawals"
         ]
@@ -2154,6 +2798,260 @@
         "summary": "Withdrawal status",
         "tags": [
           "withdrawals"
+        ]
+      }
+    },
+    "/api/v1/users/me/data-export": {
+      "post": {
+        "operationId": "requestExport",
+        "parameters": [],
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Request an export of all my data (async; notification with a download link when ready)",
+        "tags": [
+          "users"
+        ]
+      },
+      "get": {
+        "operationId": "listExports",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My recent data exports",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/data-export/{id}": {
+      "get": {
+        "operationId": "getExport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Export status; `downloadUrl` is a short-lived presigned link once ready",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/delete-request": {
+      "post": {
+        "description": "Blocked while withdrawals are in flight (409 DELETION_BLOCKED_PENDING_WITHDRAWALS). Execution anonymises personal data but retains ledger, completions and audit records (financial-record obligations).",
+        "operationId": "requestDeletion",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeletionRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Request account deletion (executed after the grace period; cancellable until then)",
+        "tags": [
+          "users"
+        ]
+      },
+      "get": {
+        "operationId": "myDeletion",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My latest deletion request (null when none)",
+        "tags": [
+          "users"
+        ]
+      },
+      "delete": {
+        "operationId": "cancelDeletion",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel my pending deletion request",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/admin/deletion-requests": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Account deletion requests (default: pending) with in-flight withdrawal counts",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/deletion-requests/{id}/execute": {
+      "post": {
+        "operationId": "execute",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminDeletionNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Execute a deletion now (anonymise PII; keep financial records). Audited.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/deletion-requests/{id}/cancel": {
+      "post": {
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminDeletionNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel a pending deletion request on the user's behalf (e.g. support ticket). Audited.",
+        "tags": [
+          "admin"
         ]
       }
     },
@@ -2375,6 +3273,36 @@
           }
         ],
         "summary": "Reject an ad (reason required)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/ads/{id}/reprocess-media": {
+      "post": {
+        "description": "Use after a `failed` processing run. The ad goes back to `processing` until the job finishes.",
+        "operationId": "reprocessMedia",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Re-run the media pipeline (probe + transcode + poster) for a creative",
         "tags": [
           "admin"
         ]
@@ -2761,7 +3689,8 @@
               "enum": [
                 "active",
                 "suspended",
-                "banned"
+                "banned",
+                "deleted"
               ]
             }
           },
@@ -2943,6 +3872,46 @@
           }
         ],
         "summary": "Reinstate a suspended/banned user",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{id}/impersonate": {
+      "post": {
+        "description": "The token (`typ: impersonation`, `actorAdminId`) is accepted by user-scoped GET endpoints only; every mutation fails with 403 IMPERSONATION_READ_ONLY. No refresh token is issued.",
+        "operationId": "impersonate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Issue a 10-minute READ-ONLY user token for support (audited on issue and on every request)",
         "tags": [
           "admin"
         ]
@@ -4239,11 +5208,47 @@
             "type": "string",
             "description": "Device fingerprint hash collected by the client.",
             "maxLength": 256
+          },
+          "referralCode": {
+            "type": "string",
+            "description": "Referral code of the inviting user; honoured only on the FIRST login of a new account.",
+            "minLength": 4,
+            "maxLength": 12,
+            "example": "K7MP2X"
           }
         },
         "required": [
           "phoneNumber",
           "code"
+        ]
+      },
+      "EthiopianDateDto": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "number",
+            "minimum": 1900,
+            "maximum": 2100,
+            "example": 1987
+          },
+          "month": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 13,
+            "example": 8,
+            "description": "1-13 (13 = Pagume)"
+          },
+          "day": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 30,
+            "example": 4
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "day"
         ]
       },
       "CompleteProfileDto": {
@@ -4257,9 +5262,17 @@
           },
           "dateOfBirth": {
             "type": "string",
-            "description": "Date of birth as YYYY-MM-DD. Age is computed on the server; under-18 is rejected with AGE_RESTRICTED.",
+            "description": "Gregorian date of birth as YYYY-MM-DD. Provide EITHER this OR dateOfBirthEthiopian.",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "example": "1995-04-12"
+          },
+          "dateOfBirthEthiopian": {
+            "description": "Ethiopian calendar date of birth; converted and validated server-side (Pagume / leap-year rules).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EthiopianDateDto"
+              }
+            ]
           },
           "languagePreference": {
             "enum": [
@@ -4272,8 +5285,7 @@
           }
         },
         "required": [
-          "fullName",
-          "dateOfBirth"
+          "fullName"
         ]
       },
       "AdvertiserRegisterDto": {
@@ -4309,6 +5321,12 @@
             "maxLength": 128,
             "pattern": "^(?=.*[A-Za-z])(?=.*\\d).+$",
             "example": "Advertiser123!"
+          },
+          "termsVersion": {
+            "type": "string",
+            "description": "Advertiser terms version accepted at registration (GET /legal/current?audience=advertiser).",
+            "maxLength": 32,
+            "example": "1.0"
           }
         },
         "required": [
@@ -4385,6 +5403,10 @@
           "newPassword"
         ]
       },
+      "AcceptConsentDto": {
+        "type": "object",
+        "properties": {}
+      },
       "CreateFraudFlagDto": {
         "type": "object",
         "properties": {
@@ -4457,6 +5479,26 @@
           "resolution",
           "note"
         ]
+      },
+      "KycPresignDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateKycSubmissionDto": {
+        "type": "object",
+        "properties": {
+          "dateOfBirth": {
+            "type": "string",
+            "example": "1990-05-14"
+          },
+          "dateOfBirthEthiopian": {
+            "$ref": "#/components/schemas/EthiopianDateDto"
+          }
+        }
+      },
+      "KycDecisionDto": {
+        "type": "object",
+        "properties": {}
       },
       "NotificationPrefsDto": {
         "type": "object",
@@ -4719,6 +5761,13 @@
             "type": "boolean",
             "description": "Ask a one-question attention check after each ad (default true).",
             "default": true
+          },
+          "frequencyCapPerUserPerDay": {
+            "type": "number",
+            "description": "Max rewarded completions of this campaign per user per UTC day (1-5; default DEFAULT_FREQUENCY_CAP).",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 1
           }
         },
         "required": [
@@ -4766,6 +5815,13 @@
           },
           "attentionCheckEnabled": {
             "type": "boolean"
+          },
+          "frequencyCapPerUserPerDay": {
+            "type": "number",
+            "description": "Max rewarded completions of this campaign per user per UTC day (1-5; default DEFAULT_FREQUENCY_CAP).",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 1
           }
         }
       },
@@ -4925,6 +5981,67 @@
           }
         }
       },
+      "ResolveDestinationDto": {
+        "type": "object",
+        "properties": {
+          "payoutMethod": {
+            "enum": [
+              "telebirr",
+              "bank",
+              "cbe_birr"
+            ],
+            "type": "string"
+          },
+          "payoutDestination": {
+            "type": "string",
+            "maxLength": 64,
+            "example": "0911223344"
+          },
+          "bankCode": {
+            "type": "string",
+            "maxLength": 20,
+            "example": "946"
+          }
+        },
+        "required": [
+          "payoutMethod",
+          "payoutDestination"
+        ]
+      },
+      "VerifyDestinationOtpDto": {
+        "type": "object",
+        "properties": {
+          "payoutMethod": {
+            "enum": [
+              "telebirr",
+              "bank",
+              "cbe_birr"
+            ],
+            "type": "string"
+          },
+          "payoutDestination": {
+            "type": "string",
+            "maxLength": 64,
+            "example": "0911223344"
+          },
+          "bankCode": {
+            "type": "string",
+            "maxLength": 20,
+            "example": "946"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 8,
+            "example": "123456"
+          }
+        },
+        "required": [
+          "payoutMethod",
+          "payoutDestination",
+          "code"
+        ]
+      },
       "CreateWithdrawalDto": {
         "type": "object",
         "properties": {
@@ -4967,6 +6084,14 @@
           "payoutMethod",
           "payoutDestination"
         ]
+      },
+      "CreateDeletionRequestDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "AdminDeletionNoteDto": {
+        "type": "object",
+        "properties": {}
       },
       "BannedTopicsChecklistDto": {
         "type": "object",

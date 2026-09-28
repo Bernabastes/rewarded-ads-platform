@@ -21,6 +21,7 @@
     "dev:admin": "node scripts/run-workspace.mjs dev --filter @rap/admin-web",
     "dev:mobile": "node scripts/run-workspace.mjs web --filter @rap/mobile",
     "dev": "concurrently -k -n api,advertiser,admin -c blue,green,magenta \"node scripts/run-workspace.mjs dev --filter @rap/api\" \"node scripts/run-workspace.mjs dev --filter @rap/advertiser-web\" \"node scripts/run-workspace.mjs dev --filter @rap/admin-web\"",
+    "media:tools": "node scripts/install-media-tools.mjs",
     "demo": "powershell -ExecutionPolicy Bypass -File scripts/demo.ps1",
     "infra:up": "docker compose up -d postgres redis minio minio-init",
     "infra:down": "docker compose down",

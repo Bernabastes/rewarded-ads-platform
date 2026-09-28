@@ -26,6 +26,10 @@ const TYPE_ICONS: Record<NotificationType, IconName> = {
   new_offer: 'gift',
   account_status: 'shield',
   system: 'info',
+  kyc_status: 'shield',
+  referral: 'gift',
+  data_export: 'download',
+  account_deletion: 'user',
 };
 
 export default function NotificationsScreen() {

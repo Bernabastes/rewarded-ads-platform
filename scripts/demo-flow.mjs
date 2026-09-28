@@ -3,16 +3,21 @@
  * Cross-surface demo flow against a running stack (default http://localhost:3000). Drives the exact API calls the
  * three frontends make, in the order an investor demo would show them, and asserts every money-relevant outcome:
  *
- *   advertiser registers -> admin verifies -> top-up (mock gateway) -> campaign + creative upload (presigned PUT)
- *   -> submit -> admin approves campaign and ad -> new user (OTP, age gate) watches with server heartbeats
- *   -> completion credited (idempotent) -> advertiser analytics show the completion (raw vs fraud-filtered)
- *   -> user requests withdrawal (held: first withdrawal) -> finance approves -> payout worker completes
- *   -> admin revenue dashboard reflects spend / rewards / payout.
+ *   advertiser registers (accepting terms) -> admin verifies -> top-up (mock gateway) -> campaign + REAL creative
+ *   upload (presigned PUT) -> media pipeline (ffprobe + 720p transcode + poster) -> submit -> admin approves
+ *   campaign and ad -> new user (OTP, age gate, Ethiopian DOB echo, consent) watches with server heartbeats
+ *   -> completion credited (idempotent, replay reports the balance) -> advertiser analytics (raw vs fraud-filtered)
+ *   -> user verifies a NEW payout destination (partner name lookup + OTP re-check) -> withdrawal with an
+ *   Idempotency-Key (held: first withdrawal) -> finance approves -> payout worker completes
+ *   -> admin revenue dashboard reflects spend / rewards / payout / referral cost line.
  *
  *   node scripts/demo-flow.mjs                      # API on http://localhost:3000
  *   node scripts/demo-flow.mjs http://host:3000
- * Requires OTP_DEV_ECHO=true on the API (default in .env.example) and the payout worker enabled (QUEUES_ENABLED=true).
+ * Requires OTP_DEV_ECHO=true on the API (default in .env.example), the workers enabled (QUEUES_ENABLED=true) and
+ * the seed applied (legal documents + demo admins).
  */
+import { readFile } from 'node:fs/promises';
+
 const base = (process.argv[2] ?? process.env.API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 const api = `${base}/api/v1`;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'Admin123!';
@@ -27,10 +32,14 @@ const fail = (msg) => {
 const assert = (cond, msg) => (cond ? log(`OK  ${msg}`) : fail(msg));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function call(method, path, { body, token, allowError = false } = {}) {
+async function call(method, path, { body, token, headers = {}, allowError = false } = {}) {
   const res = await fetch(`${api}${path}`, {
     method,
-    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -41,7 +50,7 @@ async function call(method, path, { body, token, allowError = false } = {}) {
     json = text;
   }
   if (!res.ok && !allowError) fail(`${method} ${path} -> ${res.status} ${text.slice(0, 300)}`);
-  return { status: res.status, body: json };
+  return { status: res.status, body: json, headers: res.headers };
 }
 
 const adminLogin = async (email) =>
@@ -56,7 +65,10 @@ async function main() {
   assert(ready.status === 'ready', `API ready (db=${ready.checks.database} redis=${ready.checks.redis})`);
 
   /* ---------------- advertiser onboarding ---------------- */
-  title('Advertiser registers on the portal');
+  title('Advertiser registers on the portal (accepting the current advertiser terms)');
+  const advLegal = await call('GET', '/legal/current?audience=advertiser&locale=en');
+  const advTerms = advLegal.body.documents.find((d) => d.kind === 'terms');
+  assert(advTerms, `advertiser terms v${advTerms?.version} published (${advTerms?.locale})`);
   const advEmail = `demo-${stamp.toLowerCase()}@sheger-demo.et`;
   const reg = await call('POST', '/auth/advertiser/register', {
     body: {
@@ -65,6 +77,7 @@ async function main() {
       contactEmail: advEmail,
       contactPhone: '+251911555000',
       password: 'Advertiser123!',
+      termsVersion: advTerms.version,
     },
   });
   let advToken = reg.body.tokens.accessToken;
@@ -72,6 +85,11 @@ async function main() {
   assert(
     reg.body.advertiser.verificationStatus === 'pending',
     `registered ${advEmail} (pending verification)`,
+  );
+  assert(
+    reg.body.advertiser.acceptedTermsVersion === advTerms.version &&
+      reg.body.advertiser.requiresTermsAcceptance === false,
+    'terms acceptance recorded at registration',
   );
 
   const draft = await call('POST', '/campaigns', {
@@ -82,6 +100,7 @@ async function main() {
       budgetEtb: 300,
       costPerActionEtb: 2,
       targetActionType: 'video_view',
+      frequencyCapPerUserPerDay: 2,
     },
   });
   const campaignId = draft.body.id;
@@ -89,6 +108,7 @@ async function main() {
     draft.body.rewardPerActionEtb === 1 && draft.body.rewardCoins === 100,
     `draft campaign: cost 2.00 ETB -> reward 1.00 ETB = 100 coins`,
   );
+  assert(draft.body.frequencyCapPerUserPerDay === 2, 'frequency cap stored (2 completions per user per day)');
   const blocked = await call('POST', `/campaigns/${campaignId}/submit`, {
     token: advToken,
     allowError: true,
@@ -135,8 +155,9 @@ async function main() {
   const invoices = await call('GET', '/billing/invoices', { token: advToken });
   assert(invoices.body.meta.total >= 1, `invoice issued (${invoices.body.data[0]?.invoiceNumber})`);
 
-  title('Advertiser uploads a creative (browser-style presigned PUT) and submits the campaign');
-  const media = Buffer.from('demo-mp4-bytes-'.repeat(200));
+  title('Advertiser uploads a REAL creative (browser-style presigned PUT); media pipeline runs; campaign submitted');
+  // F4: a genuine H.264 clip from the seed assets so the pipeline (probe + transcode + poster) and players work
+  const media = await readFile(new URL('../apps/api/prisma/seed-assets/eid-promo.mp4', import.meta.url));
   const presign = await call('POST', '/campaigns/uploads/presign', {
     token: advToken,
     body: { fileName: 'dabo.mp4', contentType: 'video/mp4', sizeBytes: media.length },
@@ -148,7 +169,7 @@ async function main() {
   });
   assert(
     put.status === 200,
-    `PUT to presigned URL on ${new URL(presign.body.uploadUrl).origin} -> ${put.status}`,
+    `PUT ${media.length} bytes to presigned URL on ${new URL(presign.body.uploadUrl).origin} -> ${put.status}`,
   );
   const ad = await call('POST', `/campaigns/${campaignId}/ads`, {
     token: advToken,
@@ -156,7 +177,7 @@ async function main() {
       title: 'Fresh dabo - 15s',
       storageKey: presign.body.storageKey,
       mediaType: 'video',
-      durationSeconds: 15,
+      durationSeconds: 20, // deliberately wrong: the probe finds 15 s and corrects it
       attentionQuestions: [
         {
           prompt: 'What was baked?',
@@ -167,7 +188,27 @@ async function main() {
       ],
     },
   });
-  assert(ad.body.reviewStatus === 'pending', `creative added (${ad.body.id}) -> review queue`);
+  assert(
+    ad.body.reviewStatus === 'pending',
+    `creative added (${ad.body.id}) -> review queue (media ${ad.body.mediaStatus})`,
+  );
+  // media.process: ffprobe -> 720p transcode -> poster. Approval is refused (MEDIA_NOT_READY) until it finishes.
+  let processed = ad.body;
+  for (let i = 0; i < 40 && processed.mediaStatus === 'processing'; i++) {
+    await sleep(3000);
+    const ads = await call('GET', `/campaigns/${campaignId}/ads`, { token: advToken });
+    processed = ads.body.find((a) => a.id === ad.body.id);
+  }
+  assert(
+    processed.mediaStatus === 'duration_corrected' && processed.durationSeconds === 15,
+    `media pipeline finished: ${processed.mediaStatus} (declared ${processed.durationDeclaredSeconds}s, probed ${processed.durationProbedSeconds}s, ${processed.mediaProbe?.width}x${processed.mediaProbe?.height} ${processed.mediaProbe?.codec})`,
+  );
+  assert(
+    /transcoded\.mp4$/.test(processed.mediaUrl) && /poster\.png$/.test(processed.thumbnailUrl ?? ''),
+    `served from the 720p transcode with a generated poster`,
+  );
+  const transcoded = await fetch(processed.mediaUrl, { method: 'HEAD' });
+  assert(transcoded.status === 200, `transcoded rendition is publicly reachable (${transcoded.headers.get('content-length')} bytes)`);
   const submitted = await call('POST', `/campaigns/${campaignId}/submit`, { token: advToken });
   assert(
     submitted.body.status === 'pending_review',
@@ -184,10 +225,8 @@ async function main() {
   const queue = await call('GET', '/admin/ads/review-queue?status=pending&limit=100', {
     token: reviewerToken,
   });
-  assert(
-    queue.body.data.some((a) => a.id === ad.body.id),
-    'creative visible in the review queue',
-  );
+  const queued = queue.body.data.find((a) => a.id === ad.body.id);
+  assert(queued && queued.mediaStatus === 'duration_corrected', 'creative visible in the review queue with its media status');
   const checks = Object.fromEntries(
     [
       'alcohol',
@@ -212,7 +251,7 @@ async function main() {
   assert(approvedCampaign.body.status === 'active', 'campaign active');
 
   /* ---------------- user side ---------------- */
-  title('New user signs up on the mobile app (OTP, server-side age check)');
+  title('New user signs up on the mobile app (OTP, server-side age check, consent)');
   const phone = `+2519${Math.floor(10_000_000 + Math.random() * 89_999_999)}`;
   const otp = await call('POST', '/auth/otp/request', { body: { phoneNumber: phone } });
   if (!otp.body.devCode) fail('OTP_DEV_ECHO must be enabled for the demo flow');
@@ -228,17 +267,40 @@ async function main() {
   assert(verify.body.isNewUser, `user created (${phone})`);
   const profile = await call('POST', '/auth/users/complete-profile', {
     token: userToken,
-    body: { fullName: 'Demo Watcher (ሰላም)', dateOfBirth: '1994-03-21', languagePreference: 'am' },
+    body: {
+      fullName: 'Demo Watcher (ሰላም)',
+      dateOfBirthEthiopian: { year: 1986, month: 7, day: 12 }, // Megabit 12, 1986 = 21 March 1994
+      languagePreference: 'am',
+    },
   });
-  assert(profile.body.ageVerificationStatus === 'verified_adult', 'profile complete, verified adult');
+  assert(
+    profile.body.ageVerificationStatus === 'verified_adult' && profile.body.dateOfBirth === '1994-03-21',
+    `profile complete via Ethiopian DOB (Megabit 12, 1986 -> ${profile.body.dateOfBirth}), verified adult`,
+  );
+  const gated = await call('GET', '/ads/feed', { token: userToken, allowError: true });
+  assert(
+    gated.status === 403 && gated.body.code === 'CONSENT_REQUIRED',
+    `money endpoints blocked until consent (CONSENT_REQUIRED: ${gated.body.details?.requiresConsent})`,
+  );
+  for (const kind of profile.body.requiresConsent) {
+    const current = profile.body.consents.find((c) => c.kind === kind);
+    await call('POST', '/users/me/consents', {
+      token: userToken,
+      body: { kind, version: current.currentVersion },
+    });
+  }
+  const consented = await call('GET', '/users/me', { token: userToken });
+  assert(consented.body.requiresConsent.length === 0, 'terms + privacy accepted (current versions)');
+  assert(consented.body.referralCode?.length === 6, `referral code issued (${consented.body.referralCode})`);
 
   title('User watches the new ad (server-timed session + heartbeats + attention question)');
   const feed = await call('GET', '/ads/feed?limit=50', { token: userToken });
   const feedAd = feed.body.data.find((a) => a.id === ad.body.id);
   assert(
     feedAd,
-    `new ad is in the feed (${feed.body.data.length} ads, daily ${feed.body.meta.dailyCompleted}/${feed.body.meta.dailyLimit})`,
+    `new ad is in the feed (${feed.body.data.length} ads, daily ${feed.body.meta.dailyCompleted}/${feed.body.meta.dailyLimit}, hiddenByFrequencyCap=${feed.body.meta.hiddenByFrequencyCap})`,
   );
+  assert(feedAd.durationSeconds === 15, 'feed uses the probed (corrected) duration');
   const session = await call('POST', `/ads/${ad.body.id}/watch-sessions`, {
     token: userToken,
     body: { deviceFingerprint: `fp-demo-${stamp}`, deviceId: 'demo-device' },
@@ -269,8 +331,10 @@ async function main() {
     body: { attentionAnswerIndex: 0 },
   });
   assert(
-    replay.body.replayed === true && replay.body.completionId === done.body.completionId,
-    'replaying the completion never double-credits',
+    replay.body.replayed === true &&
+      replay.body.completionId === done.body.completionId &&
+      replay.body.newBalance === 100,
+    `replaying the completion never double-credits and reports the current balance (${replay.body.newBalance})`,
   );
   const userBalance = await call('GET', '/users/me/balance', { token: userToken });
   assert(
@@ -293,7 +357,7 @@ async function main() {
     'campaign detail: spent 2.00 ETB, 1 valid completion',
   );
 
-  title('User requests a withdrawal (first ever -> held for review); finance approves; payout completes');
+  title('User verifies a NEW payout destination (partner lookup + OTP) and requests a withdrawal with an Idempotency-Key');
   const financeToken = await adminLogin('finance@rap.et');
   const superToken = await adminLogin('super@rap.et');
   // fund the demo user through the two-step adjustment so 50 ETB can be withdrawn
@@ -320,16 +384,86 @@ async function main() {
     body: { note: 'second admin' },
   });
   assert(executed.body.status === 'executed', 'adjustment executed by a different admin (+5000 coins)');
-  const wd = await call('POST', '/withdrawals', {
+
+  const wdConfig = await call('GET', '/withdrawals/config', { token: userToken });
+  assert(
+    wdConfig.body.kycTier === 'phone_only' && wdConfig.body.kycRequiredAboveMonthlyEtb > 0,
+    `withdrawal config: kycTier=${wdConfig.body.kycTier}, KYC above ${wdConfig.body.kycRequiredAboveMonthlyEtb} ETB / 30 days, ${wdConfig.body.knownDestinations.length} known destinations`,
+  );
+  const blockedWd = await call('POST', '/withdrawals', {
     token: userToken,
     body: { amountEtb: 50, payoutMethod: 'telebirr', payoutDestination: phone },
+    allowError: true,
+  });
+  assert(
+    blockedWd.body.code === 'DESTINATION_NOT_VERIFIED',
+    'a NEW destination must be resolved first (DESTINATION_NOT_VERIFIED)',
+  );
+  const resolved = await call('POST', '/withdrawals/destinations/resolve', {
+    token: userToken,
+    body: { payoutMethod: 'telebirr', payoutDestination: phone },
+  });
+  assert(
+    resolved.body.accountName && resolved.body.otpRequired === true,
+    `partner lookup: account holder "${resolved.body.accountName}" via ${resolved.body.provider} (mock=${resolved.body.mock}); OTP re-check required`,
+  );
+  const otpOnly = await call('POST', '/withdrawals', {
+    token: userToken,
+    body: { amountEtb: 50, payoutMethod: 'telebirr', payoutDestination: resolved.body.normalizedDestination },
+    allowError: true,
+  });
+  assert(otpOnly.body.code === 'DESTINATION_OTP_REQUIRED', 'lookup alone is not enough (DESTINATION_OTP_REQUIRED)');
+  const destOtp = await call('POST', '/withdrawals/destinations/otp/request', { token: userToken });
+  await call('POST', '/withdrawals/destinations/otp/verify', {
+    token: userToken,
+    body: {
+      code: destOtp.body.devCode,
+      payoutMethod: 'telebirr',
+      payoutDestination: resolved.body.normalizedDestination,
+    },
+  });
+  const idemKey = `demo-wd-${stamp}`;
+  const wdBody = {
+    amountEtb: 50,
+    payoutMethod: 'telebirr',
+    payoutDestination: resolved.body.normalizedDestination,
+  };
+  const wd = await call('POST', '/withdrawals', {
+    token: userToken,
+    headers: { 'Idempotency-Key': idemKey },
+    body: wdBody,
   });
   assert(
     wd.body.status === 'flagged_for_review' && wd.body.reviewReasons.includes('first_withdrawal'),
     `withdrawal ${wd.body.id} held for review [${wd.body.reviewReasons}]`,
   );
+  assert(
+    wd.body.destinationAccountName === resolved.body.accountName,
+    'verified account holder name snapshotted on the withdrawal',
+  );
+  const wdReplay = await call('POST', '/withdrawals', {
+    token: userToken,
+    headers: { 'Idempotency-Key': idemKey },
+    body: wdBody,
+  });
+  assert(
+    wdReplay.body.id === wd.body.id && wdReplay.headers.get('idempotent-replayed') === 'true',
+    'same Idempotency-Key replays the stored response (no second hold)',
+  );
+  const wdReused = await call('POST', '/withdrawals', {
+    token: userToken,
+    headers: { 'Idempotency-Key': idemKey },
+    body: { ...wdBody, amountEtb: 60 },
+    allowError: true,
+  });
+  assert(
+    wdReused.status === 409 && wdReused.body.code === 'IDEMPOTENCY_KEY_REUSED',
+    'same key + different payload -> 409 IDEMPOTENCY_KEY_REUSED',
+  );
   const held = await call('GET', '/users/me/balance', { token: userToken });
-  assert(held.body.coinBalance === 100, `5000 coins held immediately (balance ${held.body.coinBalance})`);
+  assert(held.body.coinBalance === 100, `5000 coins held exactly once (balance ${held.body.coinBalance})`);
+
+  title('Finance approves; payout completes through the partner');
   const approvedWd = await call('POST', `/admin/withdrawals/${wd.body.id}/approve`, {
     token: financeToken,
     body: { note: 'KYC ok (demo)' },
@@ -359,13 +493,33 @@ async function main() {
       afterPayout.body.ledgerChecksum.consistent,
     `balance after payout ${afterPayout.body.coinBalance}, ledger consistent`,
   );
+  const known = await call('GET', '/withdrawals/destinations', { token: userToken });
+  assert(known.body.some((d) => d.known), 'destination is now known (no lookup/OTP needed next time)');
 
-  title('Admin revenue dashboard reflects the flow');
+  title('Support impersonation is read-only and audited');
+  const imp = await call('POST', `/admin/users/${verify.body.user.id}/impersonate`, {
+    token: supportToken,
+    body: { reason: `Demo ticket ${stamp}` },
+  });
+  const impBalance = await call('GET', '/users/me/balance', { token: imp.body.accessToken });
+  assert(impBalance.body.coinBalance === afterPayout.body.coinBalance, 'impersonation token can READ the user\'s balance');
+  const impWrite = await call('PATCH', '/users/me', {
+    token: imp.body.accessToken,
+    body: { languagePreference: 'en' },
+    allowError: true,
+  });
+  assert(impWrite.status === 403 && impWrite.body.code === 'IMPERSONATION_READ_ONLY', 'mutations are refused (IMPERSONATION_READ_ONLY)');
+  const impAudit = await call('GET', `/admin/audit-log?action=impersonation.read&targetId=${verify.body.user.id}`, {
+    token: superToken,
+  });
+  assert(impAudit.body.meta.total >= 1, `${impAudit.body.meta.total} impersonation read(s) audited`);
+
+  title('Admin revenue dashboard and alerts reflect the flow');
   const revenue = await call('GET', '/admin/revenue/overview', { token: financeToken });
   const r = revenue.body.totals;
   assert(
     r.advertiserSpendEtb >= 2 && r.platformRevenueEtb >= 1 && r.topupsEtb >= 500,
-    `spend ${r.advertiserSpendEtb} ETB, rewards ${r.userRewardsEtb} ETB, platform revenue ${r.platformRevenueEtb} ETB, top-ups ${r.topupsEtb} ETB, payouts completed ${r.payoutsCompletedEtb} ETB`,
+    `spend ${r.advertiserSpendEtb} ETB, rewards ${r.userRewardsEtb} ETB, platform revenue ${r.platformRevenueEtb} ETB, referral bonuses ${r.referralBonusesEtb} ETB, net ${r.netPlatformRevenueEtb} ETB, top-ups ${r.topupsEtb} ETB, payouts completed ${r.payoutsCompletedEtb} ETB`,
   );
   const byAdvertiser = revenue.body.byAdvertiser.find((a) => a.advertiserId === advertiserId);
   assert(
@@ -379,6 +533,10 @@ async function main() {
   );
   const audit = await call('GET', `/admin/audit-log?targetId=${wd.body.id}`, { token: superToken });
   assert(audit.body.meta.total >= 3, `${audit.body.meta.total} audit rows for the withdrawal`);
+  const rules = await call('POST', '/admin/alerts/run-rules', { token: superToken });
+  assert(Array.isArray(rules.body.rules) && rules.body.rules.length === 4, `alert rules evaluated: ${rules.body.rules.map((x) => `${x.rule}=${x.raised}`).join(' ')}`);
+  const alerts = await call('GET', '/admin/alerts?limit=5', { token: superToken });
+  assert(typeof alerts.body.meta.openCount === 'number', `alerts page: ${alerts.body.meta.total} alerts, ${alerts.body.meta.openCount} open, notifiers ${alerts.body.meta.notifiers.map((n) => n.name).join('+')}`);
 
   console.log('\nDEMO FLOW PASSED');
   console.log(`  advertiser: ${advEmail} / Advertiser123!   campaign: ${campaignId}`);

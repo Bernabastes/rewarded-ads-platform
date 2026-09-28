@@ -288,7 +288,8 @@
       "withdrawal": "ገንዘብ ማውጣት",
       "withdrawal_reversal": "የማውጣት ተመላሽ",
       "admin_adjustment": "በ{{brand}} የተደረገ ማስተካከያ",
-      "reconciliation": "የቀሪ ሂሳብ እርማት"
+      "reconciliation": "የቀሪ ሂሳብ እርማት",
+      "referral": "የግብዣ ጉርሻ"
     },
     "conversionTitle": "ኮይኖች እንዴት ይሠራሉ",
     "integrityOk": "ከሙሉ መዝገብዎ ጋር ተረጋግጧል"

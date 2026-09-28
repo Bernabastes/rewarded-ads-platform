@@ -102,14 +102,24 @@ required columns; supporting tables and additions:
 | `audit_log`                                     | Spec fields + `metadata`, `ip_address`; append-only trigger. Written inside the same transaction as the change wherever possible.                                                                                                                                                    |
 | `notifications`, `device_push_tokens`           | In-app inbox (always persisted) + FCM tokens; push delivery status per notification.                                                                                                                                                                                                 |
 | `ad_reports`                                    | Users report a bad ad (one per user per ad) → admin review queue, optionally pulling the ad.                                                                                                                                                                                         |
+| `idempotency_keys` (4A)                         | Stored responses for `Idempotency-Key` money POSTs, unique per (actor, key); placeholder row inserted before the handler runs so concurrent duplicates collide; 24 h TTL, purged hourly.                                                                                            |
+| `payout_destinations` (4A)                      | Per-user verified payout destinations: partner account name, `verified_at` (lookup), `otp_verified_at`, `last_used_at`/`use_count` (=> "known"). Withdrawals reference the row and snapshot `destination_account_name`.                                                              |
+| `kyc_submissions` (4A)                          | Identity submissions: `id_type`, **hash + last 4 of the id number only**, name/DOB, private S3 keys for front/back/selfie, status, provider pre-check JSON, reviewer + reason. Partial unique index: one pending per user. `users.kyc_tier` is promoted on approval.                  |
+| `legal_documents`, `user_consents`, `advertiser_consents` (4A) | Published terms/privacy versions per locale; consents per (subject, kind, version). "Current" = latest `published_at` per kind; ConsentGuard compares.                                                                                                                    |
+| `platform_alerts` (4A)                          | Money-day alerts (type, severity, payload, dedupe key, per-notifier deliveries, acknowledgement).                                                                                                                                                                                       |
+| `referrals` (4A)                                | referrer/referee (unique referee), code, status `pending → paid \| qualified \| rejected`, bonus coins, qualifying completion, signup IP/device for the fraud guards. `users.referral_code` unique 6-char code; `coin_ledger.source_type = referral`.                                    |
+| `data_export_requests`, `account_deletion_requests` (4A) | Data-subject rights: async export archives (private S3 key, expiry) and deletion requests (grace period, executed/cancelled by whom). Partial unique index: one pending deletion per user. `users.anonymized_at` + `status = deleted` after execution.                     |
+| `ads.media_*` (4A)                              | Pipeline state (`media_status`), `media_probe` JSON, declared vs probed duration, transcoded key, original URL, error, processed_at.                                                                                                                                                  |
+| `campaigns.frequency_cap_per_user_per_day` (4A) | Advertiser-editable 1–5 (DB CHECK); default `DEFAULT_FREQUENCY_CAP`.                                                                                                                                                                                                                |
 
 Types: ETB amounts are `Decimal(12,2)`; coins are `Int` (a single user would need > 21 million ETB to overflow –
 documented upgrade path is `BigInt`). Ids are UUIDs; timestamps are UTC.
 
-Migrations: `prisma/migrations/*_init` (generated), `*_append_only_guards` (hand-written triggers + CHECK constraints)
-and `*_payment_return_url_and_advertiser_prefs` (Phase 3 additive columns). Triggers are the only non-portable SQL;
-they are documented here as deliberate. Prisma interactive transactions run with a 20 s budget (`transactionOptions`
-in `PrismaService`) because cold Docker volumes exceeded the 5 s default on the first admin decision after start-up.
+Migrations: `prisma/migrations/*_init` (generated), `*_append_only_guards` (hand-written triggers + CHECK constraints),
+`*_payment_return_url_and_advertiser_prefs` (Phase 3 additive columns) and `*_phase4a_roadmap` (Phase 4A tables/columns
+plus hand-written partial unique indexes and CHECKs). Triggers are the only non-portable SQL; they are documented here
+as deliberate. Prisma interactive transactions run with a 20 s budget (`transactionOptions` in `PrismaService`)
+because cold Docker volumes exceeded the 5 s default on the first admin decision after start-up.
 
 ## 4. Money & coin model
 
@@ -141,7 +151,12 @@ Worked example (defaults):
 
 Callers pass their own transaction so the business record (completion, withdrawal, adjustment) and the ledger row
 commit atomically. Idempotency keys: `ad_completion:<watchSessionId>`, `survey_response:<id>`, `app_install:<id>`,
-`withdrawal_hold:<id>[:retryN]`, `withdrawal_reversal:<id>:<attempt>`, `adjustment:<requestId>`, `reconcile:<runId>`.
+`withdrawal_hold:<id>[:retryN]`, `withdrawal_reversal:<id>:<attempt>`, `adjustment:<requestId>`, `reconcile:<runId>`,
+`referral_referrer:<referralId>`, `referral_referee:<referralId>`.
+
+Referral bonuses (4A) are a **platform cost**, not advertiser-funded: they are written with `source_type = referral`
+inside the referee's first valid-completion transaction and reported separately in the revenue dashboard
+(`referralBonusesEtb`, `netPlatformRevenueEtb = platformRevenue − referralBonuses`).
 
 **Reconciliation.** Hourly BullMQ job (`RECONCILIATION_CRON`) compares `users.coin_balance` with `SUM(coin_ledger.amount)`
 per user. Drift → `ledger.drift_detected` on the security channel, a `critical` `LEDGER_DRIFT` fraud flag, an audit row
@@ -318,6 +333,10 @@ rejected`, all sessions revoked, `403 AGE_RESTRICTED` on every subsequent reques
 | Push (FCM)               | `FcmPushAdapter` (HTTP v1, service-account JWT)                                                                                                  | `MockPushAdapter` logs                                                                   | `FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON`               |
 | Object storage           | S3 SDK v3 presigned PUT                                                                                                                          | MinIO in docker compose (real S3 API)                                                    | `S3_*` env                                                  |
 | App-install attribution  | –                                                                                                                                                | Installs recorded as `pending_verification`; admin verifies                              | Integrate an attribution SDK/postback in Phase 3            |
+| Payout account lookup (4A) | `TelebirrPayoutProvider.resolveAccount` (customer query) / `ChapaPayoutProvider.resolveAccount` (`POST /v1/transfers/verify-account`) – shapes to confirm with partner docs | Deterministic Ethiopian holder name from the destination; numbers ending `0000` are "not found" | Same as payouts (`PAYOUTS_MOCK=false` + credentials) |
+| Identity verification (4A) | `FaydaProvider` (OAuth2 client credentials → `/v1/ekyc/verify`; NIDP onboarding needed)                                                        | `MockFaydaProvider`: id tail `00` not found, `99` name mismatch (0.4), else match (0.97). Admin decision is authoritative either way | `ID_VERIFICATION_PROVIDER=fayda` + `FAYDA_CLIENT_ID/SECRET` |
+| Alert delivery (4A)      | `TelegramNotifier` (Bot API `sendMessage`), `WebhookNotifier` (Slack-compatible JSON)                                                            | `LogNotifier` writes alerts to the application log; alerts are always persisted + on the security channel | `ALERT_TELEGRAM_BOT_TOKEN`+`ALERT_TELEGRAM_CHAT_ID` and/or `ALERT_WEBHOOK_URL` |
+| Media processing (4A)    | Real ffprobe/ffmpeg (`apk ffmpeg` in the image; `pnpm media:tools` on dev machines)                                                             | Not mocked (tests fake the tool wrapper)                                                 | –                                                           |
 
 The effective mock flags are exposed at `GET /admin/config` (`mocks`) and logged at boot.
 
@@ -341,6 +360,91 @@ merged into `main`. Gaps they reported were closed in the API rather than worked
 - Monorepo hygiene with a hoisted `node_modules`: the apps pin the same `react`/`react-dom` (19.2.3, required by Expo
   SDK 57) and share one `vitest` major, otherwise singleton libraries resolve to different copies.
 - Docker compose now includes nginx-served static builds of both portals (`advertiser-web` :5173, `admin-web` :5174).
+
+## 12c. Phase 4A – post-test roadmap (backend)
+
+Ten features built after the 63-item manual test pass, all backwards compatible (new endpoints, optional fields,
+new error codes). Frontends are built against `docs/API.md` / `docs/openapi.json` / `@rap/shared` (`types/phase4.ts`).
+
+**1. Idempotency keys.** `IdempotencyInterceptor` (global, opt-in per handler with `@Idempotent()`) on the four money
+POSTs. A placeholder row is inserted in `idempotency_keys` before the handler executes, so two identical requests
+racing each other collide on `UNIQUE (actor_type, actor_id, key)` – the loser gets `409 IDEMPOTENCY_KEY_REUSED
+{ inProgress: true }` instead of executing twice. Finished responses are replayed (serialized body + status,
+`Idempotent-Replayed: true`); a different payload under the same key is a `409`; failures release the key. This sits
+_in front_ of the ledger's own `idempotency_key` column, which remains the last line of defence.
+
+**2. Destination verification.** `PayoutProvider.resolveAccount()` was added to the spec interface (telebirr customer
+query / Chapa account verification; deterministic MOCK names). `DestinationsService` stores per-user
+`payout_destinations`; a destination is _known_ once a withdrawal to it was successfully requested. NEW destinations
+need `verified_at` (lookup) **and** `otp_verified_at` (OTP with `purpose = destination_change`, reusing the OTP table
+and rate limits) within `DESTINATION_RESOLVE_TTL_MINUTES` (10), otherwise `422 DESTINATION_NOT_VERIFIED` /
+`DESTINATION_OTP_REQUIRED`. The withdrawal snapshots `destination_account_name` / `destination_verified_at`, so finance
+sees the partner-confirmed holder name in the review queue. Registry routing/failover applies to lookups too, except
+that a partner "account not found" is authoritative (no failover).
+
+**3. KYC tiers.** `users.kyc_tier ∈ phone_only | id_verified`. Rule (`KycService.evaluateThreshold`, pure): for
+`phone_only` users, completed + in-flight (`pending`, `processing`, `flagged_for_review`) payouts requested in the
+rolling 30 days plus the new request must stay ≤ `KYC_REQUIRED_ABOVE_MONTHLY_ETB` (1 000), else `422 KYC_REQUIRED`.
+Documents are uploaded with presigned PUTs into the **private** prefix (`private/kyc/<user>/…`), never served publicly;
+admins receive 5-minute presigned GET links. Only `sha256(idType:idNumber)` + the last 4 digits are stored; a matching
+hash on another account opens a `KYC_DUPLICATE_IDENTITY` (high) flag. `IdVerificationProvider` (`MockFaydaProvider`
+today) gives an advisory pre-check; approval by support/finance/super_admin promotes the tier in the same transaction.
+
+**4. Consent.** `legal_documents` (kind, version, locale) with "current = latest published per kind". `LegalService`
+computes `consents[]`/`requiresConsent[]` (embedded in `UserProfile`); `ConsentGuard` (second global guard, opt-in with
+`@RequireConsent()`) returns `403 CONSENT_REQUIRED` on `/ads/*`, `/offers/*` and `POST /withdrawals`. Advertisers accept
+`terms` (`termsVersion` at registration or `POST /advertisers/me/consents`); campaign submit enforces it. Publishing a
+new version automatically re-prompts everyone. Fresh installs without legal documents require nothing.
+
+**5. Money-day alerting.** `AlertService.raise()` persists to `platform_alerts`, mirrors on the security channel and
+fans out to `Notifier`s (`TelegramNotifier`, `WebhookNotifier`, `LogNotifier` fallback); the same `dedupeKey` is
+suppressed for `ALERT_DEDUPE_MINUTES`. Rules (`alert.rules.ts`, pure and unit-tested) run every `ALERT_RULES_CRON` on
+the `alerts` queue: payout failure rate over the last hour (> `ALERT_PAYOUT_FAILURE_RATE`, ≥ `ALERT_PAYOUT_MIN_SAMPLE`
+finished payouts), account minting (> `ALERT_ACCOUNTS_PER_DEVICE_PER_HOUR` signups sharing `signup_device_fingerprint`),
+spend velocity (last-hour campaign spend > `max(multiplier × trailing-7-day hourly average, ALERT_SPEND_VELOCITY_MIN_ETB)`),
+OTP spike per IP. Ledger drift raises `LEDGER_DRIFT` directly from the reconciliation job. Admins acknowledge alerts.
+
+**6. Frequency capping.** Two caps per UTC day, both in the feed eligibility SQL _and_ re-checked under the user row
+lock inside the completion transaction (`FREQUENCY_CAP_REACHED`): per campaign (`frequency_cap_per_user_per_day`,
+advertiser-editable 1–5, default `DEFAULT_FREQUENCY_CAP`) and per advertiser (distinct ads,
+`ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY`). `valid` and `flagged` completions count. The feed reports
+`meta.hiddenByFrequencyCap` (eligible-without-caps − eligible) for the "come back tomorrow" empty state.
+
+**7. Media pipeline.** Video creatives are created `processing`; the `media` queue job downloads the object, runs
+ffprobe (duration/codec/dimensions → `media_probe`), corrects `duration_seconds` when off by more than
+`MEDIA_DURATION_TOLERANCE_SECONDS` (`duration_corrected`), transcodes to 720p H.264/AAC MP4 (`…/processed/<adId>/
+transcoded.mp4` becomes `media_url`; the upload stays as `original_media_url`) and renders a poster when no thumbnail
+was given. The job is time-boxed (`MEDIA_JOB_TIMEOUT_SECONDS`), runs with concurrency 1 and marks `failed` with the
+error. Review refuses approval while `processing`/`failed` (`422 MEDIA_NOT_READY`); admins can `reprocess-media`.
+Binaries: `apk ffmpeg` in the image (`MEDIA_FF*_PATH`), `pnpm media:tools` on developer machines (kept out of the
+workspace lockfile because the 150 MB static packages repeatedly timed out inside Docker builds).
+
+**8. Referrals.** Every user gets a 6-char code (unambiguous alphabet). `POST /auth/otp/verify` accepts
+`referralCode` on the **first** login only (validated before any write). Nothing is credited at signup: the referee's
+first `valid` completion transaction calls `ReferralsService.onValidCompletion(tx)` which (a) rejects + flags both
+accounts (`REFERRAL_SELF_REFERRAL`, −5 trust) when the referee shares the referrer's signup device/IP or any device/IP
+the referrer ever watched from, (b) withholds the bonus (`qualified`) when the referrer is inactive or already has
+`REFERRAL_MAX_PER_REFERRER_PER_DAY` paid referrals today, otherwise (c) writes both bonuses through `applyLedgerEntry`
+(`source_type = referral`, unique keys per referral) and marks `paid`. Status semantics: `pending` → `paid` (credited) |
+`qualified` (withheld, not fraud) | `rejected` (fraud guard).
+
+**9. Ethiopian calendar.** `@rap/shared/ethiopian-calendar` converts via Julian Day Numbers (exact both ways;
+Pagume 5/6, leap year `year % 4 === 3`, tested over a full 4-year cycle). `complete-profile` and KYC accept
+`dateOfBirthEthiopian`; the API stores Gregorian and echoes `dateOfBirthEthiopian` in `UserProfile`.
+
+**10. Ops tooling.** `scripts/backup.{ps1,sh}` (pg_dump + `mc mirror`) / `scripts/restore.{ps1,sh}` with a documented
+drill in `docs/RUNBOOK.md`. Data rights: async export archives (gzip JSON under `private/exports/`, presigned link,
+retention), deletion requests with a `ACCOUNT_DELETION_GRACE_DAYS` grace period executed by the `data-rights` job or by
+support; execution anonymises PII and keeps ledger/completions/withdrawals/audit (financial records that no longer
+identify a person). Support impersonation: `typ: impersonation` JWT with `actorAdminId`, 10 minutes, no refresh token;
+the guard treats it as the user for GET only, audits every request and refuses mutations (`IMPERSONATION_READ_ONLY`).
+
+**Findings.** F2: access-token denylist in Redis (`tokens_invalid_before:<subject>` on suspension/ban/age
+rejection/refresh reuse; `denied_jti:<jti>` on logout) checked by the guard on every request (fails open if Redis is
+down – tokens are 15-minute and account status is re-read anyway). F3: completion replays carry the current balance.
+F4: the demo flow uploads a real seed MP4 and waits for the pipeline. F10: seed spend is derived from generated
+completions for every campaign (the completed AddisPay campaign refunds its unspent reservation only once the real
+spend is known).
 
 ## 13. Assumptions
 
@@ -368,7 +472,12 @@ merged into `main`. Gaps they reported were closed in the API rather than worked
 14. **Health endpoints live at `/health`** (outside the `/api/v1` prefix) for load balancers.
 15. **Time zone**: all daily buckets/caps use UTC days (Ethiopia is UTC+3 year-round; a product decision may later move
     caps to local days – a one-line change in `utcDayKey`).
-16. Sample ad media are public Google test-bucket clips (Big Buck Bunny etc.) used purely as demo placeholders.
+16. Sample ad media are self-hosted synthetic clips (see §12b).
+17. **Phase 4A**: KYC threshold counts completed + in-flight payouts by `requested_at` in a rolling 30-day window; the
+    referrer's daily cap counts `paid` referrals per UTC day; referral bonuses are a platform cost line; consent is
+    per (kind, version) and any newly published version re-prompts all accounts; deletion keeps financial records
+    (ledger, completions, withdrawals with anonymised destination, audit) – legal basis to be confirmed; frequency caps
+    count `valid + flagged` completions; the media pipeline keeps the original upload alongside the transcode.
 
 ## 14. Production-readiness checklist
 
@@ -376,9 +485,15 @@ Money/legal
 
 - [ ] Sign telebirr business API and Chapa merchant agreements; obtain sandbox credentials; confirm telebirr B2C endpoint
       paths/field names against the contract documentation and run `PAYOUTS_MOCK=false` in staging.
+- [ ] Confirm the account-name lookup endpoints (`resolveAccount`) with both partners – the request/response shapes are
+      modelled on public docs and MUST be validated before payouts to new destinations go live.
 - [ ] Register the Chapa webhook URL and set `CHAPA_WEBHOOK_SECRET`; add a reconciliation job comparing gateway
       settlements with `advertiser_payments`.
-- [ ] Finance sign-off on take rate, VAT treatment of top-ups/invoices, invoice numbering and statement exports.
+- [ ] Finance sign-off on take rate, VAT treatment of top-ups/invoices, invoice numbering and statement exports; decide
+      the referral programme budget (`REFERRAL_BONUS_COINS`, `REFEREE_BONUS_COINS`, daily cap).
+- [ ] Legal review of the seeded terms/privacy texts (v1.0 placeholders in en/am; add om/ti), the data-retention basis
+      for anonymised financial records, and the KYC threshold (`KYC_REQUIRED_ABOVE_MONTHLY_ETB`) under NBE rules.
+- [ ] Fayda / NIDP relying-party onboarding to replace `MockFaydaProvider`; decide which id types are acceptable.
 - [ ] Legal review of age verification (self-declared DOB today – consider ID verification for large withdrawals),
       terms of service, privacy notice (device fingerprints, IP retention) under Ethiopian data-protection rules.
 - [ ] Payout KYC: destination-name matching (telebirr name lookup), sanctions/duplicate-destination checks.
@@ -407,5 +522,10 @@ Product/fraud
 
 - [ ] Tune fraud thresholds with real data; add device attestation (Play Integrity / App Attest) to the fingerprint.
 - [ ] App-install attribution (postback) instead of manual verification.
-- [ ] Ad media transcoding pipeline (duration probe – today `durationSeconds` is advertiser-declared and admin-reviewed).
+- [x] Ad media transcoding pipeline (Phase 4A: ffprobe duration correction + 720p H.264 transcode + poster).
+- [ ] Tune alert thresholds (`ALERT_*`) after a few weeks of real traffic; route Telegram/webhook alerts to an on-call
+      rotation; consider paging for `critical`.
+- [ ] Media pipeline hardening: virus scan before transcode, multiple renditions (360p for low-end devices), CDN.
 - [ ] Localised notification copy (currently English templates; clients localise UI from codes).
+- [ ] Denylist durability: `tokens_invalid_before` lives in Redis with the access-token TTL; if Redis is flushed within
+      15 minutes of a ban the old token works until expiry – acceptable for MVP, revisit with Redis persistence.

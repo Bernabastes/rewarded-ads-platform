@@ -205,7 +205,8 @@ export class AdminReportsService {
         where: { sourceType: 'referral', createdAt: { gte: from, lte: to } },
         _sum: { amount: true },
       }),
-      this.prisma.$queryRaw<Array<{ day: Date; coins: bigint | null }>>`n        SELECT date_trunc('day', created_at AT TIME ZONE 'UTC') AS day, SUM(amount)::bigint AS coins
+      this.prisma.$queryRaw<Array<{ day: Date; coins: bigint | null }>>`
+        SELECT date_trunc('day', created_at AT TIME ZONE 'UTC') AS day, SUM(amount)::bigint AS coins
         FROM coin_ledger WHERE source_type = 'referral' AND created_at BETWEEN ${from} AND ${to} GROUP BY 1`,
     ]);
     const coinsPerEtb = this.config.platform.coinsPerEtb;

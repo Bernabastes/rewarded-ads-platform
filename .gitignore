@@ -10,3 +10,6 @@ coverage/
 *.log
 .DS_Store
 
+
+# desktop ffmpeg/ffprobe binaries installed by pnpm media:tools (the Docker image uses apk ffmpeg)
+tools/media/
