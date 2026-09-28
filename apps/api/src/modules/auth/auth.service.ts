@@ -1,6 +1,14 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Advertiser, AdminUser, Language } from '@prisma/client';
-import { calculateAge, ErrorCode, normalizeEthiopianPhone } from '@rap/shared';
+import {
+  calculateAge,
+  type EthiopianDate,
+  ErrorCode,
+  ethiopianToGregorian,
+  formatIsoDate,
+  isValidEthiopianDate,
+  normalizeEthiopianPhone,
+} from '@rap/shared';
 import bcrypt from 'bcryptjs';
 import { AppException } from '../../common/errors/app.exception';
 import { addSeconds, randomNumericCode, sha256 } from '../../common/utils';
@@ -10,6 +18,8 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { SMS_PROVIDER, type SmsProvider } from '../../infra/sms/sms.module';
 import { AuditService } from '../audit/audit.service';
+import { LegalService } from '../legal/legal.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { toUserProfile } from '../users/user.mapper';
 import { permissionsFor } from './admin-permissions';
 import { TokenService } from './token.service';
@@ -22,7 +32,13 @@ export const DEFAULT_ADVERTISER_NOTIFICATION_PREFS = {
   weeklyReport: true,
 };
 
-export function toAdvertiserProfile(a: Advertiser) {
+export interface AdvertiserConsentView {
+  acceptedTermsVersion: string | null;
+  currentTermsVersion: string | null;
+  requiresTermsAcceptance: boolean;
+}
+
+export function toAdvertiserProfile(a: Advertiser, consent?: AdvertiserConsentView) {
   return {
     id: a.id,
     businessName: a.businessName,
@@ -36,6 +52,9 @@ export function toAdvertiserProfile(a: Advertiser) {
       ...DEFAULT_ADVERTISER_NOTIFICATION_PREFS,
       ...((a.notificationPrefs as Record<string, boolean> | null) ?? {}),
     },
+    acceptedTermsVersion: consent?.acceptedTermsVersion ?? null,
+    currentTermsVersion: consent?.currentTermsVersion ?? null,
+    requiresTermsAcceptance: consent?.requiresTermsAcceptance ?? false,
     createdAt: a.createdAt,
   };
 }
@@ -65,6 +84,8 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly security: SecurityLogger,
     private readonly audit: AuditService,
+    private readonly legal: LegalService,
+    private readonly referrals: ReferralsService,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
   ) {}
 
@@ -126,7 +147,13 @@ export class AuthService {
   }
 
   async verifyOtp(
-    input: { phoneNumber: string; code: string; deviceId?: string; deviceFingerprint?: string },
+    input: {
+      phoneNumber: string;
+      code: string;
+      deviceId?: string;
+      deviceFingerprint?: string;
+      referralCode?: string;
+    },
     meta: { ip: string; userAgent?: string },
   ) {
     const phone = this.normalizePhone(input.phoneNumber);
@@ -137,7 +164,7 @@ export class AuthService {
       Boolean(e.OTP_DEV_FIXED_CODE) && !this.config.isProduction && input.code === e.OTP_DEV_FIXED_CODE;
     if (!fixedCodeOk) {
       const otp = await this.prisma.otpCode.findFirst({
-        where: { phoneNumber: phone, consumedAt: null },
+        where: { phoneNumber: phone, consumedAt: null, purpose: 'login' },
         orderBy: { createdAt: 'desc' },
       });
       if (!otp)
@@ -168,7 +195,16 @@ export class AuthService {
       throw AppException.forbidden(ErrorCode.ACCOUNT_BANNED, 'Account banned');
     if (existing?.status === 'suspended')
       throw AppException.forbidden(ErrorCode.ACCOUNT_SUSPENDED, 'Account suspended');
+    if (existing?.status === 'deleted')
+      throw AppException.forbidden(ErrorCode.ACCOUNT_BANNED, 'This account was deleted');
 
+    // Referral codes are honoured on the FIRST login only; validate before any write so bad codes fail cleanly.
+    const referrer =
+      !existing && input.referralCode?.trim()
+        ? await this.referrals.resolveReferrer(input.referralCode)
+        : null;
+
+    let referralApplied = false;
     const user = existing
       ? await this.prisma.user.update({
           where: { id: existing.id },
@@ -179,33 +215,89 @@ export class AuthService {
             deviceId: input.deviceId ?? existing.deviceId,
           },
         })
-      : await this.prisma.user.create({
-          data: {
-            phoneNumber: phone,
-            phoneVerifiedAt: now,
-            lastLoginAt: now,
-            lastIp: meta.ip,
-            deviceId: input.deviceId,
-          },
+      : await this.prisma.$transaction(async (tx) => {
+          const created = await tx.user.create({
+            data: {
+              phoneNumber: phone,
+              phoneVerifiedAt: now,
+              lastLoginAt: now,
+              lastIp: meta.ip,
+              deviceId: input.deviceId,
+              signupIp: meta.ip,
+              signupDeviceFingerprint: input.deviceFingerprint,
+              referralCode: ReferralsService.generateCode(),
+            },
+          });
+          if (referrer) {
+            await this.referrals.applyOnSignup(tx, {
+              refereeId: created.id,
+              referrerId: referrer.id,
+              code: input.referralCode!,
+              ip: meta.ip,
+              deviceFingerprint: input.deviceFingerprint,
+            });
+            referralApplied = true;
+          }
+          return created;
         });
 
     if (existing?.ageVerificationStatus === 'rejected') {
       throw AppException.forbidden(ErrorCode.AGE_RESTRICTED, 'You must be at least 18 to use this service');
     }
 
-    const tokens = await this.tokens.issue({ type: 'user', id: user.id }, meta);
-    return { tokens, user: toUserProfile(user), isNewUser: !existing };
+    const [tokens, consent] = await Promise.all([
+      this.tokens.issue({ type: 'user', id: user.id }, meta),
+      this.legal.userConsentState(user.id),
+    ]);
+    return {
+      tokens,
+      user: toUserProfile(user, consent),
+      isNewUser: !existing,
+      ...(referralApplied ? { referralApplied: true } : {}),
+    };
+  }
+
+  /** Resolves the DOB from either the Gregorian ISO date or the Ethiopian calendar date (exactly one required). */
+  resolveDateOfBirth(input: { dateOfBirth?: string; dateOfBirthEthiopian?: EthiopianDate }): Date {
+    if (input.dateOfBirth && input.dateOfBirthEthiopian) {
+      throw AppException.badRequest(
+        ErrorCode.VALIDATION_ERROR,
+        'Provide either dateOfBirth or dateOfBirthEthiopian, not both',
+      );
+    }
+    let iso = input.dateOfBirth;
+    if (input.dateOfBirthEthiopian) {
+      const eth = input.dateOfBirthEthiopian;
+      if (!isValidEthiopianDate(eth)) {
+        throw AppException.badRequest(
+          ErrorCode.VALIDATION_ERROR,
+          'dateOfBirthEthiopian is not a valid Ethiopian calendar date',
+          { dateOfBirthEthiopian: eth, pagumeDays: eth.month === 13 ? (eth.year % 4 === 3 ? 6 : 5) : undefined },
+        );
+      }
+      iso = formatIsoDate(ethiopianToGregorian(eth));
+    }
+    if (!iso) {
+      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'dateOfBirth or dateOfBirthEthiopian is required');
+    }
+    const dob = new Date(`${iso}T00:00:00.000Z`);
+    if (Number.isNaN(dob.getTime()) || dob > new Date()) {
+      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'dateOfBirth is invalid');
+    }
+    return dob;
   }
 
   async completeProfile(
     userId: string,
-    input: { fullName: string; dateOfBirth: string; languagePreference?: Language },
+    input: {
+      fullName: string;
+      dateOfBirth?: string;
+      dateOfBirthEthiopian?: EthiopianDate;
+      languagePreference?: Language;
+    },
     ip: string,
   ) {
-    const dob = new Date(`${input.dateOfBirth}T00:00:00.000Z`);
-    if (Number.isNaN(dob.getTime()) || dob > new Date()) {
-      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'dateOfBirth is invalid');
-    }
+    const dob = this.resolveDateOfBirth(input);
     const age = calculateAge(dob);
     if (age > 120) throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'dateOfBirth is not plausible');
 
@@ -232,7 +324,7 @@ export class AuthService {
         after: { age, minAge },
         ipAddress: ip,
       });
-      await this.tokens.revokeAllForSubject('user', userId);
+      await this.tokens.revokeAllForSubject('user', userId, 'age_restricted');
       throw AppException.forbidden(
         ErrorCode.AGE_RESTRICTED,
         `You must be at least ${minAge} years old to use this service`,
@@ -241,7 +333,7 @@ export class AuthService {
         },
       );
     }
-    return toUserProfile(user);
+    return toUserProfile(user, await this.legal.userConsentState(userId));
   }
 
   /* --------------------------- advertisers & admins --------------------------- */
@@ -253,6 +345,7 @@ export class AuthService {
       contactEmail: string;
       contactPhone: string;
       password: string;
+      termsVersion?: string;
     },
     meta: { ip: string; userAgent?: string },
   ) {
@@ -272,6 +365,15 @@ export class AuthService {
         'An advertiser with this email or registration number already exists',
       );
     }
+    // Validate the accepted terms version BEFORE creating the account (409 CONSENT_VERSION_OUTDATED otherwise).
+    const currentTerms = (await this.legal.currentVersions()).get('terms');
+    if (input.termsVersion && currentTerms && input.termsVersion !== currentTerms) {
+      throw AppException.conflict(
+        ErrorCode.CONSENT_VERSION_OUTDATED,
+        `Terms version ${input.termsVersion} is not the current version`,
+        { currentVersion: currentTerms },
+      );
+    }
     const advertiser = await this.prisma.advertiser.create({
       data: {
         businessName: input.businessName.trim(),
@@ -279,19 +381,23 @@ export class AuthService {
         contactEmail: email,
         contactPhone: input.contactPhone.trim(),
         passwordHash: await bcrypt.hash(input.password, BCRYPT_ROUNDS),
+        ...(input.termsVersion && currentTerms
+          ? { consents: { create: { kind: 'terms', version: input.termsVersion, ipAddress: meta.ip } } }
+          : {}),
       },
     });
+    const consent = await this.legal.advertiserConsentState(advertiser.id);
     await this.audit.record({
       actorType: 'advertiser',
       actorId: advertiser.id,
       action: 'advertiser.registered',
       targetType: 'advertiser',
       targetId: advertiser.id,
-      after: toAdvertiserProfile(advertiser),
+      after: toAdvertiserProfile(advertiser, consent),
       ipAddress: meta.ip,
     });
     const tokens = await this.tokens.issue({ type: 'advertiser', id: advertiser.id }, meta);
-    return { tokens, advertiser: toAdvertiserProfile(advertiser) };
+    return { tokens, advertiser: toAdvertiserProfile(advertiser, consent) };
   }
 
   async loginAdvertiser(email: string, password: string, meta: { ip: string; userAgent?: string }) {
@@ -302,8 +408,11 @@ export class AuthService {
       this.security.warn('auth.invalid_credentials', { subjectType: 'advertiser', email, ip: meta.ip });
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
-    const tokens = await this.tokens.issue({ type: 'advertiser', id: advertiser.id }, meta);
-    return { tokens, advertiser: toAdvertiserProfile(advertiser) };
+    const [tokens, consent] = await Promise.all([
+      this.tokens.issue({ type: 'advertiser', id: advertiser.id }, meta),
+      this.legal.advertiserConsentState(advertiser.id),
+    ]);
+    return { tokens, advertiser: toAdvertiserProfile(advertiser, consent) };
   }
 
   async loginAdmin(email: string, password: string, meta: { ip: string; userAgent?: string }) {
@@ -326,8 +435,8 @@ export class AuthService {
     return tokens;
   }
 
-  async logout(refreshToken: string) {
-    await this.tokens.revoke(refreshToken);
+  async logout(refreshToken: string, accessToken?: string) {
+    await this.tokens.revoke(refreshToken, accessToken);
   }
 
   /** Advertiser password change: verifies the current password and revokes every other session. */

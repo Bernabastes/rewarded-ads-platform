@@ -6,7 +6,9 @@ import { startOfUtcDay } from '../../common/utils';
 import { AppConfig } from '../../config/app-config';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
+import { LegalService } from '../legal/legal.service';
 import { NotificationService } from '../notifications/notifications.module';
+import { ReferralsService } from '../referrals/referrals.service';
 import { type NotificationPrefsDto, type UpdateProfileDto } from './dto/users.dto';
 import { DEFAULT_NOTIFICATION_PREFS, toUserProfile } from './user.mapper';
 
@@ -17,12 +19,16 @@ export class UsersService {
     private readonly config: AppConfig,
     private readonly ledger: LedgerService,
     private readonly notifications: NotificationService,
+    private readonly legal: LegalService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   async me(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw AppException.notFound('User not found');
-    return toUserProfile(user);
+    // accounts created before the referral programme get their code on first read
+    if (!user.referralCode) user.referralCode = await this.referrals.ensureCode(userId);
+    return toUserProfile(user, await this.legal.userConsentState(userId));
   }
 
   async update(userId: string, dto: UpdateProfileDto) {
@@ -37,7 +43,7 @@ export class UsersService {
         notificationPrefs: prefs as unknown as Prisma.InputJsonValue,
       },
     });
-    return toUserProfile(user);
+    return toUserProfile(user, await this.legal.userConsentState(userId));
   }
 
   balance(userId: string) {

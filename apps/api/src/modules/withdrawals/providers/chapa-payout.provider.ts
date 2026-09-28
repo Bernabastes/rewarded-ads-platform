@@ -2,12 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { PayoutMethod } from '@prisma/client';
 import { AppConfig } from '../../../config/app-config';
 import {
+  DestinationNotFoundError,
+  mockAccountName,
+  mockDestinationExists,
   mockPayoutId,
   mockPayoutStatus,
   type PayoutOptions,
   type PayoutProvider,
   type PayoutResult,
   type PayoutStatus,
+  type ResolvedAccount,
 } from './payout-provider';
 
 /** Chapa bank codes for mobile wallets (confirm with GET https://api.chapa.co/v1/banks before go-live). */
@@ -105,5 +109,36 @@ export class ChapaPayoutProvider implements PayoutProvider {
 
   static walletBankCode(method: PayoutMethod): string | undefined {
     return CHAPA_WALLET_BANK_CODES[method];
+  }
+
+  /**
+   * Account-name enquiry before a payout to a NEW destination.
+   * REAL mode: Chapa's account verification `POST /v1/transfers/verify-account { account_number, bank_code }` ->
+   * `{ data: { account_name } }` (shape per Chapa Transfers docs; confirm against the current API reference).
+   * MOCK mode: deterministic Ethiopian name; destinations ending in 0000 are "not found".
+   */
+  async resolveAccount(method: PayoutMethod, destination: string, bankCode?: string): Promise<ResolvedAccount> {
+    const normalized = method === 'bank' ? destination.replace(/\s+/g, '') : destination;
+    if (this.isMock) {
+      if (!mockDestinationExists(normalized)) throw new DestinationNotFoundError();
+      return { accountName: mockAccountName(normalized), normalizedDestination: normalized, raw: { mock: true } };
+    }
+    const res = await fetch(`${this.config.env.CHAPA_BASE_URL}/transfers/verify-account`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.config.env.CHAPA_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        account_number: method === 'bank' ? normalized : normalized.replace('+251', '0'),
+        bank_code: bankCode ?? CHAPA_WALLET_BANK_CODES[method],
+      }),
+    });
+    const json = (await res.json()) as { status?: string; message?: string; data?: { account_name?: string } };
+    if (res.status === 404 || /not found/i.test(json.message ?? '')) throw new DestinationNotFoundError(json.message);
+    if (!res.ok || json.status !== 'success' || !json.data?.account_name) {
+      throw new Error(`Chapa account verification failed: ${json.message ?? res.status}`);
+    }
+    return { accountName: json.data.account_name, normalizedDestination: normalized, raw: json };
   }
 }

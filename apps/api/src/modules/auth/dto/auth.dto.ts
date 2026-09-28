@@ -1,16 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Language } from '@prisma/client';
+import { Type } from 'class-transformer';
 import {
   IsEmail,
   IsEnum,
+  IsInt,
   IsISO8601,
   IsNotEmpty,
   IsOptional,
   IsString,
   Length,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 export class OtpRequestDto {
@@ -47,6 +52,34 @@ export class OtpVerifyDto {
   @IsString()
   @MaxLength(256)
   deviceFingerprint?: string;
+
+  /** Referral code of the inviting user; honoured only on the FIRST login of a new account. */
+  @ApiPropertyOptional({ example: 'K7MP2X' })
+  @IsOptional()
+  @IsString()
+  @Length(4, 12)
+  referralCode?: string;
+}
+
+/** Ethiopian (Amete Mihret) calendar date; month 13 = Pagume (5 days, 6 in leap years). */
+export class EthiopianDateDto {
+  @ApiProperty({ example: 1987 })
+  @IsInt()
+  @Min(1900)
+  @Max(2100)
+  year: number;
+
+  @ApiProperty({ example: 8, description: '1-13 (13 = Pagume)' })
+  @IsInt()
+  @Min(1)
+  @Max(13)
+  month: number;
+
+  @ApiProperty({ example: 4 })
+  @IsInt()
+  @Min(1)
+  @Max(30)
+  day: number;
 }
 
 export class CompleteProfileDto {
@@ -56,11 +89,19 @@ export class CompleteProfileDto {
   @MaxLength(120)
   fullName: string;
 
-  /** Date of birth as YYYY-MM-DD. Age is computed on the server; under-18 is rejected with AGE_RESTRICTED. */
-  @ApiProperty({ example: '1995-04-12' })
+  /** Gregorian date of birth as YYYY-MM-DD. Provide EITHER this OR dateOfBirthEthiopian. */
+  @ApiPropertyOptional({ example: '1995-04-12' })
+  @IsOptional()
   @IsISO8601({ strict: true })
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'dateOfBirth must be YYYY-MM-DD' })
-  dateOfBirth: string;
+  dateOfBirth?: string;
+
+  /** Ethiopian calendar date of birth; converted and validated server-side (Pagume / leap-year rules). */
+  @ApiPropertyOptional({ type: EthiopianDateDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EthiopianDateDto)
+  dateOfBirthEthiopian?: EthiopianDateDto;
 
   @ApiPropertyOptional({ enum: Language })
   @IsOptional()
@@ -98,6 +139,13 @@ export class AdvertiserRegisterDto {
   @MaxLength(128)
   @Matches(/^(?=.*[A-Za-z])(?=.*\d).+$/, { message: 'password must contain a letter and a digit' })
   password: string;
+
+  /** Advertiser terms version accepted at registration (GET /legal/current?audience=advertiser). */
+  @ApiPropertyOptional({ example: '1.0' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  termsVersion?: string;
 }
 
 export class EmailPasswordLoginDto {

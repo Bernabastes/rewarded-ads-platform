@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppConfig } from '../../config/app-config';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { DestinationsService } from './destinations/destinations.service';
 import { PayoutProcessor } from './payout.processor';
 import { ChapaPayoutProvider } from './providers/chapa-payout.provider';
 import { PAYOUT_PROVIDERS } from './providers/payout-provider';
@@ -14,6 +15,7 @@ import { WithdrawalsService } from './withdrawals.service';
   controllers: [WithdrawalsController],
   providers: [
     WithdrawalsService,
+    DestinationsService,
     PayoutProviderRegistry,
     PayoutProcessor,
     {
@@ -25,6 +27,6 @@ import { WithdrawalsService } from './withdrawals.service';
       ],
     },
   ],
-  exports: [WithdrawalsService, PayoutProviderRegistry],
+  exports: [WithdrawalsService, DestinationsService, PayoutProviderRegistry],
 })
 export class WithdrawalsModule {}

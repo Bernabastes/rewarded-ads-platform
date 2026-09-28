@@ -7,6 +7,7 @@ import {
   Roles,
   Subjects,
 } from '../../../common/decorators/auth.decorators';
+import { Idempotent } from '../../../common/idempotency/idempotency.interceptor';
 import { PaginationQueryDto } from '../../../common/pagination';
 import { FraudService } from '../../fraud/fraud.service';
 import { FraudFlagsQueryDto, ResolveFraudFlagDto } from '../../fraud/dto/fraud.dto';
@@ -120,6 +121,16 @@ export class AdminReviewController {
     @ClientIp() ip: string,
   ) {
     return this.review.rejectAd(id, dto.reason, dto.bannedTopicsChecklist, actorOf(auth, ip));
+  }
+
+  @Post('ads/:id/reprocess-media')
+  @Roles('super_admin', 'ad_reviewer')
+  @ApiOperation({
+    summary: 'Re-run the media pipeline (probe + transcode + poster) for a creative',
+    description: 'Use after a `failed` processing run. The ad goes back to `processing` until the job finishes.',
+  })
+  reprocessMedia(@Param('id', ParseUUIDPipe) id: string, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.review.reprocessMedia(id, actorOf(auth, ip));
   }
 
   @Get('campaigns')
@@ -262,6 +273,23 @@ export class AdminUsersController {
     @ClientIp() ip: string,
   ) {
     return this.users.moderateUser(id, 'reinstate', dto.reason, actorOf(auth, ip));
+  }
+
+  @Post('users/:id/impersonate')
+  @Roles('super_admin', 'support')
+  @HttpCode(201)
+  @ApiOperation({
+    summary: 'Issue a 10-minute READ-ONLY user token for support (audited on issue and on every request)',
+    description:
+      'The token (`typ: impersonation`, `actorAdminId`) is accepted by user-scoped GET endpoints only; every mutation fails with 403 IMPERSONATION_READ_ONLY. No refresh token is issued.',
+  })
+  impersonate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
+    return this.users.impersonate(id, dto.reason, actorOf(auth, ip));
   }
 
   @Get('advertisers')
@@ -458,6 +486,7 @@ export class AdminCoinAdjustmentsController {
 
   @Post()
   @HttpCode(201)
+  @Idempotent()
   @ApiOperation({ summary: 'Step 1: request a manual coin adjustment (nothing is credited yet)' })
   create(@Body() dto: CreateCoinAdjustmentDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
     return this.adjustments.create(dto, actorOf(auth, ip));

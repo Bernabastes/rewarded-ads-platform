@@ -71,6 +71,14 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsBoolean()
   attentionCheckEnabled?: boolean;
+
+  /** Max rewarded completions of this campaign per user per UTC day (1-5; default DEFAULT_FREQUENCY_CAP). */
+  @ApiPropertyOptional({ minimum: PLATFORM_DEFAULTS.MIN_FREQUENCY_CAP, maximum: PLATFORM_DEFAULTS.MAX_FREQUENCY_CAP, default: PLATFORM_DEFAULTS.DEFAULT_FREQUENCY_CAP })
+  @IsOptional()
+  @IsInt()
+  @Min(PLATFORM_DEFAULTS.MIN_FREQUENCY_CAP)
+  @Max(PLATFORM_DEFAULTS.MAX_FREQUENCY_CAP)
+  frequencyCapPerUserPerDay?: number;
 }
 
 export class UpdateCampaignDto {
@@ -120,6 +128,14 @@ export class UpdateCampaignDto {
   @IsOptional()
   @IsBoolean()
   attentionCheckEnabled?: boolean;
+
+  /** Max rewarded completions of this campaign per user per UTC day (1-5; default DEFAULT_FREQUENCY_CAP). */
+  @ApiPropertyOptional({ minimum: PLATFORM_DEFAULTS.MIN_FREQUENCY_CAP, maximum: PLATFORM_DEFAULTS.MAX_FREQUENCY_CAP, default: PLATFORM_DEFAULTS.DEFAULT_FREQUENCY_CAP })
+  @IsOptional()
+  @IsInt()
+  @Min(PLATFORM_DEFAULTS.MIN_FREQUENCY_CAP)
+  @Max(PLATFORM_DEFAULTS.MAX_FREQUENCY_CAP)
+  frequencyCapPerUserPerDay?: number;
 }
 
 export class CampaignsQueryDto extends PaginationQueryDto {

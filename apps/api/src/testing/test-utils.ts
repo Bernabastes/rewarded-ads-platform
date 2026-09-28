@@ -64,6 +64,17 @@ export function mockPrisma() {
     'appInstallOffer',
     'appInstallCompletion',
     'adReport',
+    'idempotencyKey',
+    'payoutDestination',
+    'kycSubmission',
+    'legalDocument',
+    'userConsent',
+    'advertiserConsent',
+    'platformAlert',
+    'referral',
+    'dataExportRequest',
+    'accountDeletionRequest',
+    'attentionQuestion',
   ]) {
     prisma[m] = Object.fromEntries(MODEL_METHODS.map((name) => [name, jest.fn()]));
   }

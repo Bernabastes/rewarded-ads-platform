@@ -43,6 +43,8 @@ function buildSession(over: Record<string, unknown> = {}) {
         costPerActionEtb: D('2.00'),
         rewardPerActionEtb: D('1.00'),
         attentionCheckEnabled: true,
+        advertiserId: uuid(9),
+        frequencyCapPerUserPerDay: 1,
       },
     },
     ...over,
@@ -56,6 +58,7 @@ describe('AdsService.completeWatchSession', () => {
   let service: AdsService;
   let notifications: any;
   let security: any;
+  let referrals: any;
 
   beforeEach(() => {
     jest.useFakeTimers({ now: T0 });
@@ -65,7 +68,8 @@ describe('AdsService.completeWatchSession', () => {
     const config = testConfig();
     ledger = new LedgerService(prisma, config, security);
     fraud = new FraudService(prisma, mockRedis(), config, security, mockAudit());
-    service = new AdsService(prisma, mockRedis(), config, ledger, fraud, notifications, security);
+    referrals = { onValidCompletion: jest.fn().mockResolvedValue(null), notifyOutcome: jest.fn() };
+    service = new AdsService(prisma, mockRedis(), config, ledger, fraud, notifications, security, referrals);
 
     prisma.user.findUniqueOrThrow.mockResolvedValue({
       id: USER,
@@ -75,6 +79,7 @@ describe('AdsService.completeWatchSession', () => {
     });
     prisma.adCompletion.count.mockResolvedValue(0);
     prisma.adCompletion.findFirst.mockResolvedValue(null);
+    prisma.adCompletion.findMany.mockResolvedValue([]);
     prisma.adWatchSession.findMany.mockResolvedValue([]);
     prisma.adWatchSession.updateMany.mockResolvedValue({ count: 1 });
     prisma.adWatchSession.update.mockResolvedValue({});
@@ -137,8 +142,11 @@ describe('AdsService.completeWatchSession', () => {
         },
       }),
     );
+    prisma.user.findUnique.mockResolvedValue({ coinBalance: 1350 });
     const result = await service.completeWatchSession(USER, SESSION, {}, { ip: '10.0.0.1' });
     expect(result).toMatchObject({ replayed: true, status: 'valid', coinReward: 100, completionId: uuid(5) });
+    // F3: a replay reports the user's CURRENT balance instead of null
+    expect(result.newBalance).toBe(1350);
     expect(prisma.coinLedger.create).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -187,6 +195,39 @@ describe('AdsService.completeWatchSession', () => {
     );
     const result = await service.completeWatchSession(USER, SESSION, {}, { ip: '10.0.0.1' });
     expect(result.reasonCode).toBe(ErrorCode.WATCH_DURATION_EXCESSIVE);
+  });
+
+  it('re-checks the per-campaign frequency cap under the row lock: FREQUENCY_CAP_REACHED, no credit (Phase 4A)', async () => {
+    prisma.adWatchSession.findUnique.mockResolvedValue(buildSession());
+    // the campaign-cap query is the only count filtered by campaignId; it reports the cap (1) already reached
+    prisma.adCompletion.count.mockImplementation(async ({ where }: any) => (where?.campaignId ? 1 : 0));
+    const result = await service.completeWatchSession(USER, SESSION, {}, { ip: '10.0.0.1' });
+    expect(result.status).toBe('rejected');
+    expect(result.reasonCode).toBe(ErrorCode.FREQUENCY_CAP_REACHED);
+    expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+    expect(referrals.onValidCompletion).not.toHaveBeenCalled();
+    expect(security.info).toHaveBeenCalledWith('frequency_cap.reached', expect.objectContaining({ cap: 'campaign' }));
+  });
+
+  it('re-checks the per-advertiser cap (distinct ads per UTC day) (Phase 4A)', async () => {
+    prisma.adWatchSession.findUnique.mockResolvedValue(buildSession());
+    prisma.adCompletion.findMany.mockResolvedValueOnce([{ adId: uuid(21) }, { adId: uuid(22) }, { adId: uuid(23) }]);
+    const result = await service.completeWatchSession(USER, SESSION, {}, { ip: '10.0.0.1' });
+    expect(result.reasonCode).toBe(ErrorCode.FREQUENCY_CAP_REACHED);
+    expect(security.info).toHaveBeenCalledWith('frequency_cap.reached', expect.objectContaining({ cap: 'advertiser' }));
+  });
+
+  it('hands a valid completion to the referral programme inside the transaction and adds the referee bonus to newBalance', async () => {
+    prisma.adWatchSession.findUnique.mockResolvedValue(buildSession());
+    referrals.onValidCompletion.mockResolvedValue({ status: 'paid', referralId: uuid(30), referrerId: uuid(31), referrerBonus: 500, refereeBonus: 200 });
+    const result = await service.completeWatchSession(USER, SESSION, {}, { ip: '10.0.0.1' });
+    expect(result.status).toBe('valid');
+    expect(referrals.onValidCompletion).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ userId: USER, deviceFingerprint: 'fp-1', ipAddress: '10.0.0.1' }),
+    );
+    expect(result.newBalance).toBe(350 + 200);
+    expect(referrals.notifyOutcome).toHaveBeenCalledWith(expect.objectContaining({ status: 'paid' }), USER);
   });
 
   it('rejects missing heartbeats', async () => {

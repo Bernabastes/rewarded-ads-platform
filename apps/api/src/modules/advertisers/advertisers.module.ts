@@ -5,6 +5,7 @@ import { type AuthContext, ClientIp, CurrentAuth, Subjects } from '../../common/
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { DEFAULT_ADVERTISER_NOTIFICATION_PREFS, toAdvertiserProfile } from '../auth/auth.service';
+import { LegalService } from '../legal/legal.service';
 import { type AdvertiserNotificationPrefsDto, UpdateAdvertiserProfileDto } from './dto/advertisers.dto';
 
 @ApiTags('advertisers')
@@ -15,15 +16,19 @@ export class AdvertisersController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly legal: LegalService,
   ) {}
 
   @Get('me')
   @ApiOperation({
-    summary: 'Current advertiser profile (fresh verificationStatus, wallet balance, preferences)',
+    summary: 'Current advertiser profile (fresh verificationStatus, wallet balance, preferences, terms acceptance)',
   })
   async me(@CurrentAuth() auth: AuthContext) {
-    const advertiser = await this.prisma.advertiser.findUniqueOrThrow({ where: { id: auth.subjectId } });
-    return toAdvertiserProfile(advertiser);
+    const [advertiser, consent] = await Promise.all([
+      this.prisma.advertiser.findUniqueOrThrow({ where: { id: auth.subjectId } }),
+      this.legal.advertiserConsentState(auth.subjectId),
+    ]);
+    return toAdvertiserProfile(advertiser, consent);
   }
 
   @Patch('me')
@@ -65,7 +70,7 @@ export class AdvertisersController {
       },
       ipAddress: ip,
     });
-    return toAdvertiserProfile(updated);
+    return toAdvertiserProfile(updated, await this.legal.advertiserConsentState(auth.subjectId));
   }
 }
 

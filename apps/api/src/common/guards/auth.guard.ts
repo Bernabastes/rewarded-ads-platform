@@ -3,9 +3,13 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { type AdminRole, type AuthSubjectType, ErrorCode } from '@rap/shared';
 import { AppConfig } from '../../config/app-config';
+import { SecurityLogger } from '../../infra/logger/logger.module';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { AuditService } from '../../modules/audit/audit.service';
+import { TokenService } from '../../modules/auth/token.service';
 import {
   type AuthContext,
+  extractClientIp,
   IS_PUBLIC_KEY,
   REQUIRE_VERIFIED_ADULT_KEY,
   type RequestWithAuth,
@@ -16,14 +20,21 @@ import { AppException } from '../errors/app.exception';
 
 interface AccessClaims {
   sub: string;
-  typ: AuthSubjectType;
+  typ: AuthSubjectType | 'impersonation';
   role?: AdminRole;
   jti?: string;
+  iat?: number;
+  /** Impersonation tokens only. */
+  actorAdminId?: string;
 }
 
 /**
- * Global guard: verifies the Bearer access token, enforces subject type (@Subjects) and admin role (@Roles),
- * and re-checks account status on every request so suspensions/bans take effect immediately.
+ * Global guard: verifies the bearer token, enforces subject type (@Subjects) and admin role (@Roles),
+ * rejects denylisted tokens (F2: logout / suspension / ban / age rejection / refresh reuse) and re-checks
+ * account status on every request so suspensions/bans take effect immediately.
+ *
+ * Impersonation tokens (`typ: 'impersonation'`, issued to support staff) act as the user for GET requests
+ * only; every other method fails with 403 IMPERSONATION_READ_ONLY and every use is audited.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -32,6 +43,9 @@ export class AuthGuard implements CanActivate {
     private readonly jwt: JwtService,
     private readonly config: AppConfig,
     private readonly prisma: PrismaService,
+    private readonly tokens: TokenService,
+    private readonly audit: AuditService,
+    private readonly security: SecurityLogger,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -57,13 +71,26 @@ export class AuthGuard implements CanActivate {
       throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Invalid access token');
     }
 
+    const impersonation = claims.typ === 'impersonation';
+    const subjectType = (impersonation ? 'user' : claims.typ) as AuthSubjectType;
+    if (!['user', 'advertiser', 'admin'].includes(subjectType)) {
+      throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Invalid access token');
+    }
+
+    if (await this.tokens.isAccessTokenDenied(subjectType, claims.sub, claims)) {
+      throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'This session has been signed out');
+    }
+
     const auth: AuthContext = {
-      subjectType: claims.typ,
+      subjectType,
       subjectId: claims.sub,
       role: claims.role,
       tokenId: claims.jti,
+      ...(impersonation && claims.actorAdminId ? { impersonation: { actorAdminId: claims.actorAdminId } } : {}),
     };
     req.auth = auth;
+
+    if (impersonation) await this.assertImpersonationAllowed(req, auth);
 
     const subjects = this.reflector.getAllAndOverride<AuthSubjectType[] | undefined>(SUBJECTS_KEY, targets);
     if (subjects?.length && !subjects.includes(auth.subjectType)) {
@@ -93,13 +120,55 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 
+  private async assertImpersonationAllowed(req: RequestWithAuth, auth: AuthContext) {
+    const actorAdminId = auth.impersonation?.actorAdminId;
+    if (!actorAdminId) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Invalid impersonation token');
+    const admin = await this.prisma.adminUser.findUnique({
+      where: { id: actorAdminId },
+      select: { active: true, role: true },
+    });
+    if (!admin?.active || !['support', 'super_admin'].includes(admin.role)) {
+      throw AppException.forbidden(ErrorCode.FORBIDDEN, 'Impersonation is no longer permitted for this admin');
+    }
+    const method = req.method.toUpperCase();
+    const readOnly = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+    const ip = extractClientIp(req);
+    // Every use is audited (fire-and-forget so reads stay fast).
+    void this.audit
+      .record({
+        actorType: 'admin',
+        actorId: actorAdminId,
+        action: readOnly ? 'impersonation.read' : 'impersonation.write_blocked',
+        targetType: 'user',
+        targetId: auth.subjectId,
+        metadata: { method, path: req.originalUrl ?? req.url, tokenId: auth.tokenId },
+        ipAddress: ip,
+      })
+      .catch(() => undefined);
+    if (!readOnly) {
+      this.security.warn('impersonation.write_blocked', {
+        adminId: actorAdminId,
+        userId: auth.subjectId,
+        method,
+        path: req.originalUrl ?? req.url,
+        ip,
+      });
+      throw AppException.forbidden(
+        ErrorCode.IMPERSONATION_READ_ONLY,
+        'Impersonation sessions are read-only; mutations are not allowed',
+      );
+    }
+  }
+
   private async assertAccountUsable(auth: AuthContext, requireVerifiedAdult?: boolean) {
     if (auth.subjectType === 'user') {
       const user = await this.prisma.user.findUnique({
         where: { id: auth.subjectId },
         select: { status: true, ageVerificationStatus: true },
       });
-      if (!user) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Account no longer exists');
+      if (!user || user.status === 'deleted') {
+        throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Account no longer exists');
+      }
       if (user.status === 'banned') throw AppException.forbidden(ErrorCode.ACCOUNT_BANNED, 'Account banned');
       if (user.status === 'suspended')
         throw AppException.forbidden(ErrorCode.ACCOUNT_SUSPENDED, 'Account suspended');

@@ -24,6 +24,11 @@ export interface AdFeedMeta extends PaginationMeta {
   dailyLimit: number;
   dailyCompleted: number;
   dailyRemaining: number;
+  /**
+   * Ads that are otherwise eligible but hidden today because the user reached a campaign or advertiser
+   * frequency cap. Use it for the "come back tomorrow" empty state when `data` is empty and this is > 0.
+   */
+  hiddenByFrequencyCap: number;
 }
 
 export interface AdDetail extends AdFeedItem {

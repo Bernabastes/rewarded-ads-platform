@@ -94,6 +94,51 @@ export const ErrorCode = {
   USER_INVALID_STATE: 'USER_INVALID_STATE',
   AD_NOT_PENDING: 'AD_NOT_PENDING',
   FLAG_ALREADY_RESOLVED: 'FLAG_ALREADY_RESOLVED',
+
+  // Idempotency (Phase 4A)
+  /** Same `Idempotency-Key` reused with a different payload, or while the first request is still running. */
+  IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
+
+  // Withdrawal destination verification (Phase 4A)
+  /** New destination: call POST /withdrawals/destinations/resolve first (valid 10 min). */
+  DESTINATION_NOT_VERIFIED: 'DESTINATION_NOT_VERIFIED',
+  /** New destination: OTP re-check required (POST /withdrawals/destinations/otp/request + verify). */
+  DESTINATION_OTP_REQUIRED: 'DESTINATION_OTP_REQUIRED',
+  /** The payout partner could not find an account for this destination. */
+  DESTINATION_NOT_FOUND: 'DESTINATION_NOT_FOUND',
+
+  // KYC (Phase 4A)
+  /** Rolling 30-day payouts would exceed KYC_REQUIRED_ABOVE_MONTHLY_ETB and the user is `phone_only`. */
+  KYC_REQUIRED: 'KYC_REQUIRED',
+  KYC_SUBMISSION_PENDING: 'KYC_SUBMISSION_PENDING',
+  KYC_ALREADY_VERIFIED: 'KYC_ALREADY_VERIFIED',
+  KYC_NOT_PENDING: 'KYC_NOT_PENDING',
+
+  // Consent (Phase 4A)
+  /** Current terms/privacy version not accepted; `details.requiresConsent` lists the kinds. */
+  CONSENT_REQUIRED: 'CONSENT_REQUIRED',
+  CONSENT_VERSION_OUTDATED: 'CONSENT_VERSION_OUTDATED',
+
+  // Frequency capping (Phase 4A)
+  FREQUENCY_CAP_REACHED: 'FREQUENCY_CAP_REACHED',
+
+  // Media processing (Phase 4A)
+  /** Creative still processing or failed; cannot be approved yet. */
+  MEDIA_NOT_READY: 'MEDIA_NOT_READY',
+
+  // Referrals (Phase 4A)
+  REFERRAL_CODE_INVALID: 'REFERRAL_CODE_INVALID',
+  REFERRAL_SELF_NOT_ALLOWED: 'REFERRAL_SELF_NOT_ALLOWED',
+  REFERRAL_ALREADY_APPLIED: 'REFERRAL_ALREADY_APPLIED',
+
+  // Data rights / impersonation (Phase 4A)
+  DELETION_REQUEST_PENDING: 'DELETION_REQUEST_PENDING',
+  DELETION_BLOCKED_PENDING_WITHDRAWALS: 'DELETION_BLOCKED_PENDING_WITHDRAWALS',
+  DELETION_REQUEST_NOT_PENDING: 'DELETION_REQUEST_NOT_PENDING',
+  DATA_EXPORT_IN_PROGRESS: 'DATA_EXPORT_IN_PROGRESS',
+  /** A support impersonation token may only call read (GET) endpoints. */
+  IMPERSONATION_READ_ONLY: 'IMPERSONATION_READ_ONLY',
+  ALERT_ALREADY_ACKNOWLEDGED: 'ALERT_ALREADY_ACKNOWLEDGED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

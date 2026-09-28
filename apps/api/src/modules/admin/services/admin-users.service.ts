@@ -5,10 +5,13 @@ import { AppException } from '../../../common/errors/app.exception';
 import { pageArgs, paginated } from '../../../common/pagination';
 import { SecurityLogger } from '../../../infra/logger/logger.module';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { AppConfig } from '../../../config/app-config';
 import { AuditService } from '../../audit/audit.service';
 import { TokenService } from '../../auth/token.service';
 import { CampaignsService } from '../../campaigns/campaigns.service';
+import { KycService } from '../../kyc/kyc.service';
 import { NotificationService } from '../../notifications/notifications.module';
+import { ReferralsService } from '../../referrals/referrals.service';
 import { toUserProfile } from '../../users/user.mapper';
 import { WithdrawalsService } from '../../withdrawals/withdrawals.service';
 import type { AdminActor } from './admin-review.service';
@@ -23,6 +26,9 @@ export class AdminUsersService {
     private readonly notifications: NotificationService,
     private readonly campaigns: CampaignsService,
     private readonly withdrawals: WithdrawalsService,
+    private readonly kyc: KycService,
+    private readonly referrals: ReferralsService,
+    private readonly config: AppConfig,
   ) {}
 
   /* -------------------------------- users -------------------------------- */
@@ -122,6 +128,14 @@ export class AdminUsersService {
         include: { _count: { select: { approvals: true } } },
       }),
     ]);
+    const [kyc, deletionRequest, referralStats] = await Promise.all([
+      this.kyc.latestForUser(id),
+      this.prisma.accountDeletionRequest.findFirst({
+        where: { userId: id, status: 'pending' },
+        orderBy: { requestedAt: 'desc' },
+      }),
+      this.referrals.referralStatsForUser(id),
+    ]);
     const count = (s: string) => byStatus.find((b) => b.status === s)?._count._all ?? 0;
     return {
       ...toUserProfile(u),
@@ -143,6 +157,21 @@ export class AdminUsersService {
       recentLedger,
       flags: flags.map((f) => ({ ...f, userPhone: u.phoneNumber })),
       withdrawals: withdrawals.map((w) => this.withdrawals.toUserView(w, w._count.approvals)),
+      kyc,
+      deletionRequest: deletionRequest
+        ? {
+            id: deletionRequest.id,
+            userId: deletionRequest.userId,
+            status: deletionRequest.status,
+            reason: deletionRequest.reason,
+            requestedAt: deletionRequest.requestedAt,
+            scheduledFor: deletionRequest.scheduledFor,
+            executedAt: deletionRequest.executedAt,
+            cancelledAt: deletionRequest.cancelledAt,
+            graceDays: this.config.platform.accountDeletionGraceDays,
+          }
+        : null,
+      referralStats,
     };
   }
 
@@ -191,6 +220,10 @@ export class AdminUsersService {
       adminId: actor.adminId,
       reason,
     });
+    if (target !== 'active') {
+      // F2: access tokens die immediately, not at expiry.
+      await this.tokens.invalidateAccessTokens('user', id, `user.${action}`);
+    }
     if (target === 'active') {
       await this.notifications.notify({
         userId: id,
@@ -392,5 +425,37 @@ export class AdminUsersService {
   /** Used by the guard-free token revocation path when banning via fraud actions. */
   revokeSessions(userId: string) {
     return this.tokens.revokeAllForSubject('user', userId);
+  }
+
+  /** Support impersonation: short-lived READ-ONLY user token; issue is audited, every use is audited by the guard. */
+  async impersonate(userId: string, reason: string, actor: AdminActor) {
+    if (!reason?.trim()) {
+      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'A reason / ticket reference is required');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, phoneNumber: true, fullName: true, status: true },
+    });
+    if (!user) throw AppException.notFound('User not found');
+    if (user.status === 'deleted') {
+      throw AppException.conflict(ErrorCode.USER_INVALID_STATE, 'This account was deleted');
+    }
+    const token = await this.tokens.issueImpersonation(userId, actor.adminId);
+    await this.audit.record({
+      actorType: 'admin',
+      actorId: actor.adminId,
+      action: 'impersonation.issued',
+      targetType: 'user',
+      targetId: userId,
+      metadata: { reason, expiresAt: token.expiresAt, readOnly: true },
+      ipAddress: actor.ip,
+    });
+    this.security.warn('impersonation.issued', { adminId: actor.adminId, userId, reason, expiresAt: token.expiresAt });
+    return {
+      ...token,
+      user: { id: user.id, phoneNumber: user.phoneNumber, fullName: user.fullName },
+      actorAdminId: actor.adminId,
+      readOnly: true as const,
+    };
   }
 }

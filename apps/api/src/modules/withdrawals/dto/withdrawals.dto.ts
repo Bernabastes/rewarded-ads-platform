@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PayoutMethod, WithdrawalStatus } from '@prisma/client';
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/pagination';
 
 export class CreateWithdrawalDto {
@@ -42,4 +42,31 @@ export class WithdrawalsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(WithdrawalStatus)
   status?: WithdrawalStatus;
+}
+
+/** `POST /withdrawals/destinations/resolve` */
+export class ResolveDestinationDto {
+  @ApiProperty({ enum: PayoutMethod })
+  @IsEnum(PayoutMethod)
+  payoutMethod: PayoutMethod;
+
+  @ApiProperty({ example: '0911223344' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  payoutDestination: string;
+
+  @ApiPropertyOptional({ example: '946' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  bankCode?: string;
+}
+
+/** `POST /withdrawals/destinations/otp/verify` */
+export class VerifyDestinationOtpDto extends ResolveDestinationDto {
+  @ApiProperty({ example: '123456' })
+  @IsString()
+  @Length(4, 8)
+  code: string;
 }

@@ -102,10 +102,24 @@ export class AdminReportsService {
       minCampaignBudgetEtb: p.minCampaignBudgetEtb,
       minCostPerActionEtb: p.minCostPerActionEtb,
       minTopupEtb: p.minTopupEtb,
+      kycRequiredAboveMonthlyEtb: p.kycRequiredAboveMonthlyEtb,
+      defaultFrequencyCap: p.defaultFrequencyCap,
+      advertiserImpressionCapPerUserPerDay: p.advertiserImpressionCapPerUserPerDay,
+      referralBonusCoins: p.referralBonusCoins,
+      refereeBonusCoins: p.refereeBonusCoins,
+      referralMaxPerReferrerPerDay: p.referralMaxPerReferrerPerDay,
+      accountDeletionGraceDays: p.accountDeletionGraceDays,
+      destinationResolveTtlMinutes: p.destinationResolveTtlMinutes,
       fraud: {
         flagThreshold: this.config.fraud.flagThreshold,
         rejectThreshold: this.config.fraud.rejectThreshold,
         minTrustScoreForFeed: this.config.fraud.minTrustScoreForFeed,
+      },
+      alerts: {
+        payoutFailureRate: this.config.alerts.payoutFailureRate,
+        accountsPerDevicePerHour: this.config.alerts.accountsPerDevicePerHour,
+        spendVelocityMultiplier: this.config.alerts.spendVelocityMultiplier,
+        otpRequestsPerIpPerHour: this.config.alerts.otpRequestsPerIpPerHour,
       },
       mocks: this.config.mocks,
       environment: this.config.env.NODE_ENV,
@@ -131,6 +145,8 @@ export class AdminReportsService {
       dailyTopups,
       byAdvertiser,
       byType,
+      referralCoins,
+      dailyReferrals,
     ] = await Promise.all([
       this.prisma.adCompletion.aggregate({
         where: { status: 'valid', completedAt: { gte: from, lte: to } },
@@ -185,7 +201,15 @@ export class AdminReportsService {
         SELECT c.target_action_type::text AS target_action_type, SUM(ac.cost_etb) AS spend, COUNT(*)::bigint AS count
         FROM ad_completions ac JOIN campaigns c ON c.id = ac.campaign_id
         WHERE ac.status = 'valid' AND ac.completed_at BETWEEN ${from} AND ${to} GROUP BY 1`,
+      this.prisma.coinLedger.aggregate({
+        where: { sourceType: 'referral', createdAt: { gte: from, lte: to } },
+        _sum: { amount: true },
+      }),
+      this.prisma.$queryRaw<Array<{ day: Date; coins: bigint | null }>>`n        SELECT date_trunc('day', created_at AT TIME ZONE 'UTC') AS day, SUM(amount)::bigint AS coins
+        FROM coin_ledger WHERE source_type = 'referral' AND created_at BETWEEN ${from} AND ${to} GROUP BY 1`,
     ]);
+    const coinsPerEtb = this.config.platform.coinsPerEtb;
+    const referralBonusesEtb = new Prisma.Decimal(referralCoins._sum.amount ?? 0).div(coinsPerEtb).toDecimalPlaces(2);
 
     const d = (v: Prisma.Decimal | number | null | undefined) => new Prisma.Decimal(v ?? 0);
     const spend = d(adTotals._sum.costEtb).plus(d(surveyTotals[0]?.cost));
@@ -198,6 +222,7 @@ export class AdminReportsService {
         advertiserSpendEtb: number;
         userRewardsEtb: number;
         platformRevenueEtb: number;
+        referralBonusesEtb: number;
         payoutsEtb: number;
         topupsEtb: number;
         validCompletions: number;
@@ -208,6 +233,7 @@ export class AdminReportsService {
         advertiserSpendEtb: 0,
         userRewardsEtb: 0,
         platformRevenueEtb: 0,
+        referralBonusesEtb: 0,
         payoutsEtb: 0,
         topupsEtb: 0,
         validCompletions: 0,
@@ -225,12 +251,14 @@ export class AdminReportsService {
     }
     for (const r of dailyPayouts) bump(r.day, (b) => (b.payoutsEtb += Number(r.amount ?? 0)));
     for (const r of dailyTopups) bump(r.day, (b) => (b.topupsEtb += Number(r.amount ?? 0)));
+    for (const r of dailyReferrals) bump(r.day, (b) => (b.referralBonusesEtb += Number(r.coins ?? 0) / coinsPerEtb));
     for (const b of daily.values()) {
       b.platformRevenueEtb = round2(b.advertiserSpendEtb - b.userRewardsEtb);
       b.advertiserSpendEtb = round2(b.advertiserSpendEtb);
       b.userRewardsEtb = round2(b.userRewardsEtb);
       b.payoutsEtb = round2(b.payoutsEtb);
       b.topupsEtb = round2(b.topupsEtb);
+      b.referralBonusesEtb = round2(b.referralBonusesEtb);
     }
 
     const totalSpendNum = spend.toNumber();
@@ -241,6 +269,8 @@ export class AdminReportsService {
         advertiserSpendEtb: spend,
         userRewardsEtb: rewards,
         platformRevenueEtb: spend.minus(rewards),
+        referralBonusesEtb,
+        netPlatformRevenueEtb: spend.minus(rewards).minus(referralBonusesEtb),
         topupsEtb: d(topups._sum.amountEtb),
         payoutsCompletedEtb: d(payoutsDone._sum.amountEtb),
         payoutsPendingEtb: d(payoutsPending._sum.amountEtb),

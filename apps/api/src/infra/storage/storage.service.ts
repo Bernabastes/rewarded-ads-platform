@@ -1,7 +1,16 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Global, Injectable, Module } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+import type { Readable } from 'node:stream';
 import { AppConfig } from '../../config/app-config';
 
 export interface PresignedUpload {
@@ -12,6 +21,9 @@ export interface PresignedUpload {
   publicUrl: string;
   expiresInSeconds: number;
 }
+
+/** Prefix of objects that must never be served publicly (KYC documents, data exports); read via presigned GET only. */
+export const PRIVATE_PREFIX = 'private';
 
 /**
  * S3-compatible object storage (MinIO locally, AWS S3 / any S3 API in production).
@@ -41,10 +53,18 @@ export class StorageService {
     return (e.S3_PUBLIC_ENDPOINT || e.S3_PUBLIC_URL || e.S3_ENDPOINT).replace(/\/$/, '');
   }
 
+  get bucket(): string {
+    return this.config.env.S3_BUCKET;
+  }
+
   buildKey(prefix: string, fileName: string): string {
     const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : '';
     const safeExt = /^\.[a-z0-9]{1,5}$/.test(ext) ? ext : '';
     return `${prefix}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}${safeExt}`;
+  }
+
+  isPrivateKey(storageKey: string): boolean {
+    return storageKey.startsWith(`${PRIVATE_PREFIX}/`);
   }
 
   publicUrl(storageKey: string): string {
@@ -66,9 +86,50 @@ export class StorageService {
       uploadUrl,
       headers: { 'Content-Type': contentType },
       storageKey,
-      publicUrl: this.publicUrl(storageKey),
+      publicUrl: this.isPrivateKey(storageKey) ? '' : this.publicUrl(storageKey),
       expiresInSeconds: expiresIn,
     };
+  }
+
+  /** Short-lived presigned GET for private objects (KYC documents, data exports). */
+  async presignDownload(storageKey: string, expiresIn: number): Promise<{ url: string; expiresInSeconds: number }> {
+    const command = new GetObjectCommand({ Bucket: this.config.env.S3_BUCKET, Key: storageKey });
+    const url = await getSignedUrl(this.presignClient, command, { expiresIn });
+    return { url, expiresInSeconds: expiresIn };
+  }
+
+  async upload(storageKey: string, body: Buffer | Uint8Array | string, contentType: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.config.env.S3_BUCKET,
+        Key: storageKey,
+        Body: body,
+        ContentType: contentType,
+      }),
+    );
+  }
+
+  async downloadToFile(storageKey: string, filePath: string): Promise<void> {
+    const res = await this.client.send(
+      new GetObjectCommand({ Bucket: this.config.env.S3_BUCKET, Key: storageKey }),
+    );
+    if (!res.Body) throw new Error(`Object ${storageKey} has no body`);
+    await pipeline(res.Body as Readable, createWriteStream(filePath));
+  }
+
+  async exists(storageKey: string): Promise<boolean> {
+    try {
+      await this.client.send(new HeadObjectCommand({ Bucket: this.config.env.S3_BUCKET, Key: storageKey }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async delete(storageKey: string): Promise<void> {
+    await this.client
+      .send(new DeleteObjectCommand({ Bucket: this.config.env.S3_BUCKET, Key: storageKey }))
+      .catch(() => undefined);
   }
 }
 

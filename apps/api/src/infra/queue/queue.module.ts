@@ -6,8 +6,19 @@ export const QUEUE_PAYOUTS = 'payouts';
 export const QUEUE_RECONCILIATION = 'reconciliation';
 export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_FRAUD = 'fraud';
+export const QUEUE_MEDIA = 'media';
+export const QUEUE_ALERTS = 'alerts';
+export const QUEUE_DATA_RIGHTS = 'data-rights';
 
-export const ALL_QUEUES = [QUEUE_PAYOUTS, QUEUE_RECONCILIATION, QUEUE_NOTIFICATIONS, QUEUE_FRAUD] as const;
+export const ALL_QUEUES = [
+  QUEUE_PAYOUTS,
+  QUEUE_RECONCILIATION,
+  QUEUE_NOTIFICATIONS,
+  QUEUE_FRAUD,
+  QUEUE_MEDIA,
+  QUEUE_ALERTS,
+  QUEUE_DATA_RIGHTS,
+] as const;
 
 /**
  * Workers (@Processor classes) are registered manually so that processes which only need the HTTP layer

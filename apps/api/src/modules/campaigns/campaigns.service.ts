@@ -8,6 +8,8 @@ import { AppConfig } from '../../config/app-config';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { StorageService } from '../../infra/storage/storage.service';
 import { AuditService } from '../audit/audit.service';
+import { LegalService } from '../legal/legal.service';
+import { MediaService } from '../media/media.service';
 import { WalletService } from '../wallet/wallet.module';
 import { computeRewardPerAction, rewardCoins } from './campaign.economics';
 import type { CreateAdDto, CreateCampaignDto, UpdateCampaignDto } from './dto/campaigns.dto';
@@ -31,6 +33,8 @@ export class CampaignsService {
     private readonly storage: StorageService,
     private readonly wallet: WalletService,
     private readonly audit: AuditService,
+    private readonly legal: LegalService,
+    private readonly media: MediaService,
   ) {}
 
   /* ------------------------------ CRUD ------------------------------ */
@@ -73,6 +77,7 @@ export class CampaignsService {
         startDate: dto.startDate ? new Date(`${dto.startDate}T00:00:00Z`) : null,
         endDate: dto.endDate ? new Date(`${dto.endDate}T00:00:00Z`) : null,
         attentionCheckEnabled: dto.attentionCheckEnabled ?? true,
+        frequencyCapPerUserPerDay: dto.frequencyCapPerUserPerDay ?? this.config.platform.defaultFrequencyCap,
       },
       include: campaignSummaryInclude,
     });
@@ -178,6 +183,7 @@ export class CampaignsService {
           startDate: dto.startDate ? new Date(`${dto.startDate}T00:00:00Z`) : undefined,
           endDate: dto.endDate ? new Date(`${dto.endDate}T00:00:00Z`) : undefined,
           attentionCheckEnabled: dto.attentionCheckEnabled,
+          frequencyCapPerUserPerDay: dto.frequencyCapPerUserPerDay,
           ...(c.status === 'rejected' ? { status: 'draft', rejectionReason: null } : {}),
         },
         include: campaignSummaryInclude,
@@ -226,6 +232,14 @@ export class CampaignsService {
       throw AppException.forbidden(
         ErrorCode.ADVERTISER_NOT_VERIFIED,
         'Your business must be verified before submitting campaigns',
+      );
+    }
+    const missingConsent = await this.legal.missingConsents('advertiser', advertiserId);
+    if (missingConsent.length) {
+      throw AppException.forbidden(
+        ErrorCode.CONSENT_REQUIRED,
+        'Accept the current advertiser terms before submitting campaigns',
+        { requiresConsent: missingConsent },
       );
     }
     const c = await this.owned(advertiserId, id, campaignSummaryInclude);
@@ -356,6 +370,8 @@ export class CampaignsService {
     if (dto.attentionQuestions?.some((q) => q.correctIndex >= q.options.length)) {
       throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'correctIndex must reference an option');
     }
+    // Videos go through the media.process pipeline (probe -> transcode -> poster); images are ready immediately.
+    const processVideo = dto.mediaType === 'video' && this.media.isEnabled();
     const ad = await this.prisma.ad.create({
       data: {
         campaignId,
@@ -366,6 +382,8 @@ export class CampaignsService {
         thumbnailUrl: dto.thumbnailUrl,
         mediaType: dto.mediaType,
         durationSeconds: dto.durationSeconds,
+        durationDeclaredSeconds: dto.durationSeconds,
+        mediaStatus: processVideo ? 'processing' : 'ready',
         attentionQuestions: dto.attentionQuestions?.length
           ? {
               create: dto.attentionQuestions.map((q) => ({
@@ -379,6 +397,7 @@ export class CampaignsService {
       },
       include: { _count: { select: { attentionQuestions: true } } },
     });
+    if (processVideo) await this.media.enqueue(ad.id);
     await this.audit.record({
       actorType: 'advertiser',
       actorId: advertiserId,
@@ -630,6 +649,7 @@ export class CampaignsService {
       rewardPerActionEtb: c.rewardPerActionEtb,
       rewardCoins: rewardCoins(c.rewardPerActionEtb, this.config.platform.coinsPerEtb),
       attentionCheckEnabled: c.attentionCheckEnabled,
+      frequencyCapPerUserPerDay: c.frequencyCapPerUserPerDay,
       startDate: c.startDate ? utcDayKey(c.startDate) : null,
       endDate: c.endDate ? utcDayKey(c.endDate) : null,
       pausedReason: c.pausedReason,
@@ -658,6 +678,12 @@ export class CampaignsService {
       rejectionReason: a.rejectionReason,
       reviewedAt: a.reviewedAt,
       attentionQuestionsCount: a._count.attentionQuestions,
+      mediaStatus: a.mediaStatus,
+      mediaProbe: a.mediaProbe,
+      durationDeclaredSeconds: a.durationDeclaredSeconds,
+      durationProbedSeconds: a.durationProbedSeconds,
+      mediaError: a.mediaError,
+      mediaProcessedAt: a.mediaProcessedAt,
       createdAt: a.createdAt,
     };
   }

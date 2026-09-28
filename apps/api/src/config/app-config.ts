@@ -48,6 +48,45 @@ export class AppConfig {
       minCostPerActionEtb: e.MIN_COST_PER_ACTION_ETB,
       minTopupEtb: e.MIN_TOPUP_ETB,
       invoiceVatRate: e.INVOICE_VAT_RATE,
+      kycRequiredAboveMonthlyEtb: e.KYC_REQUIRED_ABOVE_MONTHLY_ETB,
+      defaultFrequencyCap: e.DEFAULT_FREQUENCY_CAP,
+      advertiserImpressionCapPerUserPerDay: e.ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY,
+      referralBonusCoins: e.REFERRAL_BONUS_COINS,
+      refereeBonusCoins: e.REFEREE_BONUS_COINS,
+      referralMaxPerReferrerPerDay: e.REFERRAL_MAX_PER_REFERRER_PER_DAY,
+      accountDeletionGraceDays: e.ACCOUNT_DELETION_GRACE_DAYS,
+      destinationResolveTtlMinutes: e.DESTINATION_RESOLVE_TTL_MINUTES,
+      idempotencyTtlHours: e.IDEMPOTENCY_TTL_HOURS,
+      impersonationTtlSeconds: e.IMPERSONATION_TTL_SECONDS,
+    };
+  }
+
+  get alerts() {
+    const e = this.env;
+    return {
+      enabled: e.ALERT_RULES_ENABLED,
+      cron: e.ALERT_RULES_CRON,
+      dedupeMinutes: e.ALERT_DEDUPE_MINUTES,
+      payoutFailureRate: e.ALERT_PAYOUT_FAILURE_RATE,
+      payoutMinSample: e.ALERT_PAYOUT_MIN_SAMPLE,
+      accountsPerDevicePerHour: e.ALERT_ACCOUNTS_PER_DEVICE_PER_HOUR,
+      spendVelocityMultiplier: e.ALERT_SPEND_VELOCITY_MULTIPLIER,
+      spendVelocityMinEtb: e.ALERT_SPEND_VELOCITY_MIN_ETB,
+      otpRequestsPerIpPerHour: e.ALERT_OTP_REQUESTS_PER_IP_PER_HOUR,
+      telegramConfigured: Boolean(e.ALERT_TELEGRAM_BOT_TOKEN && e.ALERT_TELEGRAM_CHAT_ID),
+      webhookConfigured: Boolean(e.ALERT_WEBHOOK_URL),
+    };
+  }
+
+  get media() {
+    const e = this.env;
+    return {
+      enabled: e.MEDIA_PROCESSING_ENABLED,
+      ffmpegPath: e.MEDIA_FFMPEG_PATH,
+      ffprobePath: e.MEDIA_FFPROBE_PATH,
+      jobTimeoutSeconds: e.MEDIA_JOB_TIMEOUT_SECONDS,
+      targetHeight: e.MEDIA_TARGET_HEIGHT,
+      durationToleranceSeconds: e.MEDIA_DURATION_TOLERANCE_SECONDS,
     };
   }
 
@@ -70,6 +109,10 @@ export class AppConfig {
       payouts: e.PAYOUTS_MOCK,
       paymentGateway: !e.CHAPA_SECRET_KEY,
       push: !e.FCM_SERVICE_ACCOUNT_JSON,
+      idVerification: e.ID_VERIFICATION_PROVIDER === 'mock',
+      alerts: !(e.ALERT_TELEGRAM_BOT_TOKEN && e.ALERT_TELEGRAM_CHAT_ID) && !e.ALERT_WEBHOOK_URL,
+      /** Destination name lookup runs on the payout providers, so it is mocked whenever payouts are. */
+      destinationLookup: e.PAYOUTS_MOCK,
     };
   }
 }

@@ -4,9 +4,11 @@ import {
   type AuthContext,
   ClientIp,
   CurrentAuth,
+  RequireConsent,
   RequireVerifiedAdult,
   Subjects,
 } from '../../common/decorators/auth.decorators';
+import { Idempotent } from '../../common/idempotency/idempotency.interceptor';
 import { PaginationQueryDto } from '../../common/pagination';
 import { CompleteAppInstallDto, CompleteSurveyDto, OffersQueryDto } from './dto/offers.dto';
 import { OffersService } from './offers.service';
@@ -15,6 +17,7 @@ import { OffersService } from './offers.service';
 @ApiBearerAuth()
 @Controller('offers')
 @Subjects('user')
+@RequireConsent()
 @RequireVerifiedAdult()
 export class OffersController {
   constructor(private readonly offers: OffersService) {}
@@ -40,6 +43,7 @@ export class OffersController {
   }
 
   @Post('surveys/:id/complete')
+  @Idempotent()
   @ApiOperation({ summary: 'Submit survey answers (validated; credited immediately)' })
   completeSurvey(
     @CurrentAuth() auth: AuthContext,
@@ -57,6 +61,7 @@ export class OffersController {
   }
 
   @Post('app-installs/:id/complete')
+  @Idempotent()
   @ApiOperation({
     summary: 'Report an app install (recorded as pending verification; credited after admin verification)',
   })

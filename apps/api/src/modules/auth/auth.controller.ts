@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
   type AuthContext,
@@ -106,9 +106,14 @@ export class AuthController {
   @Post('logout')
   @Public()
   @HttpCode(204)
-  @ApiOperation({ summary: 'Revoke a refresh token family' })
-  async logout(@Body() dto: LogoutDto) {
-    await this.auth.logout(dto.refreshToken);
+  @ApiOperation({
+    summary: 'Revoke a refresh token family (and immediately deny the presented access token)',
+    description:
+      'Send the refresh token in the body and the current access token as the Bearer header: the access token is denylisted for its remaining lifetime so it stops working right away on this device.',
+  })
+  async logout(@Body() dto: LogoutDto, @Headers('authorization') authorization?: string) {
+    const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
+    await this.auth.logout(dto.refreshToken, accessToken);
   }
 
   @Post('advertiser/change-password')

@@ -35,7 +35,10 @@ RUN node scripts/build-shared.mjs \
 # ---- runtime ----
 FROM base AS runtime
 ENV NODE_ENV=production
-RUN apk add --no-cache wget
+# ffmpeg/ffprobe for the media.process pipeline (probe + 720p transcode + poster); the npm *-static packages are
+# glibc builds and do not run on Alpine, so the runtime points MEDIA_FF*_PATH at the apk binaries.
+RUN apk add --no-cache wget ffmpeg
+ENV MEDIA_FFMPEG_PATH=/usr/bin/ffmpeg MEDIA_FFPROBE_PATH=/usr/bin/ffprobe
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/package.json ./package.json
 COPY --from=build /repo/packages/shared/package.json ./packages/shared/package.json

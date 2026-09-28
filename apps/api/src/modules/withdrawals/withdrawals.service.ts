@@ -12,8 +12,10 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_PAYOUTS } from '../../infra/queue/queue.module';
 import { RedisService } from '../../infra/redis/redis.service';
 import { AuditService } from '../audit/audit.service';
+import { KycService } from '../kyc/kyc.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { NotificationService } from '../notifications/notifications.module';
+import { DestinationsService } from './destinations/destinations.service';
 import type { CreateWithdrawalDto } from './dto/withdrawals.dto';
 import { PayoutProviderRegistry } from './providers/payout-provider.registry';
 
@@ -52,6 +54,8 @@ export class WithdrawalsService {
     private readonly audit: AuditService,
     private readonly security: SecurityLogger,
     private readonly notifications: NotificationService,
+    private readonly kyc: KycService,
+    private readonly destinations: DestinationsService,
     @InjectQueue(QUEUE_PAYOUTS) private readonly payoutQueue: Queue,
   ) {}
 
@@ -72,6 +76,23 @@ export class WithdrawalsService {
         available: this.registry.isMethodAvailable(method),
       })),
       conversionNote: `${p.coinsPerEtb} coins = 1 ETB. Minimum withdrawal ${p.minWithdrawalEtb} ETB. First withdrawals and amounts of ${p.largeWithdrawalThresholdEtb} ETB or more are reviewed manually before payout.`,
+      kycRequiredAboveMonthlyEtb: p.kycRequiredAboveMonthlyEtb,
+      destinationResolveTtlMinutes: p.destinationResolveTtlMinutes,
+    };
+  }
+
+  /** Per-user config: static thresholds + this user's KYC tier, rolling payout total and known destinations. */
+  async getConfigForUser(userId: string) {
+    const [user, monthly, knownDestinations] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { kycTier: true } }),
+      this.kyc.monthlyPayoutTotalEtb(userId),
+      this.destinations.listKnown(userId),
+    ]);
+    return {
+      ...this.getConfig(),
+      kycTier: user.kycTier,
+      monthlyPayoutTotalEtb: monthly,
+      knownDestinations,
     };
   }
 
@@ -116,7 +137,7 @@ export class WithdrawalsService {
       this.prisma.withdrawal.count({ where: { userId, status: 'completed' } }),
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { trustScore: true, coinBalance: true },
+        select: { trustScore: true, coinBalance: true, kycTier: true },
       }),
     ]);
     if (inFlight > 0)
@@ -130,6 +151,14 @@ export class WithdrawalsService {
         required: coinAmount,
       });
     }
+    // KYC tier rule (rolling 30 days incl. this request) -> 422 KYC_REQUIRED
+    await this.kyc.assertWithinTier(userId, user.kycTier, amountEtb);
+    // Destination verification: known destinations pass; NEW ones need a fresh partner lookup + OTP re-check.
+    const verifiedDestination = await this.destinations.assertVerifiedForRequest(userId, {
+      payoutMethod: dto.payoutMethod,
+      destination,
+      bankCode: dto.bankCode,
+    });
 
     const reviewReasons = this.reviewReasons({
       isFirst: completedCount === 0,
@@ -147,8 +176,11 @@ export class WithdrawalsService {
           coinAmount,
           payoutMethod: dto.payoutMethod,
           payoutDestination: destination,
-          destinationName: dto.destinationName?.trim(),
-          bankCode: dto.bankCode,
+          destinationName: dto.destinationName?.trim() ?? verifiedDestination.accountName ?? undefined,
+          bankCode: dto.bankCode ?? verifiedDestination.bankCode ?? undefined,
+          destinationAccountName: verifiedDestination.accountName,
+          destinationVerifiedAt: verifiedDestination.verifiedAt,
+          payoutDestinationId: verifiedDestination.id,
           status,
           reviewReasons,
           isFirstWithdrawal: completedCount === 0,
@@ -171,6 +203,8 @@ export class WithdrawalsService {
         where: { id: w.id },
         data: { ledgerHoldEntryId: hold.entry.id },
       });
+      // the destination is now "known": no lookup / OTP re-check needed for future requests to it
+      await this.destinations.markUsed(verifiedDestination.id, tx);
       await this.audit.record(
         {
           actorType: 'user',
@@ -639,6 +673,8 @@ export class WithdrawalsService {
       payoutMethod: w.payoutMethod,
       payoutDestination: maskDestination(w.payoutDestination),
       destinationName: w.destinationName,
+      destinationAccountName: w.destinationAccountName,
+      destinationVerifiedAt: w.destinationVerifiedAt,
       status: w.status,
       reviewReasons: (w.reviewReasons as string[]) ?? [],
       requiresDualApproval: w.requiresDualApproval,

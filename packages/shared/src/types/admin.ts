@@ -16,6 +16,7 @@ import type { AdSummary, BannedTopicsChecklist, CampaignAnalytics, CampaignSumma
 import type { DailyPoint, DateRangeQuery, IsoDateTime, Paginated, PaginationQuery, Uuid } from './common';
 import type { AdvertiserLedgerEntry, PaymentItem } from './billing';
 import type { LedgerEntry } from './users';
+import type { AdminKycSummary, DeletionRequestItem } from './phase4';
 import type { WithdrawalApprovalItem, WithdrawalItem } from './withdrawals';
 
 /* ---------- overview / config ---------- */
@@ -53,8 +54,30 @@ export interface PlatformConfigResponse {
   minCampaignBudgetEtb: number;
   minCostPerActionEtb: number;
   minTopupEtb: number;
+  kycRequiredAboveMonthlyEtb: number;
+  defaultFrequencyCap: number;
+  advertiserImpressionCapPerUserPerDay: number;
+  referralBonusCoins: number;
+  refereeBonusCoins: number;
+  referralMaxPerReferrerPerDay: number;
+  accountDeletionGraceDays: number;
+  destinationResolveTtlMinutes: number;
   fraud: { flagThreshold: number; rejectThreshold: number; minTrustScoreForFeed: number };
-  mocks: { sms: boolean; payouts: boolean; paymentGateway: boolean; push: boolean };
+  alerts: {
+    payoutFailureRate: number;
+    accountsPerDevicePerHour: number;
+    spendVelocityMultiplier: number;
+    otpRequestsPerIpPerHour: number;
+  };
+  mocks: {
+    sms: boolean;
+    payouts: boolean;
+    paymentGateway: boolean;
+    push: boolean;
+    idVerification: boolean;
+    alerts: boolean;
+    destinationLookup: boolean;
+  };
   environment: string;
   version: string;
 }
@@ -125,6 +148,29 @@ export interface AdminUserDetail extends AdminUserListItem {
   recentLedger: LedgerEntry[];
   flags: FraudFlagItem[];
   withdrawals: WithdrawalItem[];
+  /** Latest KYC submission (any status), if any. */
+  kyc: AdminKycSummary | null;
+  /** Pending deletion request, if any. */
+  deletionRequest: DeletionRequestItem | null;
+  referralStats: { referred: number; paid: number; bonusCoinsEarned: number };
+}
+
+/** `POST /admin/users/:id/impersonate` (support / super_admin) -> short-lived READ-ONLY user token. */
+export interface ImpersonateUserDto {
+  /** Support-ticket reference or reason; stored in the audit log. */
+  reason: string;
+}
+
+export interface ImpersonationTokenResponse {
+  accessToken: string;
+  tokenType: 'Bearer';
+  /** Seconds (10 minutes). No refresh token is issued. */
+  expiresIn: number;
+  expiresAt: IsoDateTime;
+  user: { id: Uuid; phoneNumber: string; fullName: string | null };
+  actorAdminId: Uuid;
+  /** Always true: every non-GET request with this token fails with 403 IMPERSONATION_READ_ONLY. */
+  readOnly: true;
 }
 
 export interface UserModerationDto {
@@ -344,6 +390,10 @@ export interface RevenueOverview {
     advertiserSpendEtb: number;
     userRewardsEtb: number;
     platformRevenueEtb: number;
+    /** Referral bonuses credited in the period (platform cost, not funded by advertisers). */
+    referralBonusesEtb: number;
+    /** platformRevenueEtb - referralBonusesEtb. */
+    netPlatformRevenueEtb: number;
     topupsEtb: number;
     payoutsCompletedEtb: number;
     payoutsPendingEtb: number;
@@ -355,6 +405,7 @@ export interface RevenueOverview {
       advertiserSpendEtb: number;
       userRewardsEtb: number;
       platformRevenueEtb: number;
+      referralBonusesEtb: number;
       payoutsEtb: number;
       topupsEtb: number;
     }
@@ -434,5 +485,5 @@ export interface AdminAppInstallCompletionItem {
   createdAt: IsoDateTime;
 }
 
-/** GET /admin/me – identical to the dmin object returned by POST /auth/admin/login. */
+/** GET /admin/me ï¿½ identical to the dmin object returned by POST /auth/admin/login. */
 export type AdminMe = AdminProfile;

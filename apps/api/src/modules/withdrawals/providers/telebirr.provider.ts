@@ -2,12 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { PayoutMethod } from '@prisma/client';
 import { AppConfig } from '../../../config/app-config';
 import {
+  DestinationNotFoundError,
+  mockAccountName,
+  mockDestinationExists,
   mockPayoutId,
   mockPayoutStatus,
   type PayoutOptions,
   type PayoutProvider,
   type PayoutResult,
   type PayoutStatus,
+  type ResolvedAccount,
 } from './payout-provider';
 
 /**
@@ -118,6 +122,39 @@ export class TelebirrPayoutProvider implements PayoutProvider {
       failureReason: status === 'failed' ? (json.result?.failReason ?? json.msg) : undefined,
       raw: json,
     };
+  }
+
+  /**
+   * telebirr customer name enquiry (used before paying out to a NEW destination).
+   * REAL mode: `POST .../payment/v1/customer/query { msisdn }` -> `{ result: { customerName } }` — endpoint and field
+   * names follow the merchant integration guide and MUST be confirmed with Ethio Telecom before go-live.
+   * MOCK mode: deterministic Ethiopian name; destinations ending in 0000 are "not found".
+   */
+  async resolveAccount(_method: PayoutMethod, destination: string): Promise<ResolvedAccount> {
+    const normalized = destination.startsWith('+') ? destination : `+${destination.replace(/^0/, '251')}`;
+    if (this.isMock) {
+      if (!mockDestinationExists(normalized)) throw new DestinationNotFoundError();
+      return { accountName: mockAccountName(normalized), normalizedDestination: normalized, raw: { mock: true } };
+    }
+    const token = await this.token();
+    const res = await fetch(
+      `${this.config.env.TELEBIRR_BASE_URL}/apiaccess/payment/gateway/payment/v1/customer/query`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-APP-Key': this.config.env.TELEBIRR_APP_KEY!,
+          Authorization: token,
+        },
+        body: JSON.stringify({ merchantCode: this.config.env.TELEBIRR_SHORT_CODE, msisdn: normalized.replace('+', '') }),
+      },
+    );
+    const json = (await res.json()) as { code?: string; msg?: string; result?: { customerName?: string } };
+    if (res.status === 404 || json.code === 'NOT_FOUND') throw new DestinationNotFoundError(json.msg);
+    if (!res.ok || json.code !== '0' || !json.result?.customerName) {
+      throw new Error(`telebirr customer query failed: ${json.msg ?? res.status}`);
+    }
+    return { accountName: json.result.customerName, normalizedDestination: normalized, raw: json };
   }
 
   private async token(): Promise<string> {

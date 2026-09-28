@@ -25,7 +25,7 @@
     "dev": "tsup --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test --max-warnings 0",
-    "test": "node --test test/money.test.mjs",
+    "test": "node --test test/money.test.mjs test/ethiopian-calendar.test.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "devDependencies": {

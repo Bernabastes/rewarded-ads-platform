@@ -33,7 +33,61 @@ export const PLATFORM_DEFAULTS = {
   MIN_TOPUP_ETB: 100,
   /** Max payout attempts per withdrawal (admin retries) before it stays failed. */
   PAYOUT_MAX_ATTEMPTS: 3,
+  /** Phone-only (non-KYC) users may receive at most this much in a rolling 30-day window, in ETB. */
+  KYC_REQUIRED_ABOVE_MONTHLY_ETB: 1000,
+  /** Default per-campaign frequency cap (rewarded completions per user per UTC day). */
+  DEFAULT_FREQUENCY_CAP: 1,
+  /** Advertiser-editable frequency cap range. */
+  MIN_FREQUENCY_CAP: 1,
+  MAX_FREQUENCY_CAP: 5,
+  /** Distinct ads from one advertiser a user may complete per UTC day. */
+  ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY: 3,
+  /** Referral bonuses (coins) credited with the referee's first valid ad completion. */
+  REFERRAL_BONUS_COINS: 500,
+  REFEREE_BONUS_COINS: 200,
+  /** Max paid referrals per referrer per UTC day. */
+  REFERRAL_MAX_PER_REFERRER_PER_DAY: 5,
+  /** A destination lookup (`/withdrawals/destinations/resolve`) is valid for this long. */
+  DESTINATION_RESOLVE_TTL_MINUTES: 10,
+  /** Account deletion is executed after this grace period (cancellable). */
+  ACCOUNT_DELETION_GRACE_DAYS: 14,
+  /** `Idempotency-Key` responses are replayable for this long. */
+  IDEMPOTENCY_TTL_HOURS: 24,
 } as const;
+
+/** Length and alphabet of user referral codes (no 0/O/1/I to stay readable when spoken/typed). */
+export const REFERRAL_CODE_LENGTH = 6;
+export const REFERRAL_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** Header names for the idempotency protocol on money POSTs. */
+export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
+export const IDEMPOTENT_REPLAYED_HEADER = 'Idempotent-Replayed';
+
+/** Endpoints that honour `Idempotency-Key` (relative to API_BASE_PATH). */
+export const IDEMPOTENT_ENDPOINTS = [
+  'POST /withdrawals',
+  'POST /billing/topups',
+  'POST /admin/coin-adjustments',
+  'POST /offers/surveys/:id/complete',
+  'POST /offers/app-installs/:id/complete',
+] as const;
+
+/** KYC document upload constraints enforced by the API (private bucket prefix, presigned PUT). */
+export const KYC_UPLOAD_LIMITS = {
+  maxBytes: 8 * 1024 * 1024,
+  mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+  kinds: ['document_front', 'document_back', 'selfie'],
+} as const;
+export type KycUploadKind = (typeof KYC_UPLOAD_LIMITS.kinds)[number];
+
+/** Referral rejection reasons (`ReferralItem.rejectionReason`). */
+export const REFERRAL_REJECTION_REASONS = [
+  'self_referral_device',
+  'self_referral_ip',
+  'referrer_daily_cap',
+  'referrer_inactive',
+] as const;
+export type ReferralRejectionReason = (typeof REFERRAL_REJECTION_REASONS)[number];
 
 /** Reasons a withdrawal is held for manual review (`WithdrawalItem.reviewReasons`). */
 export const WITHDRAWAL_REVIEW_REASONS = ['first_withdrawal', 'large_amount', 'low_trust_score'] as const;

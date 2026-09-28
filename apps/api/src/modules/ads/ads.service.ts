@@ -12,6 +12,7 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { FraudService } from '../fraud/fraud.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { NotificationService } from '../notifications/notifications.module';
+import { type ReferralOutcome, ReferralsService } from '../referrals/referrals.service';
 import { expectedHeartbeats, minWatchSeconds, verifyWatchSession } from './completion.verifier';
 
 export interface CompletionResultView {
@@ -49,6 +50,7 @@ export class AdsService {
     private readonly fraud: FraudService,
     private readonly notifications: NotificationService,
     private readonly security: SecurityLogger,
+    private readonly referrals: ReferralsService,
   ) {}
 
   /* ------------------------------- feed ------------------------------- */
@@ -64,19 +66,25 @@ export class AdsService {
       dailyLimit: limit,
       dailyCompleted: todayCompletions,
       dailyRemaining: Math.max(0, limit - todayCompletions),
+      hiddenByFrequencyCap: 0,
     };
 
     if (todayCompletions >= limit || user.trustScore < this.config.fraud.minTrustScoreForFeed) {
       return paginated([], 0, p, meta);
     }
 
-    const [idRows, countRow] = await Promise.all([
+    const [idRows, countRow, uncappedRow] = await Promise.all([
       this.prisma.$queryRaw<Array<{ id: string }>>`
         ${this.eligibleAdsSql(userId)} ORDER BY c.reward_per_action_etb DESC, a.created_at DESC LIMIT ${p.take} OFFSET ${p.skip}`,
       this.prisma.$queryRaw<
         Array<{ count: bigint }>
       >`SELECT COUNT(*)::bigint AS count FROM (${this.eligibleAdsSql(userId)}) e`,
+      this.prisma.$queryRaw<
+        Array<{ count: bigint }>
+      >`SELECT COUNT(*)::bigint AS count FROM (${this.eligibleAdsSql(userId, { applyFrequencyCaps: false })}) e`,
     ]);
+    const total = Number(countRow[0]?.count ?? 0);
+    meta.hiddenByFrequencyCap = Math.max(0, Number(uncappedRow[0]?.count ?? 0) - total);
     const ids = idRows.map((r) => r.id);
     const ads = ids.length
       ? await this.prisma.ad.findMany({ where: { id: { in: ids } }, include: adInclude })
@@ -86,7 +94,7 @@ export class AdsService {
       .map((id) => byId.get(id))
       .filter(Boolean)
       .map((ad) => this.toFeedItem(ad!));
-    return paginated(data, Number(countRow[0]?.count ?? 0), p, meta);
+    return paginated(data, total, p, meta);
   }
 
   async getAd(userId: string, adId: string) {
@@ -236,7 +244,7 @@ export class AdsService {
     const session = await this.loadSession(sessionId, userId);
 
     if (session.status !== 'active') {
-      if (session.completion) return this.toResult(session.completion, session.id, true);
+      if (session.completion) return this.replayResult(session.completion, session.id, userId);
       throw AppException.badRequest(ErrorCode.WATCH_SESSION_NOT_ACTIVE, `Watch session is ${session.status}`);
     }
 
@@ -289,7 +297,7 @@ export class AdsService {
     // --- hard verification failure: record a rejected completion, no fraud scoring needed ---
     if (!verification.ok) {
       const code = verification.code!;
-      const result = await this.runClaimed(session.id, async (tx) => {
+      const result = await this.runClaimed(session.id, userId, async (tx) => {
         await tx.adWatchSession.update({
           where: { id: session.id },
           data: { status: 'rejected', completedAt: now, rejectionCode: code },
@@ -333,8 +341,9 @@ export class AdsService {
     });
     const evaluation = this.fraud.evaluate(signals);
     const flagIds = evaluation.hits.map((h) => h.ruleId);
+    let referralOutcome: ReferralOutcome = null;
 
-    const result = await this.runClaimed(session.id, async (tx) => {
+    const result = await this.runClaimed(session.id, userId, async (tx) => {
       // Serialise per user: lock the row so the daily cap and the (user, ad) uniqueness checks are race-free.
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
       const [todayInTx, duplicate] = await Promise.all([
@@ -355,6 +364,20 @@ export class AdsService {
       } else if (duplicate) {
         status = 'rejected';
         reasonCode = ErrorCode.AD_ALREADY_COMPLETED;
+      } else if (status !== 'rejected') {
+        // frequency caps (campaign / advertiser per UTC day), re-checked under the user row lock
+        const capHit = await this.frequencyCapHit(tx, {
+          userId,
+          campaignId: campaign.id,
+          advertiserId: campaign.advertiserId,
+          campaignCap: campaign.frequencyCapPerUserPerDay,
+          now,
+        });
+        if (capHit) {
+          status = 'rejected';
+          reasonCode = ErrorCode.FREQUENCY_CAP_REACHED;
+          this.security.info('frequency_cap.reached', { userId, campaignId: campaign.id, cap: capHit });
+        }
       }
 
       let costEtb = new Prisma.Decimal(0);
@@ -405,6 +428,17 @@ export class AdsService {
           tx,
         );
         newBalance = write.balanceAfter;
+        // Referral bonuses ride on the referee's FIRST valid completion, in this same transaction.
+        referralOutcome = await this.referrals.onValidCompletion(tx, {
+          userId,
+          completionId: completion.id,
+          deviceFingerprint: session.deviceFingerprint,
+          ipAddress: meta.ip || session.ipAddress,
+          now,
+        });
+        if (referralOutcome?.status === 'paid' && referralOutcome.refereeBonus > 0) {
+          newBalance += referralOutcome.refereeBonus;
+        }
         if (evaluation.hits.length) {
           // low-score hits on a valid completion are still recorded (informational, no trust penalty)
           await this.fraud.persistHits(tx, userId, 'ad_completion', completion.id, evaluation.hits, {
@@ -422,6 +456,7 @@ export class AdsService {
     });
 
     await this.afterCompletion(userId, session.adId, session.ad.title, result, meta.ip, evaluation.score);
+    if (!result.replayed) await this.referrals.notifyOutcome(referralOutcome, userId);
     return result;
   }
 
@@ -433,6 +468,7 @@ export class AdsService {
    */
   private async runClaimed(
     sessionId: string,
+    userId: string,
     work: (tx: Prisma.TransactionClient) => Promise<CompletionResultView>,
   ) {
     try {
@@ -454,7 +490,7 @@ export class AdsService {
           where: { id: sessionId },
           include: { completion: true },
         });
-        if (again?.completion) return this.toResult(again.completion, sessionId, true);
+        if (again?.completion) return this.replayResult(again.completion, sessionId, userId);
         throw AppException.badRequest(
           ErrorCode.WATCH_SESSION_NOT_ACTIVE,
           'Watch session is no longer active',
@@ -462,6 +498,16 @@ export class AdsService {
       }
       throw err;
     }
+  }
+
+  /** F3: a replay carries the user's CURRENT cached balance (never null) so the client can render it directly. */
+  private async replayResult(
+    completion: Parameters<AdsService['toResult']>[0],
+    sessionId: string,
+    userId: string,
+  ): Promise<CompletionResultView> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { coinBalance: true } });
+    return { ...this.toResult(completion, sessionId, true), newBalance: user?.coinBalance ?? null };
   }
 
   /** Charges the campaign atomically; pauses it when the budget is exhausted. */
@@ -610,12 +656,32 @@ export class AdsService {
     };
   }
 
-  /** Eligible = approved ad of an active, in-flight, funded video campaign the user has not been credited for. */
-  private eligibleAdsSql(userId: string) {
+  /**
+   * Eligible = approved, media-ready ad of an active, in-flight, funded video campaign the user has not been
+   * credited for, and (unless disabled) under both frequency caps for today: per-campaign
+   * (`frequency_cap_per_user_per_day`) and per-advertiser (`ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY` distinct ads).
+   */
+  private eligibleAdsSql(userId: string, options: { applyFrequencyCaps?: boolean } = {}) {
+    const caps =
+      options.applyFrequencyCaps === false
+        ? Prisma.empty
+        : Prisma.sql`
+        AND (
+          SELECT COUNT(*) FROM ad_completions cc
+          WHERE cc.campaign_id = c.id AND cc.user_id = ${userId}::uuid
+            AND cc.status IN ('valid', 'flagged') AND cc.completed_at >= ${startOfUtcDay()}
+        ) < c.frequency_cap_per_user_per_day
+        AND (
+          SELECT COUNT(DISTINCT ac2.ad_id) FROM ad_completions ac2
+          JOIN campaigns c2 ON c2.id = ac2.campaign_id
+          WHERE c2.advertiser_id = c.advertiser_id AND ac2.user_id = ${userId}::uuid
+            AND ac2.status IN ('valid', 'flagged') AND ac2.completed_at >= ${startOfUtcDay()}
+        ) < ${this.config.platform.advertiserImpressionCapPerUserPerDay}`;
     return Prisma.sql`
       SELECT a.id, c.reward_per_action_etb, a.created_at FROM ads a
       JOIN campaigns c ON c.id = a.campaign_id
       WHERE a.review_status = 'approved'
+        AND a.media_status IN ('ready', 'duration_corrected')
         AND c.status = 'active'
         AND c.target_action_type = 'video_view'
         AND (c.start_date IS NULL OR c.start_date <= CURRENT_DATE)
@@ -623,6 +689,39 @@ export class AdsService {
         AND c.spent_etb + c.cost_per_action_etb <= c.budget_etb
         AND NOT EXISTS (
           SELECT 1 FROM ad_completions ac
-          WHERE ac.ad_id = a.id AND ac.user_id = ${userId}::uuid AND ac.status IN ('valid', 'flagged'))`;
+          WHERE ac.ad_id = a.id AND ac.user_id = ${userId}::uuid AND ac.status IN ('valid', 'flagged'))
+        ${caps}`;
+  }
+
+  /**
+   * Frequency-cap re-check inside the completion transaction (under the user row lock). Returns the cap that was
+   * hit, or null. Counts exclude the completion being written.
+   */
+  async frequencyCapHit(
+    tx: Prisma.TransactionClient,
+    input: { userId: string; campaignId: string; advertiserId: string; campaignCap: number; now: Date },
+  ): Promise<'campaign' | 'advertiser' | null> {
+    const since = startOfUtcDay(input.now);
+    const campaignToday = await tx.adCompletion.count({
+      where: {
+        userId: input.userId,
+        campaignId: input.campaignId,
+        status: { in: CAP_STATUSES },
+        completedAt: { gte: since },
+      },
+    });
+    if (campaignToday >= input.campaignCap) return 'campaign';
+    const advertiserAds = await tx.adCompletion.findMany({
+      where: {
+        userId: input.userId,
+        status: { in: CAP_STATUSES },
+        completedAt: { gte: since },
+        campaign: { advertiserId: input.advertiserId },
+      },
+      distinct: ['adId'],
+      select: { adId: true },
+    });
+    if (advertiserAds.length >= this.config.platform.advertiserImpressionCapPerUserPerDay) return 'advertiser';
+    return null;
   }
 }

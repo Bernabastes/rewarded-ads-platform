@@ -1,5 +1,5 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Inject, Injectable, Logger, Module } from '@nestjs/common';
+import { Global, Inject, Injectable, Logger, Module } from '@nestjs/common';
 import { type NotificationType, Prisma } from '@prisma/client';
 import { type Job, Queue } from 'bullmq';
 import { AppException } from '../../common/errors/app.exception';
@@ -24,6 +24,10 @@ const PREF_BY_TYPE: Record<NotificationType, 'rewards' | 'withdrawals' | 'offers
   new_offer: 'offers',
   account_status: null,
   system: null,
+  kyc_status: null,
+  referral: 'rewards',
+  data_export: null,
+  account_deletion: null,
 };
 
 /**
@@ -157,6 +161,7 @@ export class NotificationProcessor extends WorkerHost {
   }
 }
 
+@Global()
 @Module({
   providers: [NotificationService, NotificationProcessor],
   exports: [NotificationService],

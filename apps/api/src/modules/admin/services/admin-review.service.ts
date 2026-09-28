@@ -8,6 +8,7 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { CampaignLifecycleService } from '../../campaigns/campaign-lifecycle.service';
 import { CampaignsService } from '../../campaigns/campaigns.service';
+import { MediaService } from '../../media/media.service';
 import type { BannedTopicsChecklistDto } from '../dto/admin.dto';
 
 export interface AdminActor {
@@ -40,6 +41,7 @@ export class AdminReviewService {
     private readonly security: SecurityLogger,
     private readonly campaigns: CampaignsService,
     private readonly lifecycle: CampaignLifecycleService,
+    private readonly media: MediaService,
   ) {}
 
   /* ------------------------------ ads ------------------------------ */
@@ -70,6 +72,14 @@ export class AdminReviewService {
     return this.toReviewItem(ad);
   }
 
+  /** Re-run the media pipeline for a creative whose processing failed (or to re-probe after a re-upload). */
+  async reprocessMedia(id: string, actor: AdminActor) {
+    const ad = await this.prisma.ad.findUnique({ where: { id }, select: { id: true } });
+    if (!ad) throw AppException.notFound('Ad not found');
+    await this.media.reprocess(id, actor);
+    return this.getAd(id);
+  }
+
   async approveAd(
     id: string,
     checklist: BannedTopicsChecklistDto,
@@ -80,6 +90,15 @@ export class AdminReviewService {
     if (!ad) throw AppException.notFound('Ad not found');
     if (ad.reviewStatus !== 'pending')
       throw AppException.conflict(ErrorCode.AD_NOT_PENDING, `Ad is already ${ad.reviewStatus}`);
+    if (ad.mediaStatus === 'processing' || ad.mediaStatus === 'failed') {
+      throw AppException.unprocessable(
+        ErrorCode.MEDIA_NOT_READY,
+        ad.mediaStatus === 'processing'
+          ? 'The creative is still being processed (probe/transcode); try again shortly'
+          : `The creative failed processing: ${ad.mediaError ?? 'unknown error'}. Ask the advertiser to re-upload or reprocess.`,
+        { mediaStatus: ad.mediaStatus, mediaError: ad.mediaError },
+      );
+    }
     const missing = BANNED_TOPICS.filter((t) => checklist.checks[t.key] !== true).map((t) => t.key);
     if (missing.length) {
       throw AppException.badRequest(

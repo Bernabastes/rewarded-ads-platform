@@ -2,10 +2,12 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PayoutMethod } from '@prisma/client';
 import { SecurityLogger } from '../../../infra/logger/logger.module';
 import {
+  DestinationNotFoundError,
   PAYOUT_PROVIDERS,
   type PayoutOptions,
   type PayoutProvider,
   type PayoutResult,
+  type ResolvedAccount,
 } from './payout-provider';
 
 /** Preferred provider order per payout method; later entries are failovers. */
@@ -76,5 +78,30 @@ export class PayoutProviderRegistry {
       }
     }
     throw lastError ?? new Error('Payout failed');
+  }
+
+  /**
+   * Account-name lookup with the same routing/failover as payouts. A DestinationNotFoundError from a provider is
+   * authoritative (no failover: the account really does not exist there); other errors fail over.
+   */
+  async resolveWithFailover(
+    method: PayoutMethod,
+    destination: string,
+    bankCode?: string,
+  ): Promise<{ provider: PayoutProvider; result: ResolvedAccount }> {
+    const candidates = this.providersFor(method).filter((p) => p.isAvailable());
+    if (candidates.length === 0) throw new Error(`No payout provider available for method ${method}`);
+    let lastError: Error | undefined;
+    for (const provider of candidates) {
+      try {
+        const result = await provider.resolveAccount(method, destination, bankCode);
+        return { provider, result };
+      } catch (err) {
+        if (err instanceof DestinationNotFoundError) throw err;
+        lastError = err as Error;
+        this.logger.warn(`Account lookup via ${provider.name} failed: ${lastError.message}`);
+      }
+    }
+    throw lastError ?? new Error('Account lookup failed');
   }
 }

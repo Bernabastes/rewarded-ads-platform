@@ -8,6 +8,8 @@ export interface AuthContext {
   role?: AdminRole;
   /** Raw JWT id (jti) for logging. */
   tokenId?: string;
+  /** Set when a support admin is reading the user's data through a read-only impersonation token. */
+  impersonation?: { actorAdminId: string };
 }
 
 export interface RequestWithAuth extends Request {
@@ -18,6 +20,8 @@ export const IS_PUBLIC_KEY = 'auth:isPublic';
 export const SUBJECTS_KEY = 'auth:subjects';
 export const ROLES_KEY = 'auth:roles';
 export const REQUIRE_VERIFIED_ADULT_KEY = 'auth:requireVerifiedAdult';
+export const REQUIRE_CONSENT_KEY = 'auth:requireConsent';
+export const ALLOW_IMPERSONATION_WRITE_KEY = 'auth:allowImpersonationWrite';
 
 /** Skip authentication for this handler/controller. */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
@@ -30,6 +34,9 @@ export const Roles = (...roles: AdminRole[]) => SetMetadata(ROLES_KEY, roles);
 
 /** User endpoints that require a completed profile with verified adult age. */
 export const RequireVerifiedAdult = () => SetMetadata(REQUIRE_VERIFIED_ADULT_KEY, true);
+
+/** User/advertiser endpoints that require the current terms + privacy versions to be accepted (403 CONSENT_REQUIRED). */
+export const RequireConsent = () => SetMetadata(REQUIRE_CONSENT_KEY, true);
 
 export const CurrentAuth = createParamDecorator((_data: unknown, ctx: ExecutionContext): AuthContext => {
   const req = ctx.switchToHttp().getRequest<RequestWithAuth>();

@@ -19,8 +19,85 @@ export const UserStatus = {
   active: 'active',
   suspended: 'suspended',
   banned: 'banned',
+  /** Account deletion executed: PII anonymised, financial records retained. */
+  deleted: 'deleted',
 } as const;
 export type UserStatus = ValueOf<typeof UserStatus>;
+
+export const KycTier = {
+  phone_only: 'phone_only',
+  id_verified: 'id_verified',
+} as const;
+export type KycTier = ValueOf<typeof KycTier>;
+
+export const KycIdType = {
+  fayda: 'fayda',
+  national_id: 'national_id',
+  passport: 'passport',
+} as const;
+export type KycIdType = ValueOf<typeof KycIdType>;
+
+export const KycStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+export type KycStatus = ValueOf<typeof KycStatus>;
+
+export const LegalDocumentKind = {
+  terms: 'terms',
+  privacy: 'privacy',
+} as const;
+export type LegalDocumentKind = ValueOf<typeof LegalDocumentKind>;
+
+export const AlertSeverity = {
+  info: 'info',
+  warning: 'warning',
+  critical: 'critical',
+} as const;
+export type AlertSeverity = ValueOf<typeof AlertSeverity>;
+
+/** Alert rule identifiers emitted by the API (`PlatformAlert.type`). */
+export const AlertType = {
+  LEDGER_DRIFT: 'LEDGER_DRIFT',
+  PAYOUT_FAILURE_RATE: 'PAYOUT_FAILURE_RATE',
+  ACCOUNT_MINTING: 'ACCOUNT_MINTING',
+  SPEND_VELOCITY: 'SPEND_VELOCITY',
+  OTP_SPIKE: 'OTP_SPIKE',
+  MANUAL: 'MANUAL',
+} as const;
+export type AlertType = ValueOf<typeof AlertType>;
+
+export const ReferralStatus = {
+  pending: 'pending',
+  qualified: 'qualified',
+  paid: 'paid',
+  rejected: 'rejected',
+} as const;
+export type ReferralStatus = ValueOf<typeof ReferralStatus>;
+
+export const MediaStatus = {
+  processing: 'processing',
+  ready: 'ready',
+  duration_corrected: 'duration_corrected',
+  failed: 'failed',
+} as const;
+export type MediaStatus = ValueOf<typeof MediaStatus>;
+
+export const DataExportStatus = {
+  pending: 'pending',
+  processing: 'processing',
+  ready: 'ready',
+  failed: 'failed',
+} as const;
+export type DataExportStatus = ValueOf<typeof DataExportStatus>;
+
+export const DeletionRequestStatus = {
+  pending: 'pending',
+  executed: 'executed',
+  cancelled: 'cancelled',
+} as const;
+export type DeletionRequestStatus = ValueOf<typeof DeletionRequestStatus>;
 
 export const Language = {
   am: 'am',
@@ -91,6 +168,8 @@ export const LedgerSourceType = {
   withdrawal_reversal: 'withdrawal_reversal',
   admin_adjustment: 'admin_adjustment',
   reconciliation: 'reconciliation',
+  /** Referral bonus (referrer or referee). */
+  referral: 'referral',
 } as const;
 export type LedgerSourceType = ValueOf<typeof LedgerSourceType>;
 
@@ -193,6 +272,10 @@ export const NotificationType = {
   new_offer: 'new_offer',
   account_status: 'account_status',
   system: 'system',
+  kyc_status: 'kyc_status',
+  referral: 'referral',
+  data_export: 'data_export',
+  account_deletion: 'account_deletion',
 } as const;
 export type NotificationType = ValueOf<typeof NotificationType>;
 

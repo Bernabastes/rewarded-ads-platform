@@ -6,6 +6,8 @@ import { AppConfig } from '../../config/app-config';
 import { SecurityLogger } from '../../infra/logger/logger.module';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_RECONCILIATION } from '../../infra/queue/queue.module';
+import { AlertService } from '../alerts/alerts.service';
+import { ledgerDriftAlert } from '../alerts/alert.rules';
 import { AuditService } from '../audit/audit.service';
 
 export interface LedgerDrift {
@@ -29,6 +31,7 @@ export class LedgerReconciliationService {
     private readonly prisma: PrismaService,
     private readonly security: SecurityLogger,
     private readonly audit: AuditService,
+    private readonly alerts: AlertService,
   ) {}
 
   async findDrifts(): Promise<{ usersChecked: number; drifts: LedgerDrift[] }> {
@@ -92,6 +95,10 @@ export class LedgerReconciliationService {
 
   private async raiseDrift(drift: LedgerDrift, runId: string) {
     this.security.error('ledger.drift_detected', { ...drift, runId });
+    // Money-day alert (Telegram / webhook / log) - deduped per user within ALERT_DEDUPE_MINUTES.
+    await this.alerts
+      .raise(ledgerDriftAlert({ userId: drift.userId, cachedBalance: drift.cachedBalance, ledgerSum: drift.ledgerSum, runId }))
+      .catch((err: Error) => this.logger.error(`Could not raise LEDGER_DRIFT alert: ${err.message}`));
     const open = await this.prisma.fraudFlag.findFirst({
       where: { userId: drift.userId, flagType: 'LEDGER_DRIFT', resolved: false },
       select: { id: true },

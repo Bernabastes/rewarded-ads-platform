@@ -198,7 +198,7 @@ export interface TrustScoreInputs {
   validCompletions: number;
   completedWithdrawals: number;
   openFlagsBySeverity: Partial<Record<FraudSeverity, number>>;
-  status: 'active' | 'suspended' | 'banned';
+  status: 'active' | 'suspended' | 'banned' | 'deleted';
 }
 
 /**
@@ -214,7 +214,7 @@ export function computeTrustScore(input: TrustScoreInputs): number {
   );
   let score = 50 + positive - Math.min(60, penalties);
   if (input.status === 'suspended') score = Math.min(score, 20);
-  if (input.status === 'banned') score = 0;
+  if (input.status === 'banned' || input.status === 'deleted') score = 0;
   return clampTrust(Math.round(score));
 }
 

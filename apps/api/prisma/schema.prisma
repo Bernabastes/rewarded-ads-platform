@@ -13,9 +13,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/* ------------------------------------------------------------------ */
-/* Enums                                                               */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Enums
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 enum AgeVerificationStatus {
   pending
@@ -27,6 +33,75 @@ enum UserStatus {
   active
   suspended
   banned
+  /// Account deletion executed: PII anonymised, ledger/audit retained (see ARCHITECTURE.md §15).
+  deleted
+}
+
+/// KYC tier. `phone_only` (OTP-verified number) is the default; `id_verified` after an approved KYC submission.
+enum KycTier {
+  phone_only
+  id_verified
+}
+
+enum KycIdType {
+  fayda
+  national_id
+  passport
+}
+
+enum KycStatus {
+  pending
+  approved
+  rejected
+}
+
+enum LegalDocumentKind {
+  terms
+  privacy
+}
+
+enum AlertSeverity {
+  info
+  warning
+  critical
+}
+
+enum ReferralStatus {
+  /// Referee signed up with the code; waiting for their first valid ad completion.
+  pending
+  /// Referee qualified but the bonus was withheld (referrer daily cap / referrer inactive) - not fraud.
+  qualified
+  /// Both bonuses credited through the ledger (same transaction as the qualifying completion).
+  paid
+  /// Fraud guard fired (shared device / IP with the referrer).
+  rejected
+}
+
+/// Creative processing state (media.process job): probe -> transcode -> ready.
+enum MediaStatus {
+  processing
+  ready
+  /// Probed duration differed from the declared one by more than 1 s; duration_seconds was corrected.
+  duration_corrected
+  failed
+}
+
+enum DataExportStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+enum DeletionRequestStatus {
+  pending
+  executed
+  cancelled
+}
+
+enum OtpPurpose {
+  login
+  destination_change
 }
 
 enum Language {
@@ -90,6 +165,8 @@ enum LedgerSourceType {
   withdrawal_reversal
   admin_adjustment
   reconciliation
+  /// Referral bonus (referrer or referee), credited with the referee's first valid completion.
+  referral
 }
 
 enum PayoutMethod {
@@ -179,6 +256,10 @@ enum NotificationType {
   new_offer
   account_status
   system
+  kyc_status
+  referral
+  data_export
+  account_deletion
 }
 
 enum PushStatus {
@@ -216,31 +297,46 @@ enum OfferCompletionStatus {
   rejected
 }
 
-/* ------------------------------------------------------------------ */
-/* Identity                                                            */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Identity
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 model User {
-  id                    String                @id @default(uuid()) @db.Uuid
-  phoneNumber           String                @unique @map("phone_number")
-  phoneVerifiedAt       DateTime?             @map("phone_verified_at")
-  fullName              String?               @map("full_name")
-  dateOfBirth           DateTime?             @map("date_of_birth") @db.Date
-  ageVerificationStatus AgeVerificationStatus @default(pending) @map("age_verification_status")
-  deviceId              String?               @map("device_id")
+  id                      String                @id @default(uuid()) @db.Uuid
+  phoneNumber             String                @unique @map("phone_number")
+  phoneVerifiedAt         DateTime?             @map("phone_verified_at")
+  fullName                String?               @map("full_name")
+  dateOfBirth             DateTime?             @map("date_of_birth") @db.Date
+  ageVerificationStatus   AgeVerificationStatus @default(pending) @map("age_verification_status")
+  deviceId                String?               @map("device_id")
   /// Reserved for optional password auth; users authenticate with OTP only today.
-  passwordHash          String?               @map("password_hash")
-  languagePreference    Language              @default(am) @map("language_preference")
+  passwordHash            String?               @map("password_hash")
+  languagePreference      Language              @default(am) @map("language_preference")
   /// CACHED value. Written ONLY by LedgerService.applyEntry inside the ledger transaction.
-  coinBalance           Int                   @default(0) @map("coin_balance")
-  trustScore            Int                   @default(50) @map("trust_score")
-  status                UserStatus            @default(active)
-  statusReason          String?               @map("status_reason")
-  notificationPrefs     Json                  @default("{\"rewards\":true,\"withdrawals\":true,\"offers\":true}") @map("notification_prefs")
-  lastLoginAt           DateTime?             @map("last_login_at")
-  lastIp                String?               @map("last_ip")
-  createdAt             DateTime              @default(now()) @map("created_at")
-  updatedAt             DateTime              @updatedAt @map("updated_at")
+  coinBalance             Int                   @default(0) @map("coin_balance")
+  trustScore              Int                   @default(50) @map("trust_score")
+  status                  UserStatus            @default(active)
+  statusReason            String?               @map("status_reason")
+  notificationPrefs       Json                  @default("{\"rewards\":true,\"withdrawals\":true,\"offers\":true}") @map("notification_prefs")
+  lastLoginAt             DateTime?             @map("last_login_at")
+  lastIp                  String?               @map("last_ip")
+  /// KYC tier; `id_verified` once a KYC submission is approved. Gates payouts above KYC_REQUIRED_ABOVE_MONTHLY_ETB.
+  kycTier                 KycTier               @default(phone_only) @map("kyc_tier")
+  /// 6-char shareable referral code (unique; generated on first login / on demand).
+  referralCode            String?               @unique @map("referral_code")
+  /// Device fingerprint / IP recorded at account creation (referral fraud guards, account-minting alerts).
+  signupDeviceFingerprint String?               @map("signup_device_fingerprint")
+  signupIp                String?               @map("signup_ip")
+  /// Set when an account deletion request was executed (PII anonymised).
+  anonymizedAt            DateTime?             @map("anonymized_at")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
 
   watchSessions         AdWatchSession[]
   completions           AdCompletion[]
@@ -253,25 +349,36 @@ model User {
   pushTokens            DevicePushToken[]
   adReports             AdReport[]
   coinAdjustments       CoinAdjustmentRequest[]
+  payoutDestinations    PayoutDestination[]
+  kycSubmissions        KycSubmission[]
+  consents              UserConsent[]
+  referralsMade         Referral[]               @relation("Referrer")
+  referralReceived      Referral?                @relation("Referee")
+  dataExports           DataExportRequest[]
+  deletionRequests      AccountDeletionRequest[]
 
   @@index([status])
   @@index([deviceId])
   @@index([trustScore])
   @@index([createdAt])
+  @@index([signupDeviceFingerprint, createdAt])
   @@map("users")
 }
 
 model OtpCode {
-  id          String    @id @default(uuid()) @db.Uuid
-  phoneNumber String    @map("phone_number")
-  codeHash    String    @map("code_hash")
-  expiresAt   DateTime  @map("expires_at")
-  attempts    Int       @default(0)
-  consumedAt  DateTime? @map("consumed_at")
-  ipAddress   String?   @map("ip_address")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id          String     @id @default(uuid()) @db.Uuid
+  phoneNumber String     @map("phone_number")
+  codeHash    String     @map("code_hash")
+  /// login (default) or destination_change (re-check before paying out to a new destination).
+  purpose     OtpPurpose @default(login)
+  expiresAt   DateTime   @map("expires_at")
+  attempts    Int        @default(0)
+  consumedAt  DateTime?  @map("consumed_at")
+  ipAddress   String?    @map("ip_address")
+  createdAt   DateTime   @default(now()) @map("created_at")
 
   @@index([phoneNumber, createdAt])
+  @@index([ipAddress, createdAt])
   @@map("otp_codes")
 }
 
@@ -313,9 +420,15 @@ model AdminUser {
   @@map("admin_users")
 }
 
-/* ------------------------------------------------------------------ */
-/* Advertisers, wallet, billing                                        */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Advertisers, wallet, billing
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 model Advertiser {
   id                         String                       @id @default(uuid()) @db.Uuid
@@ -338,6 +451,7 @@ model Advertiser {
   walletEntries AdvertiserWalletLedger[]
   payments      AdvertiserPayment[]
   invoices      Invoice[]
+  consents      AdvertiserConsent[]
 
   @@index([verificationStatus])
   @@map("advertisers")
@@ -372,7 +486,9 @@ model AdvertiserPayment {
   txRef            String        @unique @map("tx_ref")
   gatewayReference String?       @map("gateway_reference")
   checkoutUrl      String?       @map("checkout_url")
-  /** Where the browser is sent after checkout (caller-supplied; mock checkout honours it). */
+  /**
+   * Where the browser is sent after checkout (caller-supplied; mock checkout honours it).
+   */
   returnUrl        String?       @map("return_url")
   status           PaymentStatus @default(pending)
   mock             Boolean       @default(false)
@@ -411,37 +527,45 @@ model Invoice {
   @@map("invoices")
 }
 
-/* ------------------------------------------------------------------ */
-/* Campaigns & ads                                                     */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Campaigns & ads
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 model Campaign {
-  id                    String           @id @default(uuid()) @db.Uuid
-  advertiserId          String           @map("advertiser_id") @db.Uuid
-  title                 String
-  description           String?
-  budgetEtb             Decimal          @map("budget_etb") @db.Decimal(12, 2)
+  id                        String           @id @default(uuid()) @db.Uuid
+  advertiserId              String           @map("advertiser_id") @db.Uuid
+  title                     String
+  description               String?
+  budgetEtb                 Decimal          @map("budget_etb") @db.Decimal(12, 2)
   /// CACHED sum of cost_etb over valid completions; updated atomically in the completion transaction.
-  spentEtb              Decimal          @default(0) @map("spent_etb") @db.Decimal(12, 2)
-  status                CampaignStatus   @default(draft)
-  startDate             DateTime?        @map("start_date") @db.Date
-  endDate               DateTime?        @map("end_date") @db.Date
-  targetActionType      TargetActionType @map("target_action_type")
+  spentEtb                  Decimal          @default(0) @map("spent_etb") @db.Decimal(12, 2)
+  status                    CampaignStatus   @default(draft)
+  startDate                 DateTime?        @map("start_date") @db.Date
+  endDate                   DateTime?        @map("end_date") @db.Date
+  targetActionType          TargetActionType @map("target_action_type")
   /// What the advertiser pays per valid action.
-  costPerActionEtb      Decimal          @map("cost_per_action_etb") @db.Decimal(12, 2)
+  costPerActionEtb          Decimal          @map("cost_per_action_etb") @db.Decimal(12, 2)
   /// What the user earns per valid action = cost * (1 - PLATFORM_TAKE_RATE), snapshotted at creation.
-  rewardPerActionEtb    Decimal          @map("reward_per_action_etb") @db.Decimal(12, 2)
-  takeRateSnapshot      Decimal          @map("take_rate_snapshot") @db.Decimal(5, 4)
-  attentionCheckEnabled Boolean          @default(true) @map("attention_check_enabled")
-  submittedAt           DateTime?        @map("submitted_at")
-  reviewedAt            DateTime?        @map("reviewed_at")
-  reviewedBy            String?          @map("reviewed_by") @db.Uuid
-  rejectionReason       String?          @map("rejection_reason")
-  pausedReason          String?          @map("paused_reason")
-  completedAt           DateTime?        @map("completed_at")
-  budgetReservedEtb     Decimal          @default(0) @map("budget_reserved_etb") @db.Decimal(12, 2)
-  createdAt             DateTime         @default(now()) @map("created_at")
-  updatedAt             DateTime         @updatedAt @map("updated_at")
+  rewardPerActionEtb        Decimal          @map("reward_per_action_etb") @db.Decimal(12, 2)
+  takeRateSnapshot          Decimal          @map("take_rate_snapshot") @db.Decimal(5, 4)
+  attentionCheckEnabled     Boolean          @default(true) @map("attention_check_enabled")
+  /// Max rewarded completions of this campaign's ads per user per UTC day (advertiser-editable 1-5).
+  frequencyCapPerUserPerDay Int              @default(1) @map("frequency_cap_per_user_per_day")
+  submittedAt               DateTime?        @map("submitted_at")
+  reviewedAt                DateTime?        @map("reviewed_at")
+  reviewedBy                String?          @map("reviewed_by") @db.Uuid
+  rejectionReason           String?          @map("rejection_reason")
+  pausedReason              String?          @map("paused_reason")
+  completedAt               DateTime?        @map("completed_at")
+  budgetReservedEtb         Decimal          @default(0) @map("budget_reserved_etb") @db.Decimal(12, 2)
+  createdAt                 DateTime         @default(now()) @map("created_at")
+  updatedAt                 DateTime         @updatedAt @map("updated_at")
 
   advertiser       Advertiser        @relation(fields: [advertiserId], references: [id])
   ads              Ad[]
@@ -456,24 +580,35 @@ model Campaign {
 }
 
 model Ad {
-  id                    String       @id @default(uuid()) @db.Uuid
-  campaignId            String       @map("campaign_id") @db.Uuid
-  title                 String
-  description           String?
-  mediaUrl              String       @map("media_url")
-  thumbnailUrl          String?      @map("thumbnail_url")
-  storageKey            String?      @map("storage_key")
-  mediaType             MediaType    @map("media_type")
-  durationSeconds       Int          @map("duration_seconds")
-  reviewStatus          ReviewStatus @default(pending) @map("review_status")
-  reviewedBy            String?      @map("reviewed_by") @db.Uuid
-  reviewedAt            DateTime?    @map("reviewed_at")
-  rejectionReason       String?      @map("rejection_reason")
-  reviewNote            String?      @map("review_note")
+  id                      String       @id @default(uuid()) @db.Uuid
+  campaignId              String       @map("campaign_id") @db.Uuid
+  title                   String
+  description             String?
+  mediaUrl                String       @map("media_url")
+  thumbnailUrl            String?      @map("thumbnail_url")
+  storageKey              String?      @map("storage_key")
+  mediaType               MediaType    @map("media_type")
+  durationSeconds         Int          @map("duration_seconds")
+  reviewStatus            ReviewStatus @default(pending) @map("review_status")
+  reviewedBy              String?      @map("reviewed_by") @db.Uuid
+  reviewedAt              DateTime?    @map("reviewed_at")
+  rejectionReason         String?      @map("rejection_reason")
+  reviewNote              String?      @map("review_note")
   /// Structured banned-topics checklist filled by the reviewer: { checks: {alcohol: true, ...}, notes }.
-  bannedTopicsChecklist Json?        @map("banned_topics_checklist")
-  createdAt             DateTime     @default(now()) @map("created_at")
-  updatedAt             DateTime     @updatedAt @map("updated_at")
+  bannedTopicsChecklist   Json?        @map("banned_topics_checklist")
+  /// media.process pipeline state. Review cannot approve while processing/failed.
+  mediaStatus             MediaStatus  @default(ready) @map("media_status")
+  /// ffprobe result: { durationSeconds, codec, width, height, bitrate, container }.
+  mediaProbe              Json?        @map("media_probe")
+  durationDeclaredSeconds Int?         @map("duration_declared_seconds")
+  durationProbedSeconds   Int?         @map("duration_probed_seconds")
+  /// Original (advertiser-uploaded) URL kept when media_url is switched to the transcoded rendition.
+  originalMediaUrl        String?      @map("original_media_url")
+  transcodedStorageKey    String?      @map("transcoded_storage_key")
+  mediaError              String?      @map("media_error")
+  mediaProcessedAt        DateTime?    @map("media_processed_at")
+  createdAt               DateTime     @default(now()) @map("created_at")
+  updatedAt               DateTime     @updatedAt @map("updated_at")
 
   campaign           Campaign            @relation(fields: [campaignId], references: [id])
   reviewer           AdminUser?          @relation("AdReviewer", fields: [reviewedBy], references: [id])
@@ -484,6 +619,7 @@ model Ad {
 
   @@index([campaignId])
   @@index([reviewStatus])
+  @@index([mediaStatus])
   @@map("ads")
 }
 
@@ -573,9 +709,15 @@ model AdCompletion {
   @@map("ad_completions")
 }
 
-/* ------------------------------------------------------------------ */
-/* Coins                                                               */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Coins
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 /// APPEND-ONLY. UPDATE/DELETE are blocked by a Postgres trigger (migration 0001).
 model CoinLedger {
@@ -640,45 +782,86 @@ model LedgerReconciliationRun {
   @@map("ledger_reconciliation_runs")
 }
 
-/* ------------------------------------------------------------------ */
-/* Withdrawals                                                          */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Withdrawals
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 model Withdrawal {
-  id                    String           @id @default(uuid()) @db.Uuid
-  userId                String           @map("user_id") @db.Uuid
-  amountEtb             Decimal          @map("amount_etb") @db.Decimal(12, 2)
-  coinAmount            Int              @map("coin_amount")
-  payoutMethod          PayoutMethod     @map("payout_method")
-  payoutDestination     String           @map("payout_destination")
-  destinationName       String?          @map("destination_name")
-  bankCode              String?          @map("bank_code")
-  status                WithdrawalStatus @default(pending)
+  id                     String           @id @default(uuid()) @db.Uuid
+  userId                 String           @map("user_id") @db.Uuid
+  amountEtb              Decimal          @map("amount_etb") @db.Decimal(12, 2)
+  coinAmount             Int              @map("coin_amount")
+  payoutMethod           PayoutMethod     @map("payout_method")
+  payoutDestination      String           @map("payout_destination")
+  destinationName        String?          @map("destination_name")
+  bankCode               String?          @map("bank_code")
+  /// Account holder name returned by the partner's account lookup (PayoutProvider.resolveAccount).
+  destinationAccountName String?          @map("destination_account_name")
+  destinationVerifiedAt  DateTime?        @map("destination_verified_at")
+  payoutDestinationId    String?          @map("payout_destination_id") @db.Uuid
+  status                 WithdrawalStatus @default(pending)
   /// e.g. ["first_withdrawal", "large_amount"]
-  reviewReasons         Json             @default("[]") @map("review_reasons")
-  isFirstWithdrawal     Boolean          @default(false) @map("is_first_withdrawal")
-  requiresDualApproval  Boolean          @default(false) @map("requires_dual_approval")
-  reviewNote            String?          @map("review_note")
-  failureReason         String?          @map("failure_reason")
-  providerName          String?          @map("provider_name")
-  providerPayoutId      String?          @map("provider_payout_id")
-  providerStatusRaw     Json?            @map("provider_status_raw")
-  attempts              Int              @default(0)
-  ledgerHoldEntryId     String?          @unique @map("ledger_hold_entry_id") @db.Uuid
-  ledgerReversalEntryId String?          @unique @map("ledger_reversal_entry_id") @db.Uuid
-  requestedAt           DateTime         @default(now()) @map("requested_at")
-  processedAt           DateTime?        @map("processed_at")
-  processedBy           String?          @map("processed_by") @db.Uuid
-  createdAt             DateTime         @default(now()) @map("created_at")
-  updatedAt             DateTime         @updatedAt @map("updated_at")
+  reviewReasons          Json             @default("[]") @map("review_reasons")
+  isFirstWithdrawal      Boolean          @default(false) @map("is_first_withdrawal")
+  requiresDualApproval   Boolean          @default(false) @map("requires_dual_approval")
+  reviewNote             String?          @map("review_note")
+  failureReason          String?          @map("failure_reason")
+  providerName           String?          @map("provider_name")
+  providerPayoutId       String?          @map("provider_payout_id")
+  providerStatusRaw      Json?            @map("provider_status_raw")
+  attempts               Int              @default(0)
+  ledgerHoldEntryId      String?          @unique @map("ledger_hold_entry_id") @db.Uuid
+  ledgerReversalEntryId  String?          @unique @map("ledger_reversal_entry_id") @db.Uuid
+  requestedAt            DateTime         @default(now()) @map("requested_at")
+  processedAt            DateTime?        @map("processed_at")
+  processedBy            String?          @map("processed_by") @db.Uuid
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
 
-  user      User                 @relation(fields: [userId], references: [id])
-  approvals WithdrawalApproval[]
+  user        User                 @relation(fields: [userId], references: [id])
+  approvals   WithdrawalApproval[]
+  destination PayoutDestination?   @relation(fields: [payoutDestinationId], references: [id])
 
   @@index([userId, requestedAt])
   @@index([status, requestedAt])
   @@index([providerPayoutId])
   @@map("withdrawals")
+}
+
+/// A payout destination the user has verified (partner name lookup + OTP re-check) and may reuse.
+model PayoutDestination {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @map("user_id") @db.Uuid
+  payoutMethod  PayoutMethod @map("payout_method")
+  /// Normalised destination (E.164 phone or bank account number).
+  destination   String
+  bankCode      String?      @map("bank_code")
+  /// Account holder name returned by the partner lookup (MOCK: deterministic fake name).
+  accountName   String?      @map("account_name")
+  providerName  String?      @map("provider_name")
+  providerMock  Boolean      @default(true) @map("provider_mock")
+  /// Last successful resolveAccount(); a NEW destination needs one within DESTINATION_RESOLVE_TTL_MINUTES.
+  verifiedAt    DateTime?    @map("verified_at")
+  /// Last OTP re-check for this destination (purpose destination_change).
+  otpVerifiedAt DateTime?    @map("otp_verified_at")
+  /// Set when a withdrawal to this destination was successfully requested (=> "known" destination).
+  lastUsedAt    DateTime?    @map("last_used_at")
+  useCount      Int          @default(0) @map("use_count")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  user        User         @relation(fields: [userId], references: [id])
+  withdrawals Withdrawal[]
+
+  @@unique([userId, payoutMethod, destination])
+  @@index([userId, lastUsedAt])
+  @@map("payout_destinations")
 }
 
 /// One row per admin decision; the unique constraint enforces two DISTINCT admins for dual approval.
@@ -697,9 +880,15 @@ model WithdrawalApproval {
   @@map("withdrawal_approvals")
 }
 
-/* ------------------------------------------------------------------ */
-/* Offers                                                              */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Offers
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 model Survey {
   id               String   @id @default(uuid()) @db.Uuid
@@ -741,17 +930,17 @@ model SurveyResponse {
 }
 
 model AppInstallOffer {
-  id           String   @id @default(uuid()) @db.Uuid
-  campaignId   String   @map("campaign_id") @db.Uuid
-  appName      String   @map("app_name")
-  packageName  String?  @map("package_name")
-  storeUrl     String   @map("store_url")
-  iconUrl      String?  @map("icon_url")
+  id          String   @id @default(uuid()) @db.Uuid
+  campaignId  String   @map("campaign_id") @db.Uuid
+  appName     String   @map("app_name")
+  packageName String?  @map("package_name")
+  storeUrl    String   @map("store_url")
+  iconUrl     String?  @map("icon_url")
   /// { description, instructions }
-  details      Json
-  rewardEtb    Decimal  @map("reward_etb") @db.Decimal(12, 2)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
+  details     Json
+  rewardEtb   Decimal  @map("reward_etb") @db.Decimal(12, 2)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
 
   campaign    Campaign               @relation(fields: [campaignId], references: [id])
   completions AppInstallCompletion[]
@@ -782,9 +971,15 @@ model AppInstallCompletion {
   @@map("app_install_completions")
 }
 
-/* ------------------------------------------------------------------ */
-/* Fraud, audit, notifications, reports                                */
-/* ------------------------------------------------------------------ */
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Fraud, audit, notifications, reports
+ */
+/**
+ * ------------------------------------------------------------------
+ */
 
 model FraudFlag {
   id                String           @id @default(uuid()) @db.Uuid
@@ -885,4 +1080,205 @@ model AdReport {
   @@unique([userId, adId])
   @@index([status, createdAt])
   @@map("ad_reports")
+}
+
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Phase 4A: idempotency, KYC, consent, alerts, referrals, data rights
+ */
+/**
+ * ------------------------------------------------------------------
+ */
+
+/// Stored responses for `Idempotency-Key` requests on money POSTs (24 h TTL). A row is inserted BEFORE the
+/// handler runs (status_code 0 = in progress) so concurrent duplicates are rejected, then completed.
+model IdempotencyKey {
+  id           String          @id @default(uuid()) @db.Uuid
+  key          String
+  actorType    AuthSubjectType @map("actor_type")
+  actorId      String          @map("actor_id") @db.Uuid
+  method       String
+  path         String
+  /// sha256 of the canonical JSON body: same key + different hash => 409 IDEMPOTENCY_KEY_REUSED.
+  requestHash  String          @map("request_hash")
+  statusCode   Int             @default(0) @map("status_code")
+  responseBody Json?           @map("response_body")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  expiresAt    DateTime        @map("expires_at")
+
+  @@unique([actorType, actorId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+model KycSubmission {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  idType           KycIdType @map("id_type")
+  /// sha256(idType:idNumber) - the raw number is never stored.
+  idNumberHash     String    @map("id_number_hash")
+  idNumberLast4    String    @map("id_number_last4")
+  fullName         String    @map("full_name")
+  dateOfBirth      DateTime  @map("date_of_birth") @db.Date
+  /// Private S3 keys (never public URLs); admins get 5-minute presigned GET links.
+  documentFrontKey String    @map("document_front_key")
+  documentBackKey  String?   @map("document_back_key")
+  selfieKey        String    @map("selfie_key")
+  status           KycStatus @default(pending)
+  /// IdVerificationProvider result (MockFaydaProvider today): { provider, mock, match, score, ... }.
+  providerName     String?   @map("provider_name")
+  providerResult   Json?     @map("provider_result")
+  reviewedBy       String?   @map("reviewed_by") @db.Uuid
+  reviewedAt       DateTime? @map("reviewed_at")
+  reason           String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([idNumberHash])
+  @@map("kyc_submissions")
+}
+
+/// Published legal documents. "Current" = latest published_at per kind; a version exists in every locale.
+model LegalDocument {
+  id              String            @id @default(uuid()) @db.Uuid
+  kind            LegalDocumentKind
+  version         String
+  locale          Language
+  title           String
+  url             String?
+  contentMarkdown String?           @map("content_markdown")
+  publishedAt     DateTime          @default(now()) @map("published_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@unique([kind, version, locale])
+  @@index([kind, publishedAt])
+  @@map("legal_documents")
+}
+
+model UserConsent {
+  id         String            @id @default(uuid()) @db.Uuid
+  userId     String            @map("user_id") @db.Uuid
+  kind       LegalDocumentKind
+  version    String
+  acceptedAt DateTime          @default(now()) @map("accepted_at")
+  ipAddress  String?           @map("ip_address")
+  deviceId   String?           @map("device_id")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, kind, version])
+  @@map("user_consents")
+}
+
+model AdvertiserConsent {
+  id           String            @id @default(uuid()) @db.Uuid
+  advertiserId String            @map("advertiser_id") @db.Uuid
+  kind         LegalDocumentKind
+  version      String
+  acceptedAt   DateTime          @default(now()) @map("accepted_at")
+  ipAddress    String?           @map("ip_address")
+
+  advertiser Advertiser @relation(fields: [advertiserId], references: [id])
+
+  @@unique([advertiserId, kind, version])
+  @@map("advertiser_consents")
+}
+
+/// Money-day alerts raised by AlertService (ledger drift, payout failure rate, account minting, spend velocity,
+/// OTP spikes). Delivered to Telegram / webhook / log; acknowledged by an admin.
+model PlatformAlert {
+  id             String        @id @default(uuid()) @db.Uuid
+  type           String
+  severity       AlertSeverity
+  title          String
+  payload        Json
+  /// Same dedupe key within ALERT_DEDUPE_MINUTES is not re-raised.
+  dedupeKey      String?       @map("dedupe_key")
+  /// Per-notifier delivery outcome: [{ notifier, ok, error? }].
+  deliveries     Json?
+  acknowledgedBy String?       @map("acknowledged_by") @db.Uuid
+  acknowledgedAt DateTime?     @map("acknowledged_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([acknowledgedAt])
+  @@index([dedupeKey, createdAt])
+  @@map("platform_alerts")
+}
+
+model Referral {
+  id                      String         @id @default(uuid()) @db.Uuid
+  referrerId              String         @map("referrer_id") @db.Uuid
+  refereeId               String         @unique @map("referee_id") @db.Uuid
+  code                    String
+  status                  ReferralStatus @default(pending)
+  referrerBonusCoins      Int            @default(0) @map("referrer_bonus_coins")
+  refereeBonusCoins       Int            @default(0) @map("referee_bonus_coins")
+  /// The referee's first valid completion that qualified the referral.
+  qualifyingCompletionId  String?        @map("qualifying_completion_id") @db.Uuid
+  qualifiedAt             DateTime?      @map("qualified_at")
+  paidAt                  DateTime?      @map("paid_at")
+  /// self_referral_device | self_referral_ip | referrer_daily_cap | referrer_inactive
+  rejectionReason         String?        @map("rejection_reason")
+  signupIp                String?        @map("signup_ip")
+  signupDeviceFingerprint String?        @map("signup_device_fingerprint")
+  createdAt               DateTime       @default(now()) @map("created_at")
+  updatedAt               DateTime       @updatedAt @map("updated_at")
+
+  referrer User @relation("Referrer", fields: [referrerId], references: [id])
+  referee  User @relation("Referee", fields: [refereeId], references: [id])
+
+  @@index([referrerId, createdAt])
+  @@index([status, createdAt])
+  @@map("referrals")
+}
+
+model DataExportRequest {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @map("user_id") @db.Uuid
+  status      DataExportStatus @default(pending)
+  /// Private S3 key of the JSON archive; download links are presigned on read.
+  storageKey  String?          @map("storage_key")
+  sizeBytes   Int?             @map("size_bytes")
+  error       String?
+  requestedAt DateTime         @default(now()) @map("requested_at")
+  completedAt DateTime?        @map("completed_at")
+  expiresAt   DateTime?        @map("expires_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, requestedAt])
+  @@index([status])
+  @@map("data_export_requests")
+}
+
+/// Right-to-erasure requests: executed after ACCOUNT_DELETION_GRACE_DAYS unless cancelled; PII is anonymised
+/// while ledger, completions and audit rows are retained (financial-record obligations).
+model AccountDeletionRequest {
+  id           String                @id @default(uuid()) @db.Uuid
+  userId       String                @map("user_id") @db.Uuid
+  status       DeletionRequestStatus @default(pending)
+  reason       String?
+  requestedAt  DateTime              @default(now()) @map("requested_at")
+  scheduledFor DateTime              @map("scheduled_for")
+  executedAt   DateTime?             @map("executed_at")
+  executedBy   String?               @map("executed_by") @db.Uuid
+  cancelledAt  DateTime?             @map("cancelled_at")
+  cancelledBy  String?               @map("cancelled_by") @db.Uuid
+  note         String?
+  ipAddress    String?               @map("ip_address")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([userId, requestedAt])
+  @@map("account_deletion_requests")
 }

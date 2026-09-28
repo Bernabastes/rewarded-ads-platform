@@ -107,6 +107,59 @@ export const envSchema = z
 
     SUPPORT_TELEGRAM_URL: z.string().default('https://t.me/rap_support'),
     SUPPORT_PHONE: z.string().default('+251900000000'),
+
+    /* ---------- Phase 4A ---------- */
+    /** Rolling 30-day payout total (ETB) above which phone_only users must complete KYC. */
+    KYC_REQUIRED_ABOVE_MONTHLY_ETB: num(PLATFORM_DEFAULTS.KYC_REQUIRED_ABOVE_MONTHLY_ETB),
+    /** Presigned GET links for KYC documents shown to admins (seconds). */
+    KYC_DOCUMENT_URL_TTL_SECONDS: num(300),
+    ID_VERIFICATION_PROVIDER: z.enum(['mock', 'fayda']).default('mock'),
+    FAYDA_BASE_URL: z.string().default('https://api.fayda.et'),
+    FAYDA_CLIENT_ID: z.string().optional(),
+    FAYDA_CLIENT_SECRET: z.string().optional(),
+
+    /** A destination lookup (resolve) stays valid this long; the OTP re-check too. */
+    DESTINATION_RESOLVE_TTL_MINUTES: num(PLATFORM_DEFAULTS.DESTINATION_RESOLVE_TTL_MINUTES),
+
+    ALERT_TELEGRAM_BOT_TOKEN: z.string().optional(),
+    ALERT_TELEGRAM_CHAT_ID: z.string().optional(),
+    ALERT_WEBHOOK_URL: z.string().optional(),
+    ALERT_RULES_CRON: z.string().default('*/5 * * * *'),
+    ALERT_RULES_ENABLED: bool.default(true),
+    /** Same alert dedupe key is not re-raised within this window. */
+    ALERT_DEDUPE_MINUTES: num(60),
+    ALERT_PAYOUT_FAILURE_RATE: num(0.2),
+    ALERT_PAYOUT_MIN_SAMPLE: num(5),
+    ALERT_ACCOUNTS_PER_DEVICE_PER_HOUR: num(3),
+    ALERT_SPEND_VELOCITY_MULTIPLIER: num(5),
+    ALERT_SPEND_VELOCITY_MIN_ETB: num(50),
+    ALERT_OTP_REQUESTS_PER_IP_PER_HOUR: num(20),
+
+    DEFAULT_FREQUENCY_CAP: num(PLATFORM_DEFAULTS.DEFAULT_FREQUENCY_CAP),
+    ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY: num(PLATFORM_DEFAULTS.ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY),
+
+    MEDIA_PROCESSING_ENABLED: bool.default(true),
+    /** Explicit binaries (e.g. apk ffmpeg in the container); falls back to ffmpeg-static / ffprobe-static / PATH. */
+    MEDIA_FFMPEG_PATH: z.string().optional(),
+    MEDIA_FFPROBE_PATH: z.string().optional(),
+    MEDIA_JOB_TIMEOUT_SECONDS: num(300),
+    MEDIA_TARGET_HEIGHT: num(720),
+    /** |declared - probed| above this (seconds) corrects duration_seconds and marks duration_corrected. */
+    MEDIA_DURATION_TOLERANCE_SECONDS: num(1),
+
+    REFERRAL_BONUS_COINS: num(PLATFORM_DEFAULTS.REFERRAL_BONUS_COINS),
+    REFEREE_BONUS_COINS: num(PLATFORM_DEFAULTS.REFEREE_BONUS_COINS),
+    REFERRAL_MAX_PER_REFERRER_PER_DAY: num(PLATFORM_DEFAULTS.REFERRAL_MAX_PER_REFERRER_PER_DAY),
+    /** Share link template ({code} is replaced). */
+    REFERRAL_SHARE_URL: z.string().default('https://gize.app/r/{code}'),
+
+    ACCOUNT_DELETION_GRACE_DAYS: num(PLATFORM_DEFAULTS.ACCOUNT_DELETION_GRACE_DAYS),
+    /** Cron for the job that executes due deletion requests and expires old exports. */
+    DATA_RIGHTS_CRON: z.string().default('30 * * * *'),
+    DATA_EXPORT_URL_TTL_SECONDS: num(900),
+    DATA_EXPORT_RETENTION_DAYS: num(7),
+    IMPERSONATION_TTL_SECONDS: num(600),
+    IDEMPOTENCY_TTL_HOURS: num(PLATFORM_DEFAULTS.IDEMPOTENCY_TTL_HOURS),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {
@@ -129,6 +182,19 @@ export const envSchema = z
     }
     if (env.MIN_WATCH_RATIO <= 0 || env.MIN_WATCH_RATIO > 1) {
       ctx.addIssue({ code: 'custom', path: ['MIN_WATCH_RATIO'], message: 'must be in (0,1]' });
+    }
+    if (env.DEFAULT_FREQUENCY_CAP < 1 || env.DEFAULT_FREQUENCY_CAP > 5) {
+      ctx.addIssue({ code: 'custom', path: ['DEFAULT_FREQUENCY_CAP'], message: 'must be in [1,5]' });
+    }
+    if (env.ALERT_PAYOUT_FAILURE_RATE <= 0 || env.ALERT_PAYOUT_FAILURE_RATE > 1) {
+      ctx.addIssue({ code: 'custom', path: ['ALERT_PAYOUT_FAILURE_RATE'], message: 'must be in (0,1]' });
+    }
+    if (env.ID_VERIFICATION_PROVIDER === 'fayda' && !(env.FAYDA_CLIENT_ID && env.FAYDA_CLIENT_SECRET)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ID_VERIFICATION_PROVIDER'],
+        message: 'fayda requires FAYDA_CLIENT_ID and FAYDA_CLIENT_SECRET',
+      });
     }
   });
 

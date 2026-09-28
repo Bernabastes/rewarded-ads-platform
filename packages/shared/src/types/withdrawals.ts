@@ -1,5 +1,5 @@
 import type { WithdrawalReviewReason } from '../constants';
-import type { ApprovalDecision, PayoutMethod, WithdrawalStatus } from '../enums';
+import type { ApprovalDecision, KycTier, PayoutMethod, WithdrawalStatus } from '../enums';
 import type { IsoDateTime, Uuid } from './common';
 
 export interface WithdrawalMethodInfo {
@@ -20,6 +20,16 @@ export interface WithdrawalConfig {
   methods: WithdrawalMethodInfo[];
   /** English explanation for the wallet screen; localise client-side. */
   conversionNote: string;
+  /** Rolling 30-day payout total above which `phone_only` users must complete KYC (422 KYC_REQUIRED). */
+  kycRequiredAboveMonthlyEtb: number;
+  /** The requesting user's KYC tier. */
+  kycTier: KycTier;
+  /** Completed + in-flight payouts in the rolling 30-day window, in ETB. */
+  monthlyPayoutTotalEtb: number;
+  /** How long a destination lookup (`/withdrawals/destinations/resolve`) stays valid. */
+  destinationResolveTtlMinutes: number;
+  /** Destinations already used for a successful request (no lookup/OTP needed to reuse). */
+  knownDestinations: PayoutDestinationItem[];
 }
 
 export interface CreateWithdrawalDto {
@@ -32,6 +42,52 @@ export interface CreateWithdrawalDto {
   destinationName?: string;
   /** Bank code when payoutMethod is "bank" (Chapa bank id). */
   bankCode?: string;
+}
+
+/** `POST /withdrawals/destinations/resolve` */
+export interface ResolveDestinationDto {
+  payoutMethod: PayoutMethod;
+  payoutDestination: string;
+  bankCode?: string;
+}
+
+export interface ResolveDestinationResponse {
+  /** Account holder name from the payout partner (MOCK: deterministic fake name, `mock: true`). */
+  accountName: string;
+  /** E.164 phone or cleaned account number - send THIS back as `payoutDestination`. */
+  normalizedDestination: string;
+  payoutMethod: PayoutMethod;
+  provider: string;
+  mock: boolean;
+  /** true when the user already paid out to this destination (no OTP re-check needed). */
+  known: boolean;
+  /** true when an OTP re-check (destination_change) is still required before requesting. */
+  otpRequired: boolean;
+  /** The lookup must be used before this time. */
+  validUntil: IsoDateTime;
+}
+
+/** `POST /withdrawals/destinations/otp/verify` */
+export interface VerifyDestinationOtpDto {
+  code: string;
+  payoutMethod: PayoutMethod;
+  payoutDestination: string;
+  bankCode?: string;
+}
+
+export interface PayoutDestinationItem {
+  id: Uuid;
+  payoutMethod: PayoutMethod;
+  /** Masked (e.g. +2519****1234). */
+  destination: string;
+  bankCode: string | null;
+  accountName: string | null;
+  verifiedAt: IsoDateTime | null;
+  otpVerifiedAt: IsoDateTime | null;
+  lastUsedAt: IsoDateTime | null;
+  useCount: number;
+  /** true when lastUsedAt is set (no lookup/OTP needed). */
+  known: boolean;
 }
 
 export interface WithdrawalApprovalItem {
@@ -52,6 +108,9 @@ export interface WithdrawalItem {
   /** Masked for users (e.g. +2519****1234). */
   payoutDestination: string;
   destinationName: string | null;
+  /** Account holder name confirmed by the partner lookup at request time. */
+  destinationAccountName: string | null;
+  destinationVerifiedAt: IsoDateTime | null;
   status: WithdrawalStatus;
   /** Why the request is held for review, when status is flagged_for_review. Known values plus a string fallback. */
   reviewReasons: Array<WithdrawalReviewReason | (string & {})>;

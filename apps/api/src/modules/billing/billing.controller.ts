@@ -20,6 +20,7 @@ import {
   Public,
   Subjects,
 } from '../../common/decorators/auth.decorators';
+import { Idempotent } from '../../common/idempotency/idempotency.interceptor';
 import { PaginationQueryDto } from '../../common/pagination';
 import { BillingService } from './billing.service';
 import { CreateTopupDto } from './dto/billing.dto';
@@ -46,6 +47,7 @@ export class BillingController {
   }
 
   @Post('topups')
+  @Idempotent()
   @HttpCode(201)
   @ApiBearerAuth()
   @Subjects('advertiser')

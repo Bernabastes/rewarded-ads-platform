@@ -33,7 +33,8 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
     origin: config.corsOrigins.includes('*') ? true : config.corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Device-Fingerprint', 'X-Device-Id'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Device-Fingerprint', 'X-Device-Id', 'Idempotency-Key'],
+    exposedHeaders: ['Idempotent-Replayed'],
   });
   app.setGlobalPrefix(GLOBAL_PREFIX, { exclude: ['health', 'health/ready'] });
   app.useGlobalPipes(

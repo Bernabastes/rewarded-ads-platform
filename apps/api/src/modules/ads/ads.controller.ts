@@ -4,6 +4,7 @@ import {
   type AuthContext,
   ClientIp,
   CurrentAuth,
+  RequireConsent,
   RequireVerifiedAdult,
   Subjects,
   UserAgent,
@@ -17,6 +18,7 @@ import { CompleteWatchSessionDto, HeartbeatDto, StartWatchSessionDto } from './d
 @Controller('ads')
 @Subjects('user')
 @RequireVerifiedAdult()
+@RequireConsent()
 export class AdsController {
   constructor(private readonly ads: AdsService) {}
 
@@ -24,7 +26,7 @@ export class AdsController {
   @ApiOperation({
     summary: 'Personalised, server-filtered ad feed',
     description:
-      'Only approved ads of active, funded campaigns the user has not been credited for. Empty when the daily cap is reached or the trust score is too low. `meta` includes dailyLimit/dailyCompleted/dailyRemaining.',
+      'Only approved ads of active, funded campaigns the user has not been credited for. Empty when the daily cap is reached or the trust score is too low. `meta` includes dailyLimit/dailyCompleted/dailyRemaining and `hiddenByFrequencyCap` (ads hidden today by campaign/advertiser frequency caps).',
   })
   feed(@CurrentAuth() auth: AuthContext, @Query() query: PaginationQueryDto) {
     return this.ads.feed(auth.subjectId, query);

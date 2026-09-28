@@ -21,8 +21,13 @@ export const API_ROUTES = {
     logout: '/auth/logout',
   },
 
+  legal: {
+    current: '/legal/current',
+  },
+
   advertisers: {
     me: '/advertisers/me',
+    consents: '/advertisers/me/consents',
   },
 
   users: {
@@ -36,6 +41,13 @@ export const API_ROUTES = {
     pushTokens: '/users/me/push-tokens',
     pushToken: (token: string) => `/users/me/push-tokens/${encodeURIComponent(token)}`,
     adReports: '/users/me/ad-reports',
+    consents: '/users/me/consents',
+    kyc: '/users/me/kyc',
+    kycPresign: '/users/me/kyc/uploads/presign',
+    referrals: '/users/me/referrals',
+    dataExport: '/users/me/data-export',
+    dataExportDetail: (id: string) => `/users/me/data-export/${id}`,
+    deleteRequest: '/users/me/delete-request',
   },
 
   ads: {
@@ -88,6 +100,10 @@ export const API_ROUTES = {
     create: '/withdrawals',
     list: '/withdrawals',
     detail: (id: string) => `/withdrawals/${id}`,
+    destinations: '/withdrawals/destinations',
+    resolveDestination: '/withdrawals/destinations/resolve',
+    destinationOtpRequest: '/withdrawals/destinations/otp/request',
+    destinationOtpVerify: '/withdrawals/destinations/otp/verify',
   },
 
   admin: {
@@ -98,11 +114,25 @@ export const API_ROUTES = {
     ad: (id: string) => `/admin/ads/${id}`,
     adApprove: (id: string) => `/admin/ads/${id}/approve`,
     adReject: (id: string) => `/admin/ads/${id}/reject`,
+    adReprocessMedia: (id: string) => `/admin/ads/${id}/reprocess-media`,
     users: '/admin/users',
     user: (id: string) => `/admin/users/${id}`,
     userSuspend: (id: string) => `/admin/users/${id}/suspend`,
     userBan: (id: string) => `/admin/users/${id}/ban`,
     userReinstate: (id: string) => `/admin/users/${id}/reinstate`,
+    userImpersonate: (id: string) => `/admin/users/${id}/impersonate`,
+    kycQueue: '/admin/kyc',
+    kyc: (id: string) => `/admin/kyc/${id}`,
+    kycApprove: (id: string) => `/admin/kyc/${id}/approve`,
+    kycReject: (id: string) => `/admin/kyc/${id}/reject`,
+    alerts: '/admin/alerts',
+    alertAck: (id: string) => `/admin/alerts/${id}/ack`,
+    alertsRunRules: '/admin/alerts/run-rules',
+    referrals: '/admin/referrals',
+    referralMetrics: '/admin/referrals/metrics',
+    deletionRequests: '/admin/deletion-requests',
+    deletionRequestExecute: (id: string) => `/admin/deletion-requests/${id}/execute`,
+    deletionRequestCancel: (id: string) => `/admin/deletion-requests/${id}/cancel`,
     advertisers: '/admin/advertisers',
     advertiser: (id: string) => `/admin/advertisers/${id}`,
     advertiserVerify: (id: string) => `/admin/advertisers/${id}/verify`,

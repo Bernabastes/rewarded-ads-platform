@@ -26,6 +26,8 @@ describe('WithdrawalsService', () => {
   let notifications: any;
   let queue: any;
   let balance: number;
+  let kyc: any;
+  let destinations: any;
 
   const finance = (adminId: string) => ({ adminId, role: 'finance' as const, ip: '1.1.1.1' });
 
@@ -34,6 +36,18 @@ describe('WithdrawalsService', () => {
     security = mockSecurity();
     notifications = mockNotifications();
     queue = mockQueue();
+    // KYC tier rule and destination verification are unit-tested in their own specs; here they pass by default.
+    kyc = { assertWithinTier: jest.fn().mockResolvedValue(D(0)), monthlyPayoutTotalEtb: jest.fn().mockResolvedValue(D(0)) };
+    destinations = {
+      assertVerifiedForRequest: jest.fn().mockResolvedValue({
+        id: uuid(40),
+        accountName: 'Abebe Tesfaye',
+        verifiedAt: new Date(),
+        bankCode: null,
+      }),
+      markUsed: jest.fn().mockResolvedValue(undefined),
+      listKnown: jest.fn().mockResolvedValue([]),
+    };
     const config = testConfig({ QUEUES_ENABLED: 'true', NODE_ENV: 'development' });
     const ledger = new LedgerService(prisma, config, security);
     const registry = new PayoutProviderRegistry(
@@ -58,6 +72,8 @@ describe('WithdrawalsService', () => {
       mockAudit(),
       security,
       notifications,
+      kyc,
+      destinations,
       queue,
     );
 
@@ -73,7 +89,11 @@ describe('WithdrawalsService', () => {
       balance = data.coinBalance;
       return {};
     });
-    prisma.user.findUniqueOrThrow.mockImplementation(async () => ({ trustScore: 70, coinBalance: balance }));
+    prisma.user.findUniqueOrThrow.mockImplementation(async () => ({
+      trustScore: 70,
+      coinBalance: balance,
+      kycTier: 'phone_only',
+    }));
     prisma.withdrawal.count.mockResolvedValue(0);
     let created: Record<string, unknown> = {};
     prisma.withdrawal.create.mockImplementation(async ({ data }: any) => {
@@ -116,6 +136,43 @@ describe('WithdrawalsService', () => {
       code: ErrorCode.INSUFFICIENT_BALANCE,
     });
     expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+  });
+
+  it('stops with KYC_REQUIRED before any ledger write when the tier rule fails (Phase 4A)', async () => {
+    kyc.assertWithinTier.mockRejectedValueOnce(
+      Object.assign(new Error('kyc'), { code: ErrorCode.KYC_REQUIRED, status: 422 }),
+    );
+    await expect(service.request(USER, dto, 'ip')).rejects.toMatchObject({ code: ErrorCode.KYC_REQUIRED });
+    expect(kyc.assertWithinTier).toHaveBeenCalledWith(USER, 'phone_only', expect.anything());
+    expect(destinations.assertVerifiedForRequest).not.toHaveBeenCalled();
+    expect(prisma.withdrawal.create).not.toHaveBeenCalled();
+    expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+  });
+
+  it('stops with DESTINATION_NOT_VERIFIED for a new destination without a fresh lookup (Phase 4A)', async () => {
+    destinations.assertVerifiedForRequest.mockRejectedValueOnce(
+      Object.assign(new Error('dest'), { code: ErrorCode.DESTINATION_NOT_VERIFIED, status: 422 }),
+    );
+    await expect(service.request(USER, dto, 'ip')).rejects.toMatchObject({
+      code: ErrorCode.DESTINATION_NOT_VERIFIED,
+    });
+    expect(destinations.assertVerifiedForRequest).toHaveBeenCalledWith(USER, {
+      payoutMethod: 'telebirr',
+      destination: '+251911223344',
+      bankCode: undefined,
+    });
+    expect(prisma.withdrawal.create).not.toHaveBeenCalled();
+  });
+
+  it('snapshots the verified account name on the withdrawal and marks the destination used (Phase 4A)', async () => {
+    const result = await service.request(USER, dto, 'ip');
+    expect(prisma.withdrawal.create.mock.calls[0][0].data).toMatchObject({
+      destinationAccountName: 'Abebe Tesfaye',
+      payoutDestinationId: uuid(40),
+      destinationName: 'Abebe Tesfaye',
+    });
+    expect(destinations.markUsed).toHaveBeenCalledWith(uuid(40), expect.anything());
+    expect(result.destinationAccountName).toBe('Abebe Tesfaye');
   });
 
   it('converts ETB to coins, holds them in the same transaction and flags a first-ever withdrawal', async () => {

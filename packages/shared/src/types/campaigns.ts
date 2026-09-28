@@ -1,4 +1,4 @@
-import type { CampaignStatus, MediaType, ReviewStatus, TargetActionType } from '../enums';
+import type { CampaignStatus, MediaStatus, MediaType, ReviewStatus, TargetActionType } from '../enums';
 import type { BannedTopicKey } from '../constants';
 import type { DailyPoint, IsoDate, IsoDateTime, Uuid } from './common';
 
@@ -14,6 +14,8 @@ export interface CreateCampaignDto {
   endDate?: IsoDate;
   /** Ask a one-question attention check after each ad (default true). */
   attentionCheckEnabled?: boolean;
+  /** Max rewarded completions of this campaign per user per UTC day (1-5; default DEFAULT_FREQUENCY_CAP). */
+  frequencyCapPerUserPerDay?: number;
 }
 
 export type UpdateCampaignDto = Partial<CreateCampaignDto>;
@@ -32,6 +34,7 @@ export interface CampaignSummary {
   rewardPerActionEtb: number;
   rewardCoins: number;
   attentionCheckEnabled: boolean;
+  frequencyCapPerUserPerDay: number;
   startDate: IsoDate | null;
   endDate: IsoDate | null;
   pausedReason: string | null;
@@ -71,19 +74,38 @@ export interface CreateAdDto {
   attentionQuestions?: AttentionQuestionInput[];
 }
 
+/** ffprobe result stored on the ad once the media.process job has run. */
+export interface MediaProbe {
+  durationSeconds: number;
+  codec: string | null;
+  width: number | null;
+  height: number | null;
+  bitrate: number | null;
+  container: string | null;
+}
+
 export interface AdSummary {
   id: Uuid;
   campaignId: Uuid;
   title: string;
   description: string | null;
+  /** Playable URL: the 720p H.264 transcode once `mediaStatus` is ready/duration_corrected, else the upload. */
   mediaUrl: string;
   thumbnailUrl: string | null;
   mediaType: MediaType;
+  /** Effective duration (probed when the pipeline corrected the declared value). */
   durationSeconds: number;
   reviewStatus: ReviewStatus;
   rejectionReason: string | null;
   reviewedAt: IsoDateTime | null;
   attentionQuestionsCount: number;
+  /** processing -> ready | duration_corrected | failed. Approval is refused while processing/failed. */
+  mediaStatus: MediaStatus;
+  mediaProbe: MediaProbe | null;
+  durationDeclaredSeconds: number | null;
+  durationProbedSeconds: number | null;
+  mediaError: string | null;
+  mediaProcessedAt: IsoDateTime | null;
   createdAt: IsoDateTime;
 }
 
