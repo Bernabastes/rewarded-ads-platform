@@ -117,13 +117,33 @@ describe('API e2e smoke (user money flow)', () => {
     const profile = await http
       .post('/api/v1/auth/users/complete-profile')
       .set(adult)
-      .send({ fullName: 'E2E Adult', dateOfBirth: '1990-06-15' })
+      .send({ fullName: 'E2E Adult', dateOfBirthEthiopian: { year: 1982, month: 10, day: 8 } }) // Sene 8, 1982 = 15 Jun 1990
       .expect(201);
     expect(profile.body.ageVerificationStatus).toBe('verified_adult');
+    expect(profile.body.dateOfBirth).toBe('1990-06-15');
+    expect(profile.body.referralCode).toHaveLength(6);
+
+    // consent gate (Phase 4A): money endpoints are blocked until the current terms + privacy are accepted
+    if (profile.body.requiresConsent.length > 0) {
+      await http
+        .get('/api/v1/ads/feed')
+        .set(adult)
+        .expect(403)
+        .expect((r) => expect(r.body.code).toBe('CONSENT_REQUIRED'));
+      for (const kind of profile.body.requiresConsent as string[]) {
+        const state = profile.body.consents.find((c: { kind: string }) => c.kind === kind);
+        await http
+          .post('/api/v1/users/me/consents')
+          .set(adult)
+          .send({ kind, version: state.currentVersion })
+          .expect(200);
+      }
+    }
 
     // feed
     const feed = await http.get('/api/v1/ads/feed').set(adult).expect(200);
     expect(feed.body.meta.dailyLimit).toBeGreaterThan(0);
+    expect(typeof feed.body.meta.hiddenByFrequencyCap).toBe('number');
     if (feed.body.data.length === 0) throw new Error('No approved ads in the database - run the seed first');
     const ad = [...feed.body.data].sort((a, b) => a.durationSeconds - b.durationSeconds)[0];
 
@@ -169,6 +189,8 @@ describe('API e2e smoke (user money flow)', () => {
       .expect(201);
     expect(replay.body.replayed).toBe(true);
     expect(replay.body.completionId).toBe(done.body.completionId);
+    // F3: a replay reports the current balance instead of null
+    expect(typeof replay.body.newBalance).toBe('number');
 
     // balance from ledger
     const balance = await http.get('/api/v1/users/me/balance').set(adult).expect(200);
@@ -212,13 +234,58 @@ describe('API e2e smoke (user money flow)', () => {
       .send({ amountEtb: 10, payoutMethod: 'telebirr', payoutDestination: phone2 })
       .expect(400)
       .expect((r) => expect(r.body.code).toBe('BELOW_MIN_WITHDRAWAL'));
-    const wd = await http
+    // Phase 4A: a NEW destination needs a partner lookup + OTP re-check first
+    await http
       .post('/api/v1/withdrawals')
       .set(adult)
       .send({ amountEtb: 50, payoutMethod: 'telebirr', payoutDestination: phone2 })
+      .expect(422)
+      .expect((r) => expect(r.body.code).toBe('DESTINATION_NOT_VERIFIED'));
+    const resolved = await http
+      .post('/api/v1/withdrawals/destinations/resolve')
+      .set(adult)
+      .send({ payoutMethod: 'telebirr', payoutDestination: phone2 })
+      .expect(200);
+    expect(resolved.body.accountName).toBeTruthy();
+    expect(resolved.body.otpRequired).toBe(true);
+    const destOtp = await http.post('/api/v1/withdrawals/destinations/otp/request').set(adult).expect(200);
+    await http
+      .post('/api/v1/withdrawals/destinations/otp/verify')
+      .set(adult)
+      .send({
+        code: destOtp.body.devCode,
+        payoutMethod: 'telebirr',
+        payoutDestination: resolved.body.normalizedDestination,
+      })
+      .expect(200);
+    const wdBody = {
+      amountEtb: 50,
+      payoutMethod: 'telebirr',
+      payoutDestination: resolved.body.normalizedDestination,
+    };
+    const idemKey = `e2e-${Date.now()}`;
+    const wd = await http
+      .post('/api/v1/withdrawals')
+      .set({ ...adult, 'Idempotency-Key': idemKey })
+      .send(wdBody)
       .expect(201);
     expect(wd.body.status).toBe('flagged_for_review');
     expect(wd.body.reviewReasons).toContain('first_withdrawal');
+    expect(wd.body.destinationAccountName).toBe(resolved.body.accountName);
+    // Idempotency-Key: same payload replays, different payload is refused
+    const wdReplay = await http
+      .post('/api/v1/withdrawals')
+      .set({ ...adult, 'Idempotency-Key': idemKey })
+      .send(wdBody)
+      .expect(201);
+    expect(wdReplay.body.id).toBe(wd.body.id);
+    expect(wdReplay.headers['idempotent-replayed']).toBe('true');
+    await http
+      .post('/api/v1/withdrawals')
+      .set({ ...adult, 'Idempotency-Key': idemKey })
+      .send({ ...wdBody, amountEtb: 60 })
+      .expect(409)
+      .expect((r) => expect(r.body.code).toBe('IDEMPOTENCY_KEY_REUSED'));
     const afterHold = await http.get('/api/v1/users/me/balance').set(adult).expect(200);
     expect(afterHold.body.coinBalance).toBe(expected + 6000 - 5000);
     const approved = await http
