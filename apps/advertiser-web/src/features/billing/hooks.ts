@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useCallback } from 'react';
 import { billingApi } from '@/lib/api';
 import { queryKeys } from '@/lib/query/keys';
+import { createTopupIdempotent } from './idempotent-topup';
 
 export function useWalletBalance(options: { enabled?: boolean } = {}) {
   return useQuery({
@@ -50,7 +51,17 @@ export function useLedger(page: number, limit = 10) {
 }
 
 export function useCreateTopup() {
-  return useMutation({ mutationFn: (dto: CreateTopupDto) => billingApi.createTopup(dto) });
+  return useMutation({
+    mutationFn: ({
+      dto,
+      idempotencyKey,
+      onPoll,
+    }: {
+      dto: CreateTopupDto;
+      idempotencyKey: string;
+      onPoll?: (attempt: number) => void;
+    }) => createTopupIdempotent(dto, { idempotencyKey, onPoll }),
+  });
 }
 
 export function useInvalidateBilling() {

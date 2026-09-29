@@ -15,6 +15,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '@/features/auth/auth-provider';
 import { useWalletBalance } from '@/features/billing/hooks';
+import { TermsGate } from '@/features/legal/terms-gate';
+import { ProfileSync } from '@/features/settings/use-advertiser-profile';
 import { cn } from '@/lib/utils/cn';
 import { formatEtb } from '@/lib/utils/format';
 import { Badge } from '../ui/badge';
@@ -210,7 +212,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
   return (
     <div className="flex min-h-full">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-border bg-surface lg:block">
+      <ProfileSync />
+      <aside
+        className="print-hidden sticky top-0 hidden h-screen w-64 shrink-0 border-r border-border bg-surface lg:block"
+        data-app-chrome
+      >
         <SidebarContent />
       </aside>
 
@@ -226,7 +232,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
       </RadixDialog.Root>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-bg/85 px-4 backdrop-blur-md sm:px-6">
+        <header
+          className="print-hidden sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-bg/85 px-4 backdrop-blur-md sm:px-6"
+          data-app-chrome
+        >
           <Button
             variant="ghost"
             size="icon"
@@ -264,8 +273,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <UserMenu />
         </header>
 
-        <main id="main" className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8" key={location.pathname}>
-          <div className="mx-auto w-full max-w-7xl">{children ?? <Outlet />}</div>
+        <main id="main" className="flex-1 px-4 py-6 print:p-0 sm:px-6 lg:px-8 lg:py-8" key={location.pathname}>
+          <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 print:max-w-none">
+            <TermsGate className="print-hidden" />
+            {children ?? <Outlet />}
+          </div>
         </main>
       </div>
 

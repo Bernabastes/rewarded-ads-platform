@@ -31,13 +31,16 @@ import {
 } from '@/lib/utils/format';
 import { budgetProgress, TARGET_ACTION_META } from './campaign-card';
 import { AdPreview } from './creative-preview';
+import { FREQUENCY_CAP_HELP, FrequencyCapSummary } from './frequency-cap';
 import { useCampaign, useDeleteCampaign, usePauseCampaign, useRemoveAd, useResumeCampaign } from './hooks';
+import { countMedia, MediaProbeDetails, MediaStatusBadge, useMediaProcessingPoll } from './media-status';
 import { StatusTimeline } from './status-timeline';
 import { useSubmitCampaignFlow } from './submit-flow';
 
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const campaign = useCampaign(id);
+  const media = useMediaProcessingPoll(campaign.data);
   const navigate = useNavigate();
   const pause = usePauseCampaign();
   const resume = useResumeCampaign();
@@ -70,6 +73,8 @@ export function CampaignDetailPage() {
   const canResume = data.status === 'paused' && data.pausedReason !== 'admin_paused' && data.remainingEtb > 0;
   const canSubmit = editable && (data.targetActionType !== 'video_view' || data.adsCount > 0);
   const canAddAd = editable || data.status === 'paused' || data.status === 'active';
+  const mediaCounts = countMedia(data.ads);
+  const reuploadPath = `/campaigns/${data.id}/edit?step=creative`;
 
   const runAction = async (kind: 'pause' | 'resume' | 'delete') => {
     try {
@@ -217,6 +222,30 @@ export function CampaignDetailPage() {
         <Alert tone="info" title="In review">
           Our team is checking the creatives against the advertising guidelines. {formatEtb(data.budgetEtb)}{' '}
           is reserved from your wallet; it is refunded in full if the campaign is rejected.
+          {mediaCounts.processing > 0 &&
+            ` ${mediaCounts.processing} creative${mediaCounts.processing === 1 ? ' is' : 's are'} still being processed; approval waits until processing finishes.`}
+        </Alert>
+      )}
+      {mediaCounts.failed > 0 && (
+        <Alert
+          tone="danger"
+          title={`${mediaCounts.failed} creative${mediaCounts.failed === 1 ? '' : 's'} could not be processed`}
+          action={
+            canAddAd && (
+              <Button asChild size="sm" variant="outline">
+                <Link to={reuploadPath}>Re-upload</Link>
+              </Button>
+            )
+          }
+        >
+          Reviewers cannot approve a creative whose media failed processing. Remove it and upload a new file —
+          the error is shown on the creative below.
+        </Alert>
+      )}
+      {media.timedOut && (
+        <Alert tone="warning" title="Media processing is taking longer than usual">
+          We stopped checking automatically. Reload this page in a few minutes; if a creative stays in
+          processing for more than an hour, contact support.
         </Alert>
       )}
 
@@ -251,7 +280,7 @@ export function CampaignDetailPage() {
                 {formatNumber(split.estimatedCompletions)} more verified completions at{' '}
                 {formatEtb(data.costPerActionEtb)} each
               </p>
-              <dl className="grid gap-4 border-t border-border pt-4 text-sm sm:grid-cols-3">
+              <dl className="grid gap-4 border-t border-border pt-4 text-sm sm:grid-cols-4">
                 <div>
                   <dt className="text-fg-subtle">Viewer receives</dt>
                   <dd className="font-semibold text-fg">
@@ -270,6 +299,12 @@ export function CampaignDetailPage() {
                 <div>
                   <dt className="text-fg-subtle">Attention check</dt>
                   <dd className="font-semibold text-fg">{data.attentionCheckEnabled ? 'On' : 'Off'}</dd>
+                </div>
+                <div>
+                  <dt className="text-fg-subtle">Frequency cap</dt>
+                  <dd>
+                    <FrequencyCapSummary cap={data.frequencyCapPerUserPerDay} />
+                  </dd>
                 </div>
               </dl>
             </CardContent>
@@ -309,11 +344,15 @@ export function CampaignDetailPage() {
       <Card>
         <CardHeader
           title={`Creatives (${data.ads.length})`}
-          description="Each creative is reviewed individually. Rejected ones can be deleted and replaced."
+          description={
+            media.polling
+              ? 'Media is being processed — this list refreshes every 5 seconds.'
+              : 'Each creative is reviewed individually. Rejected ones can be deleted and replaced.'
+          }
           action={
             canAddAd && (
               <Button asChild variant="outline" size="sm">
-                <Link to={`/campaigns/${data.id}/edit?step=creative`}>
+                <Link to={reuploadPath}>
                   <Plus className="size-4" /> Add creative
                 </Link>
               </Button>
@@ -326,7 +365,7 @@ export function CampaignDetailPage() {
               No creatives yet.{' '}
               {canAddAd && (
                 <Link
-                  to={`/campaigns/${data.id}/edit?step=creative`}
+                  to={reuploadPath}
                   className="font-medium text-primary underline-offset-4 hover:underline"
                 >
                   Upload a video or image
@@ -347,8 +386,15 @@ export function CampaignDetailPage() {
                         {ad.attentionQuestionsCount === 1 ? '' : 's'}
                       </p>
                     </div>
-                    <ReviewStatusBadge status={ad.reviewStatus} />
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      <ReviewStatusBadge status={ad.reviewStatus} />
+                      {ad.mediaType === 'video' && <MediaStatusBadge status={ad.mediaStatus} size="sm" />}
+                    </div>
                   </div>
+                  <MediaProbeDetails
+                    ad={ad}
+                    onReupload={canAddAd ? () => navigate(reuploadPath) : undefined}
+                  />
                   {ad.reviewStatus === 'rejected' && (
                     <Alert tone="danger" className="py-2.5">
                       {ad.rejectionReason ?? 'Rejected without a reason.'}
@@ -388,6 +434,15 @@ export function CampaignDetailPage() {
                 detail: data.description || <span className="text-fg-subtle">None</span>,
               },
               { term: 'Target action', detail: meta.label },
+              {
+                term: 'Max views per person per day',
+                detail: (
+                  <span className="flex flex-col gap-1">
+                    <FrequencyCapSummary cap={data.frequencyCapPerUserPerDay} />
+                    <span className="text-xs text-fg-subtle">{FREQUENCY_CAP_HELP}</span>
+                  </span>
+                ),
+              },
               {
                 term: 'Schedule',
                 detail: `${data.startDate ? formatDate(data.startDate) : 'On approval'} → ${data.endDate ? formatDate(data.endDate) : 'Until budget is spent'}`,

@@ -12,6 +12,8 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/primitives';
 import { BRAND_NAME } from '@/config/brand';
+import { useCurrentTerms } from '@/features/legal/hooks';
+import { TermsDialog } from '@/features/legal/terms-dialog';
 import { handleFormError } from '@/lib/forms';
 import { cn } from '@/lib/utils/cn';
 import { AuthLayout } from './auth-layout';
@@ -51,6 +53,8 @@ export function RegisterPage() {
   const { register: registerAccount } = useAuth();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const terms = useCurrentTerms();
   const form = useForm<RegisterValues>({
     resolver: zodResolver(schema),
     mode: 'onTouched',
@@ -78,6 +82,8 @@ export function RegisterPage() {
         contactEmail: values.contactEmail.trim(),
         contactPhone: normalizeEthiopianPhone(values.contactPhone) ?? values.contactPhone,
         password: values.password,
+        // Version shown in the dialog; omitted when the legal endpoint is unavailable (the API treats it as optional).
+        termsVersion: terms.data?.version,
       });
       toast.success(`Welcome to ${BRAND_NAME}, ${profile.businessName}`, {
         description: 'Your business is now queued for verification.',
@@ -239,9 +245,16 @@ export function RegisterPage() {
           error={formState.errors.acceptTerms?.message}
           label={
             <span className="text-sm leading-relaxed text-fg-muted">
-              I confirm this business is legally registered in Ethiopia and I accept the {BRAND_NAME}{' '}
-              advertiser terms, including the ban on alcohol, gambling, political and restricted-medicine
-              advertising.
+              I confirm this business is legally registered in Ethiopia and I accept the{' '}
+              <button
+                type="button"
+                onClick={() => setTermsOpen(true)}
+                className="font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {terms.data?.title ?? `${BRAND_NAME} advertiser terms`}
+                {terms.data ? ` (v${terms.data.version})` : ''}
+              </button>
+              , including the ban on alcohol, gambling, political and restricted-medicine advertising.
             </span>
           }
         >
@@ -257,6 +270,18 @@ export function RegisterPage() {
             />
           )}
         </Field>
+
+        <TermsDialog
+          open={termsOpen}
+          onOpenChange={setTermsOpen}
+          action={{
+            label: 'I accept these terms',
+            onAction: () => {
+              setValue('acceptTerms', true, { shouldValidate: true });
+              setTermsOpen(false);
+            },
+          }}
+        />
 
         <Button type="submit" size="lg" loading={formState.isSubmitting} className="mt-1 w-full">
           Create account

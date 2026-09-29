@@ -7,17 +7,22 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useAuth } from '@/features/auth/auth-provider';
 import { useWalletBalance } from '@/features/billing/hooks';
+import { AcceptTermsDialog } from '@/features/legal/terms-dialog';
 import { isApiError } from '@/lib/api/errors';
 import { toastApiError } from '@/lib/forms';
 import { formatEtb } from '@/lib/utils/format';
 import { useSubmitCampaign } from './hooks';
 
-type Blocker = { kind: 'funds'; shortfallEtb: number } | { kind: 'verification' } | null;
+type Blocker =
+  | { kind: 'funds'; shortfallEtb: number }
+  | { kind: 'verification' }
+  | { kind: 'consent' }
+  | null;
 
 /**
- * Submit-for-review flow shared by the wizard and the detail page. Handles the two business errors with a
- * guided dialog: INSUFFICIENT_WALLET_BALANCE → inline top-up path that returns here; ADVERTISER_NOT_VERIFIED →
- * explanation of the pending state.
+ * Submit-for-review flow shared by the wizard and the detail page. Handles the business errors with a guided
+ * dialog: INSUFFICIENT_WALLET_BALANCE → inline top-up path that returns here; ADVERTISER_NOT_VERIFIED →
+ * explanation of the pending state; CONSENT_REQUIRED → the current terms to accept, then the submit is retried.
  */
 export function useSubmitCampaignFlow(options: { onSubmitted?: (campaign: CampaignSummary) => void } = {}) {
   const submitMutation = useSubmitCampaign();
@@ -53,6 +58,12 @@ export function useSubmitCampaignFlow(options: { onSubmitted?: (campaign: Campai
           setBlocker({ kind: 'verification' });
           return null;
         }
+        if (isApiError(error) && error.code === ErrorCode.CONSENT_REQUIRED) {
+          // The server knows better than the cached profile: surface the requirement and open the terms.
+          if (profile && !profile.requiresTermsAcceptance) updateProfile({ requiresTermsAcceptance: true });
+          setBlocker({ kind: 'consent' });
+          return null;
+        }
         toastApiError(error);
         return null;
       }
@@ -74,7 +85,21 @@ export function useSubmitCampaignFlow(options: { onSubmitted?: (campaign: Campai
   };
 
   const dialog = (
-    <Dialog open={blocker !== null} onOpenChange={(open) => !open && setBlocker(null)}>
+    <>
+      <AcceptTermsDialog
+        open={blocker?.kind === 'consent'}
+        onOpenChange={(open) => !open && setBlocker(null)}
+        title="Accept the current terms to submit"
+        description="Our advertiser terms were updated. Review and accept them once; we will then submit this campaign for you."
+        onAccepted={() => {
+          setBlocker(null);
+          if (campaign) void submit(campaign);
+        }}
+      />
+      <Dialog
+        open={blocker !== null && blocker.kind !== 'consent'}
+        onOpenChange={(open) => !open && setBlocker(null)}
+      >
       {blocker?.kind === 'funds' && campaign && (
         <DialogContent
           title="Add funds to submit this campaign"
@@ -133,7 +158,8 @@ export function useSubmitCampaignFlow(options: { onSubmitted?: (campaign: Campai
           </div>
         </DialogContent>
       )}
-    </Dialog>
+      </Dialog>
+    </>
   );
 
   return { submit, dialog, isSubmitting: submitMutation.isPending };

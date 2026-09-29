@@ -1,10 +1,22 @@
-import { TargetActionType } from '@rap/shared';
+import { PLATFORM_DEFAULTS, TargetActionType } from '@rap/shared';
 import { z } from 'zod';
 
 const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the date picker')
   .or(z.literal(''));
+
+export const frequencyCapSchema = z
+  .number({ error: 'Choose how many times a person may view this campaign per day' })
+  .int('Whole numbers only')
+  .min(
+    PLATFORM_DEFAULTS.MIN_FREQUENCY_CAP,
+    `Viewers must be able to see the campaign at least ${PLATFORM_DEFAULTS.MIN_FREQUENCY_CAP} time per day`,
+  )
+  .max(
+    PLATFORM_DEFAULTS.MAX_FREQUENCY_CAP,
+    `The platform caps this at ${PLATFORM_DEFAULTS.MAX_FREQUENCY_CAP} views per person per day`,
+  );
 
 export const detailsSchema = z
   .object({
@@ -22,6 +34,7 @@ export const detailsSchema = z
     startDate: isoDate,
     endDate: isoDate,
     attentionCheckEnabled: z.boolean(),
+    frequencyCapPerUserPerDay: frequencyCapSchema,
   })
   .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
     path: ['endDate'],

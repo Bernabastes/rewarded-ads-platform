@@ -7,6 +7,8 @@ import { useAuth } from '@/features/auth/auth-provider';
 import { useWalletBalance } from '@/features/billing/hooks';
 import { TARGET_ACTION_META } from '@/features/campaigns/campaign-card';
 import { AdPreview } from '@/features/campaigns/creative-preview';
+import { describeFrequencyCap } from '@/features/campaigns/frequency-cap';
+import { countMedia, MediaStatusBadge } from '@/features/campaigns/media-status';
 import { computeBudgetSplit } from '@/lib/utils/budget';
 import { formatDate, formatDuration, formatEtb, formatNumber, formatPercent } from '@/lib/utils/format';
 import { creativeRequired, type WizardStep } from './machine';
@@ -34,6 +36,8 @@ export function ReviewStep({
   const balance = wallet.data?.balanceEtb;
   const shortfall = balance !== undefined ? Math.max(0, campaign.budgetEtb - balance) : 0;
   const pending = profile?.verificationStatus !== 'verified';
+  const termsOutdated = !!profile?.requiresTermsAcceptance;
+  const media = countMedia(campaign.ads);
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,6 +45,40 @@ export function ReviewStep({
         <Alert tone="warning" title="Submitting unlocks after verification">
           Your business is still being verified. Save the draft now — everything is kept — and submit once
           your account is approved.
+        </Alert>
+      )}
+      {termsOutdated && (
+        <Alert tone="warning" title="Accept the current advertiser terms to submit">
+          Our terms were updated{profile?.currentTermsVersion ? ` (v${profile.currentTermsVersion})` : ''}.
+          Submitting will ask you to review and accept them first; nothing else changes.
+        </Alert>
+      )}
+      {media.processing > 0 && (
+        <Alert
+          tone="info"
+          title={`${media.processing} creative${media.processing === 1 ? ' is' : 's are'} still processing`}
+          data-testid="review-media-processing"
+        >
+          You can submit now. Our reviewers can only approve a creative once its media is processed (true
+          duration checked, 720p copy and poster generated) — usually within a minute — so approval simply
+          waits until then.
+        </Alert>
+      )}
+      {media.failed > 0 && (
+        <Alert
+          tone="danger"
+          title={`${media.failed} creative${media.failed === 1 ? '' : 's'} failed media processing`}
+          data-testid="review-media-failed"
+        >
+          Reviewers cannot approve a creative whose media failed. Remove it and{' '}
+          <button
+            type="button"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+            onClick={() => onEdit('creative')}
+          >
+            upload a new file
+          </button>{' '}
+          before submitting, or the campaign will wait in review.
         </Alert>
       )}
       {!pending && shortfall > 0 && (
@@ -75,6 +113,10 @@ export function ReviewStep({
             {
               term: 'Attention check',
               detail: campaign.attentionCheckEnabled ? 'On — viewers answer one question per ad' : 'Off',
+            },
+            {
+              term: 'Max views per person per day',
+              detail: `${campaign.frequencyCapPerUserPerDay} — ${describeFrequencyCap(campaign.frequencyCapPerUserPerDay).toLowerCase()}`,
             },
             {
               term: 'Start',
@@ -123,6 +165,11 @@ export function ReviewStep({
                   {ad.attentionQuestionsCount} question
                   {ad.attentionQuestionsCount === 1 ? '' : 's'}
                 </p>
+                {ad.mediaType === 'video' && (
+                  <div>
+                    <MediaStatusBadge status={ad.mediaStatus} size="sm" />
+                  </div>
+                )}
               </li>
             ))}
           </ul>

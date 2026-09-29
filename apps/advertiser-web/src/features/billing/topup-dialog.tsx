@@ -1,8 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { TopupResponse } from '@rap/shared';
+import { ErrorCode, type CreateTopupDto, type TopupResponse } from '@rap/shared';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUpRight, ExternalLink, FlaskConical, Wallet } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowUpRight, ExternalLink, FlaskConical, Loader2, Wallet } from 'lucide-react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
@@ -14,9 +14,11 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { env } from '@/config/env';
 import { billingApi } from '@/lib/api';
+import { isApiError } from '@/lib/api/errors';
 import { handleFormError, toastApiError } from '@/lib/forms';
 import { formatEtb, formatNumber } from '@/lib/utils/format';
 import { useCreateTopup } from './hooks';
+import { newIdempotencyKey } from './idempotent-topup';
 import { topupContextStore } from './topup-context';
 
 export const MIN_TOPUP_ETB = 100;
@@ -60,6 +62,13 @@ export function TopupDialog({
   const createTopup = useCreateTopup();
   const navigate = useNavigate();
   const [mockTopup, setMockTopup] = useState<TopupResponse | null>(null);
+  const [waitingForPrevious, setWaitingForPrevious] = useState(false);
+  /**
+   * One `Idempotency-Key` per intent: minted the first time "Continue" is pressed for a given payload and reused
+   * on retries of that same payload (double click, flaky network), so the API replays the payment instead of
+   * creating a second one. A different amount is a new intent and gets a new key.
+   */
+  const intent = useRef<{ key: string; fingerprint: string } | null>(null);
   const form = useForm<TopupValues>({
     resolver: zodResolver(schema),
     defaultValues: { amountEtb: suggestedAmountEtb ?? 1_000 },
@@ -79,10 +88,21 @@ export function TopupDialog({
     onError: toastApiError,
   });
 
-  const submit = handleSubmit(async (values) => {
+  const onValid = async (values: TopupValues) => {
+    setWaitingForPrevious(false);
+    const dto: CreateTopupDto = { amountEtb: values.amountEtb, returnUrl: `${env.publicUrl}/billing/return` };
+    const fingerprint = JSON.stringify(dto);
+    if (!intent.current || intent.current.fingerprint !== fingerprint) {
+      intent.current = { key: newIdempotencyKey(), fingerprint };
+    }
     try {
-      const returnUrl = `${env.publicUrl}/billing/return`;
-      const topup = await createTopup.mutateAsync({ amountEtb: values.amountEtb, returnUrl });
+      const topup = await createTopup.mutateAsync({
+        dto,
+        idempotencyKey: intent.current.key,
+        onPoll: () => setWaitingForPrevious(true),
+      });
+      intent.current = null;
+      setWaitingForPrevious(false);
       topupContextStore.save({
         paymentId: topup.paymentId,
         txRef: topup.txRef,
@@ -97,9 +117,15 @@ export function TopupDialog({
       }
       (redirect ?? ((url: string) => window.location.assign(url)))(topup.checkoutUrl);
     } catch (error) {
+      setWaitingForPrevious(false);
+      // A payload mismatch under an old key is a client bug; start a fresh intent for the next attempt.
+      if (isApiError(error) && error.code === ErrorCode.IDEMPOTENCY_KEY_REUSED) intent.current = null;
       handleFormError(error, form);
     }
-  });
+  };
+
+  // Call handleSubmit inside the event so the validated callback (which touches refs) never runs during render.
+  const submit = (event: FormEvent<HTMLFormElement>) => void handleSubmit(onValid)(event);
 
   const busy = createTopup.isPending || formState.isSubmitting || settleMock.isPending;
 
@@ -235,6 +261,16 @@ export function TopupDialog({
               issued automatically for every successful top-up.
             </p>
           </div>
+          {waitingForPrevious && (
+            <p
+              className="flex items-center gap-2 text-sm text-fg-muted"
+              role="status"
+              data-testid="topup-waiting"
+            >
+              <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" />
+              Your previous request is still being confirmed — waiting for it instead of charging twice.
+            </p>
+          )}
         </form>
       </DialogContent>
     </Dialog>

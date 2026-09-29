@@ -5,6 +5,8 @@ export const ClientErrorCode = {
   NETWORK_ERROR: 'NETWORK_ERROR',
   UNKNOWN_ERROR: 'UNKNOWN_ERROR',
   UPLOAD_FAILED: 'UPLOAD_FAILED',
+  /** An idempotent top-up was still in flight on the server after we stopped waiting. */
+  TOPUP_STILL_PROCESSING: 'TOPUP_STILL_PROCESSING',
 } as const;
 
 export type AnyErrorCode = ErrorCode | (typeof ClientErrorCode)[keyof typeof ClientErrorCode];
@@ -145,9 +147,29 @@ const MESSAGES: Partial<Record<AnyErrorCode, ErrorDescription>> = {
     description: 'Contact support to resolve this.',
   },
   [ErrorCode.ACCOUNT_BANNED]: { title: 'Your account has been closed', description: 'Contact support.' },
+  [ErrorCode.CONSENT_REQUIRED]: {
+    title: 'Please accept the current advertiser terms',
+    description: 'Review and accept the latest terms to submit campaigns.',
+  },
+  [ErrorCode.CONSENT_VERSION_OUTDATED]: {
+    title: 'The terms were updated while you were reading',
+    description: 'We loaded the newest version — please review and accept it.',
+  },
+  [ErrorCode.IDEMPOTENCY_KEY_REUSED]: {
+    title: 'We are still processing your previous request',
+    description: 'Please wait a moment; nothing has been charged twice.',
+  },
+  [ErrorCode.MEDIA_NOT_READY]: {
+    title: 'The creative is still being processed',
+    description: 'Wait for processing to finish and try again.',
+  },
   [ClientErrorCode.UPLOAD_FAILED]: {
     title: 'Upload failed',
     description: 'The file could not be stored. Please try again.',
+  },
+  [ClientErrorCode.TOPUP_STILL_PROCESSING]: {
+    title: 'Your top-up is still being processed',
+    description: 'Check your payment history in a moment — do not start a second payment.',
   },
 };
 

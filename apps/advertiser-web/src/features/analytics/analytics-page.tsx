@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Select, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives';
 import { ChartSkeleton, LoadingAnnouncer, Skeleton, StatCardSkeleton } from '@/components/ui/skeleton';
 import { useCampaignAnalytics, useCampaigns, useOverview } from '@/features/campaigns/hooks';
+import { FrequencyCapSummary } from '@/features/campaigns/frequency-cap';
 import { downloadCsv, slugify, toCsv } from '@/lib/utils/csv';
 import {
   addDaysIso,
@@ -172,6 +173,8 @@ function CampaignAnalyticsView({
     <>
       <FraudFilterPanel summary={fraud} campaignTitle={campaign?.title} />
 
+      {campaign && <CampaignSettingsStrip campaign={campaign} />}
+
       {!hasData ? (
         <Card>
           <EmptyState
@@ -272,12 +275,49 @@ function CampaignAnalyticsView({
                   counted inside “rejected” above; a separate breakdown will appear here once the API exposes
                   it.
                 </p>
+                <p>
+                  <strong className="font-medium text-fg">Views hidden by the frequency cap</strong> — the cap
+                  is enforced server-side (see the settings strip above) but the analytics endpoint does not
+                  report how many repeat views it prevented, so we do not estimate it.
+                </p>
               </CardContent>
             </Card>
           </div>
         </>
       )}
     </>
+  );
+}
+
+/**
+ * Server-enforced delivery settings that shape the numbers above (from the campaign summary — the analytics
+ * endpoint itself reports no cap- or media-specific metrics, so nothing here is estimated).
+ */
+function CampaignSettingsStrip({ campaign }: { campaign: CampaignSummary }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3 py-4 text-sm">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-fg-subtle">Frequency cap</span>
+          <FrequencyCapSummary cap={campaign.frequencyCapPerUserPerDay} />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-fg-subtle">Attention check</span>
+          <span className="font-medium text-fg">{campaign.attentionCheckEnabled ? 'On' : 'Off'}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-fg-subtle">Creatives</span>
+          <span className="font-medium text-fg">
+            {campaign.approvedAdsCount} approved of {campaign.adsCount}
+          </span>
+        </div>
+        <p className="ml-auto max-w-sm text-xs text-fg-subtle">
+          Unique viewers are counted after the cap: each person contributes at most{' '}
+          {campaign.frequencyCapPerUserPerDay} verified completion
+          {campaign.frequencyCapPerUserPerDay === 1 ? '' : 's'} per day.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
