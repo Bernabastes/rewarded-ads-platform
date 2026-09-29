@@ -1,4 +1,4 @@
-import type { FraudSeverity } from '@rap/shared';
+import type { AlertSeverity, FraudSeverity, MediaStatus } from '@rap/shared';
 import type { HTMLAttributes, ReactNode } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { humanize } from '@/lib/utils/format';
@@ -88,6 +88,17 @@ export const SEVERITY_TONE: Record<FraudSeverity, BadgeTone> = {
   medium: 'warning',
   high: 'accent',
   critical: 'danger',
+};
+
+/** Platform-alert severities (info / warning / critical) share the same tone vocabulary. */
+export const ALERT_SEVERITY_TONE: Record<AlertSeverity, BadgeTone> = { info: 'info', warning: 'warning', critical: 'danger' };
+
+/** Media pipeline states: processing=info, ready=success, duration_corrected=warning, failed=danger. */
+export const MEDIA_STATUS_TONE: Record<MediaStatus, BadgeTone> = {
+  processing: 'info',
+  ready: 'success',
+  duration_corrected: 'warning',
+  failed: 'danger',
 };
 
 export const SEVERITY_ORDER: FraudSeverity[] = ['low', 'medium', 'high', 'critical'];
