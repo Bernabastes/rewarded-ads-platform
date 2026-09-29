@@ -302,10 +302,13 @@ so dashboards can gate navigation immediately after login without a second reque
 - Phase 4A: legal documents v1.0 (`terms`, `privacy`, en + am) are published and every seeded user/advertiser has
   accepted them (new accounts must accept before `/ads`, `/offers`, `POST /withdrawals`).
 - KYC queue: 3 pending submissions (`+251911001233` Fayda, `+251911001644` national id, `+251911001918` Fayda with a
-  registry name mismatch), 3 approved (`+251911000137`, `+251911000411`, `+251911000685` are `id_verified`), 1 rejected.
+  registry name mismatch), 3 approved (`+251911000137`, `+251911000411`, `+251911000685` are `id_verified`), 1 rejected
+  (`+251911002192`).
   Document links are placeholder PNGs from the private prefix.
-- Referrals: `+251911000137` referred two paid friends; one `pending`, one `qualified` (referrer daily cap) and one
-  `rejected` (shared device, flags on both accounts). Every user has a 6-char `referralCode` (deterministic per seed).
+- Referrals: `+251911000137` (code `779HLB`) referred two paid friends and `+251911000411` (`88CJ7D`) one; two
+  `pending` (referrers `+251911000548` / `+251911000822`), one `qualified` – referrer daily cap (`+251911000959`) and
+  one `rejected` – shared device (`+251911002466` → `+251911002740`, flags on both). Every user has a 6-char
+  `referralCode` (deterministic per seed).
 - Alerts: 4 seeded (`PAYOUT_FAILURE_RATE` acknowledged, `ACCOUNT_MINTING` critical, `SPEND_VELOCITY`, `OTP_SPIKE`
   open). `POST /admin/alerts/run-rules` evaluates the live rules.
 - One pending account-deletion request (`+251911002192`, scheduled in 12 days) for the deletion queue.
