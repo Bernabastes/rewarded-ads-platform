@@ -1,38 +1,57 @@
 import {
   API_ROUTES,
+  IDEMPOTENCY_KEY_HEADER,
+  type AdFeedItem,
+  type AdFeedMeta,
   type AdminAdReportItem,
   type AdminAdvertiserItem,
   type AdminAdvertisersQuery,
+  type AdminAlertsQuery,
   type AdminAppInstallCompletionItem,
   type AdminAuthResponse,
   type AdminCampaignsQuery,
   type AdminCoinAdjustmentsQuery,
+  type AdminDeletionRequestItem,
+  type AdminDeletionRequestsQuery,
+  type AdminKycDetail,
+  type AdminKycQuery,
+  type AdminKycSummary,
   type AdminMe,
   type AdminOverview,
+  type AdminReferralItem,
+  type AdminReferralMetrics,
+  type AdminReferralsQuery,
   type AdminUserListItem,
   type AdminUsersQuery,
   type AdminWithdrawalsQuery,
   type AdReviewQueueQuery,
+  type AlertRulesRunResult,
   type ApproveAdDto,
   type AuditLogItem,
   type AuditLogQuery,
+  type BalanceResponse,
   type BannedTopicsChecklist,
   type CoinAdjustmentItem,
   type CreateCoinAdjustmentDto,
   type FraudFlagItem,
   type FraudFlagsQuery,
   type FraudMetrics,
+  type ImpersonationTokenResponse,
+  type LedgerEntry,
+  type NotificationItem,
   type OfferCompletionStatus,
   type Paginated,
+  type PlatformAlertItem,
   type PlatformConfigResponse,
   type RevenueOverview,
   type RevenueQuery,
   type ReviewAdReportDto,
   type UserProfile,
+  type WithdrawalItem,
 } from '@rap/shared';
 import { api } from './api';
 import type { QueryParams } from './client';
-import type { AdminAdvertiser, AdminCampaign, AdminCampaignDetail, AdminUser, AdminWithdrawal, AdReview } from './types';
+import type { AdminAdvertiser, AdminCampaign, AdminCampaignDetail, AdminUser, AdminWithdrawal, AdReview, AlertsMeta } from './types';
 
 const q = (params: object | undefined): QueryParams => (params ?? {}) as QueryParams;
 
@@ -60,6 +79,8 @@ export const reviewApi = {
   approve: (id: string, dto: ApproveAdDto) => api.post<AdReview>(API_ROUTES.admin.adApprove(id), dto),
   reject: (id: string, reason: string, checklist?: BannedTopicsChecklist) =>
     api.post<AdReview>(API_ROUTES.admin.adReject(id), { reason, bannedTopicsChecklist: checklist }),
+  /** Re-run probe / transcode / poster for a creative whose media pipeline failed or looks wrong. */
+  reprocessMedia: (id: string) => api.post<AdReview>(API_ROUTES.admin.adReprocessMedia(id), {}),
 };
 
 /* ----------------------------- campaigns ---------------------------- */
@@ -89,6 +110,61 @@ export const usersApi = {
   suspend: (id: string, reason: string) => api.post<UserProfile>(API_ROUTES.admin.userSuspend(id), { reason }),
   ban: (id: string, reason: string) => api.post<UserProfile>(API_ROUTES.admin.userBan(id), { reason }),
   reinstate: (id: string, reason: string) => api.post<UserProfile>(API_ROUTES.admin.userReinstate(id), { reason }),
+  /** 10-minute READ-ONLY user token; the reason / ticket reference lands in the audit log. */
+  impersonate: (id: string, reason: string) => api.post<ImpersonationTokenResponse>(API_ROUTES.admin.userImpersonate(id), { reason }),
+};
+
+/* ------------------------- impersonation (view as user) ------------------- */
+
+/**
+ * User-scoped GET endpoints called with an impersonation token. The token is passed explicitly (never stored in
+ * the admin token store) and requests are `anonymous` so the client never tries to refresh it - it simply expires.
+ */
+const asUser = <T>(path: string, token: string, query?: QueryParams) =>
+  api.get<T>(path, { anonymous: true, headers: { authorization: `Bearer ${token}` }, query });
+
+export const viewAsUserApi = {
+  profile: (token: string) => asUser<UserProfile>(API_ROUTES.users.me, token),
+  balance: (token: string) => asUser<BalanceResponse>(API_ROUTES.users.balance, token),
+  ledger: (token: string, params?: { page?: number; limit?: number }) => asUser<Paginated<LedgerEntry>>(API_ROUTES.users.ledger, token, q(params)),
+  feed: (token: string, params?: { page?: number; limit?: number }) => asUser<Paginated<AdFeedItem, AdFeedMeta>>(API_ROUTES.ads.feed, token, q(params)),
+  withdrawals: (token: string, params?: { page?: number; limit?: number }) => asUser<Paginated<WithdrawalItem>>(API_ROUTES.withdrawals.list, token, q(params)),
+  notifications: (token: string, params?: { page?: number; limit?: number }) =>
+    asUser<Paginated<NotificationItem>>(API_ROUTES.users.notifications, token, q(params)),
+};
+
+/* -------------------------------- KYC -------------------------------- */
+
+export const kycApi = {
+  list: (params?: AdminKycQuery) => api.get<Paginated<AdminKycSummary>>(API_ROUTES.admin.kycQueue, { query: q(params) }),
+  /** Document links are presigned for 5 minutes - always fetch fresh when the drawer opens. */
+  detail: (id: string) => api.get<AdminKycDetail>(API_ROUTES.admin.kyc(id)),
+  approve: (id: string, note?: string) => api.post<AdminKycSummary>(API_ROUTES.admin.kycApprove(id), { note: note || undefined }),
+  reject: (id: string, reason: string, note?: string) => api.post<AdminKycSummary>(API_ROUTES.admin.kycReject(id), { reason, note: note || undefined }),
+};
+
+/* ------------------------------- alerts ------------------------------ */
+
+export const alertsApi = {
+  list: (params?: AdminAlertsQuery) => api.get<Paginated<PlatformAlertItem, AlertsMeta>>(API_ROUTES.admin.alerts, { query: q(params) }),
+  ack: (id: string) => api.post<PlatformAlertItem>(API_ROUTES.admin.alertAck(id), {}),
+  runRules: () => api.post<AlertRulesRunResult>(API_ROUTES.admin.alertsRunRules, {}),
+};
+
+/* ------------------------------ referrals ---------------------------- */
+
+export const referralsApi = {
+  list: (params?: AdminReferralsQuery) => api.get<Paginated<AdminReferralItem>>(API_ROUTES.admin.referrals, { query: q(params) }),
+  metrics: () => api.get<AdminReferralMetrics>(API_ROUTES.admin.referralMetrics),
+};
+
+/* --------------------------- deletion requests ----------------------- */
+
+export const deletionRequestsApi = {
+  list: (params?: AdminDeletionRequestsQuery) =>
+    api.get<Paginated<AdminDeletionRequestItem>>(API_ROUTES.admin.deletionRequests, { query: q(params) }),
+  execute: (id: string, note?: string) => api.post<AdminDeletionRequestItem>(API_ROUTES.admin.deletionRequestExecute(id), { note: note || undefined }),
+  cancel: (id: string, note?: string) => api.post<AdminDeletionRequestItem>(API_ROUTES.admin.deletionRequestCancel(id), { note: note || undefined }),
 };
 
 /* ---------------------------- advertisers --------------------------- */
@@ -137,7 +213,9 @@ export const adjustmentsApi = {
   list: (params?: AdminCoinAdjustmentsQuery) =>
     api.get<Paginated<CoinAdjustmentItem>>(API_ROUTES.admin.coinAdjustments, { query: q(params) }),
   detail: (id: string) => api.get<CoinAdjustmentItem>(API_ROUTES.admin.coinAdjustment(id)),
-  create: (dto: CreateCoinAdjustmentDto) => api.post<CoinAdjustmentItem>(API_ROUTES.admin.coinAdjustments, dto),
+  /** `idempotencyKey` = one UUID per user intent (per "Submit"), reused on retries of the same payload. */
+  create: (dto: CreateCoinAdjustmentDto, idempotencyKey?: string) =>
+    api.post<CoinAdjustmentItem>(API_ROUTES.admin.coinAdjustments, dto, idempotencyKey ? { headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey } } : undefined),
   approve: (id: string, note?: string) => api.post<CoinAdjustmentItem>(API_ROUTES.admin.coinAdjustmentApprove(id), { note }),
   reject: (id: string, reason: string) => api.post<CoinAdjustmentItem>(API_ROUTES.admin.coinAdjustmentReject(id), { reason }),
   cancel: (id: string) => api.post<CoinAdjustmentItem>(API_ROUTES.admin.coinAdjustmentCancel(id), {}),

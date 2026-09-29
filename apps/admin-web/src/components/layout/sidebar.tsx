@@ -1,12 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
 import { ChevronsLeft, ChevronsRight, LogOut, Moon, Search, Sun, SunMoon } from 'lucide-react';
 import { NavLink } from 'react-router';
-import { homeApi } from '@/lib/api/endpoints';
-import { queryKeys } from '@/lib/api/query-keys';
 import { ROLE_LABEL } from '@/lib/auth/rbac';
 import { useAuth } from '@/lib/auth/use-auth';
 import { APP_NAME, BRAND_NAME, BRAND_NAME_AM } from '@/lib/brand';
 import { MOD_LABEL } from '@/lib/hooks/use-hotkeys';
+import { useQueueCounters } from '@/lib/hooks/use-queue-counters';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { cn } from '@/lib/utils/cn';
 import { Badge } from '@/components/ui/badge';
@@ -38,7 +36,7 @@ export interface SidebarProps {
 export function Sidebar({ collapsed, onToggle, onOpenPalette, mobileOpen, onMobileClose }: SidebarProps) {
   const { admin, can, logout } = useAuth();
   const { preference, resolved, setTheme } = useTheme();
-  const overview = useQuery({ queryKey: queryKeys.overview, queryFn: homeApi.overview, staleTime: 30_000, refetchInterval: 60_000 });
+  const { counters } = useQueueCounters();
 
   const sections = NAV_SECTIONS.map((s) => ({ ...s, items: s.items.filter((i) => can(i.access)) })).filter((s) => s.items.length > 0);
 
@@ -95,7 +93,8 @@ export function Sidebar({ collapsed, onToggle, onOpenPalette, mobileOpen, onMobi
               {!collapsed ? <div className="px-2 pb-1 text-2xs font-semibold tracking-wider text-fg-subtle uppercase">{section.title}</div> : <div className="mx-2 mb-2 border-t" />}
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
-                  const count = item.counter ? overview.data?.[item.counter] : undefined;
+                  const count = item.counter ? counters[item.counter] : undefined;
+                  const critical = item.counter === 'openAlerts';
                   return (
                     <li key={item.to}>
                       <Tooltip content={item.label} side="right" disabled={!collapsed}>
@@ -105,7 +104,7 @@ export function Sidebar({ collapsed, onToggle, onOpenPalette, mobileOpen, onMobi
                           onClick={onMobileClose}
                           className={({ isActive }) =>
                             cn(
-                              'group flex h-8 items-center gap-2.5 rounded-md px-2 text-sm font-medium transition-colors',
+                              'group relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm font-medium transition-colors',
                               isActive ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:bg-sunken hover:text-fg',
                               collapsed && 'justify-center px-0',
                             )
@@ -114,11 +113,11 @@ export function Sidebar({ collapsed, onToggle, onOpenPalette, mobileOpen, onMobi
                           <item.icon className="size-4 shrink-0" aria-hidden />
                           {!collapsed ? <span className="flex-1 truncate">{item.label}</span> : null}
                           {!collapsed && count ? (
-                            <Badge tone="accent" size="sm" className="tabular">
+                            <Badge tone={critical ? 'danger' : 'accent'} size="sm" className="tabular" data-testid={`nav-count-${item.counter}`}>
                               {count > 99 ? '99+' : count}
                             </Badge>
                           ) : collapsed && count ? (
-                            <span className="absolute top-1 right-1.5 size-1.5 rounded-full bg-accent" aria-label={`${count} pending`} />
+                            <span className={cn('absolute top-1 right-1.5 size-1.5 rounded-full', critical ? 'bg-danger' : 'bg-accent')} aria-label={`${count} pending`} />
                           ) : null}
                         </NavLink>
                       </Tooltip>

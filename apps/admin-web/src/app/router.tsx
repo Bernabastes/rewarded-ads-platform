@@ -81,8 +81,14 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: page(() => import('@/features/users/users-page'), 'UsersPage', 'users') },
           { path: ':userId', element: page(() => import('@/features/users/user-detail-page'), 'UserDetailPage', 'users') },
+          { path: ':userId/view-as', element: page(() => import('@/features/users/view-as-user-page'), 'ViewAsUserPage', 'impersonate') },
         ],
       },
+      { path: 'kyc', element: page(() => import('@/features/kyc/kyc-page'), 'KycPage', 'kyc') },
+      { path: 'kyc/:kycId', element: page(() => import('@/features/kyc/kyc-page'), 'KycPage', 'kyc') },
+      { path: 'referrals', element: page(() => import('@/features/referrals/referrals-page'), 'ReferralsPage', 'referrals') },
+      { path: 'deletion-requests', element: page(() => import('@/features/deletion/deletion-requests-page'), 'DeletionRequestsPage', 'deletionRequests') },
+      { path: 'alerts', element: page(() => import('@/features/alerts/alerts-page'), 'AlertsPage', 'alerts') },
       {
         path: 'advertisers',
         element: <Outlet />,

@@ -105,6 +105,13 @@ const FRIENDLY: Partial<Record<string, string>> = {
   [ErrorCode.CONFLICT]: 'The record changed in the meantime. Refresh and try again.',
   [ErrorCode.SERVICE_UNAVAILABLE]: 'A downstream provider is unavailable right now.',
   [ErrorCode.INTERNAL_ERROR]: 'Something went wrong on the server.',
+  [ErrorCode.MEDIA_NOT_READY]: 'The media pipeline has not finished (or failed) for this creative. Wait for processing or reprocess the media before approving.',
+  [ErrorCode.KYC_NOT_PENDING]: 'This KYC submission has already been decided.',
+  [ErrorCode.ALERT_ALREADY_ACKNOWLEDGED]: 'This alert was already acknowledged by someone else.',
+  [ErrorCode.IMPERSONATION_READ_ONLY]: 'Impersonation sessions are read-only: no changes can be made on behalf of the user.',
+  [ErrorCode.DELETION_REQUEST_NOT_PENDING]: 'This deletion request is no longer pending.',
+  [ErrorCode.DELETION_BLOCKED_PENDING_WITHDRAWALS]: 'Deletion is blocked while the user still has withdrawals in flight. Decide those first.',
+  [ErrorCode.IDEMPOTENCY_KEY_REUSED]: 'This request was already submitted. The list has been refreshed.',
   NETWORK_ERROR: 'Cannot reach the API. Check that it is running.',
 };
 

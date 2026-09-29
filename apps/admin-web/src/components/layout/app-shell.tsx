@@ -7,6 +7,7 @@ import { homeApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/api/query-keys';
 import { useAuth } from '@/lib/auth/use-auth';
 import { STORAGE_PREFIX } from '@/lib/brand';
+import { MOCK_LABELS } from '@/lib/domain/config-labels';
 import { MOD_LABEL, useHotkeys } from '@/lib/hooks/use-hotkeys';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +16,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/feedback';
 import { Tooltip } from '@/components/ui/primitives';
 import { ALL_NAV_ITEMS } from '@/app/navigation';
+import { ImpersonationBanner } from '@/features/users/impersonation-banner';
 import { CommandPalette } from './command-palette';
 import { Sidebar } from './sidebar';
 
@@ -39,7 +41,8 @@ export function AppShell() {
   const { resolved, toggle } = useTheme();
   const reduce = useReducedMotion();
   const config = useQuery({ queryKey: queryKeys.config, queryFn: homeApi.config, staleTime: 5 * 60_000 });
-  const mockCount = config.data ? Object.values(config.data.mocks).filter(Boolean).length : 0;
+  const mockEntries = config.data ? Object.entries(config.data.mocks) : [];
+  const mockCount = mockEntries.filter(([, v]) => v).length;
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((c) => {
@@ -111,14 +114,14 @@ export function AppShell() {
             <Tooltip
               content={
                 <span>
-                  Mocked providers: {Object.entries(config.data!.mocks).filter(([, v]) => v).map(([k]) => k).join(', ')}. Real SMS, payouts, checkout and push are
-                  simulated by the API.
+                  Mocked providers: {mockEntries.filter(([, v]) => v).map(([k]) => MOCK_LABELS[k] ?? k).join(', ')}. Real SMS, payouts, checkout, push, id
+                  verification, alert delivery and destination lookups are simulated by the API.
                 </span>
               }
             >
               <span>
                 <Badge tone="warning" className="cursor-help gap-1">
-                  <FlaskConical className="size-3" /> Mock mode · {mockCount}/4
+                  <FlaskConical className="size-3" /> Mock mode · {mockCount}/{mockEntries.length}
                 </Badge>
               </span>
             </Tooltip>
@@ -139,6 +142,7 @@ export function AppShell() {
             </Button>
           </Tooltip>
         </header>
+        <ImpersonationBanner />
         <main className="min-w-0 flex-1">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
@@ -175,10 +179,16 @@ function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
           <h4 className="mt-4 mb-2 text-2xs font-semibold tracking-wider text-fg-subtle uppercase">Ad review</h4>
           <ShortcutRow keys={['J']} label="Next ad" />
           <ShortcutRow keys={['K']} label="Previous ad" />
-          <ShortcutRow keys={['A']} label="Approve (when checklist complete)" />
+          <ShortcutRow keys={['A']} label="Approve (when checklist complete & media ready)" />
           <ShortcutRow keys={['R']} label="Reject…" />
           <ShortcutRow keys={['1', '–', '8']} label="Toggle banned-topic checkbox" />
           <ShortcutRow keys={['⇧', 'A']} label="Tick every banned topic" />
+          <h4 className="mt-4 mb-2 text-2xs font-semibold tracking-wider text-fg-subtle uppercase">KYC queue</h4>
+          <ShortcutRow keys={['J']} label="Next submission" />
+          <ShortcutRow keys={['K']} label="Previous submission" />
+          <ShortcutRow keys={['A']} label="Approve…" />
+          <ShortcutRow keys={['R']} label="Reject…" />
+          <ShortcutRow keys={['Z']} label="Zoom the focused document" />
         </section>
         <section>
           <h4 className="mb-2 text-2xs font-semibold tracking-wider text-fg-subtle uppercase">Go to (press G, then…)</h4>

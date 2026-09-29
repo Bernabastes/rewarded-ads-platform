@@ -1,4 +1,5 @@
 import { createAuthStore } from '../auth/auth-store';
+import { impersonationStore } from '../auth/impersonation-store';
 import { env } from '../env';
 import { ApiClient } from './client';
 import { createTokenStore } from './token-store';
@@ -11,6 +12,7 @@ export const api = new ApiClient({
   baseUrl: env.apiBaseUrl,
   tokens: tokenStore,
   onAuthLost: (reason) => {
+    impersonationStore.end();
     authStore.setState({
       status: 'anonymous',
       admin: null,

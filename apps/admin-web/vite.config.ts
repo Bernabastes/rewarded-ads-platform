@@ -7,13 +7,21 @@ import { defineConfig } from 'vite';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Dev proxy so the browser can stay same-origin: run with `VITE_API_URL=/` and every `/api/*` call is forwarded
+ * to the API (default http://localhost:3000, override with `VITE_DEV_PROXY_TARGET`). Lets the dev server run on a
+ * port the API's CORS allow-list does not know about (e.g. 5176 while nginx holds 5174).
+ */
+const proxyTarget = process.env.VITE_DEV_PROXY_TARGET?.trim() || 'http://localhost:3000';
+const apiProxy = { '/api': { target: proxyTarget, changeOrigin: true } };
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': path.resolve(root, 'src') },
   },
-  server: { port: 5174, strictPort: true },
-  preview: { port: 5174, strictPort: true },
+  server: { port: 5174, strictPort: true, proxy: apiProxy },
+  preview: { port: 5174, strictPort: true, proxy: apiProxy },
   build: {
     sourcemap: false,
     rollupOptions: {
