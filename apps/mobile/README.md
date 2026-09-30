@@ -193,9 +193,11 @@ running, which the copy says honestly.
 
 Typed tokens in `src/theme/tokens.ts` (forest / terracotta / warm stone, semantic colours, radii 8/12/16/24, soft
 shadows, type scale) with full light and dark palettes; `useTheme()` everywhere (no CSS-in-JS library). Mode =
-system / light / dark, persisted. Motion via Reanimated (Tappable spring, skeleton pulse, coin-earned settle +
-count-up, screen fades); every animation respects reduce-motion. Coins are the flat two-tone mark (`CoinMark`) —
-no gradients or metallic cues anywhere.
+system / light / dark, persisted. Shadows are platform-split (`Platform.select`): CSS `boxShadow` on web (react-native-web
+deprecates the `shadow*` styles) and native `shadow*` + Android `elevation` elsewhere; `pointerEvents` is always set
+through `style`, never as a prop, so Expo web logs no RN-web deprecation warnings. Motion via Reanimated (Tappable
+spring, skeleton pulse, coin-earned settle + count-up, screen fades); every animation respects reduce-motion. Coins are
+the flat two-tone mark (`CoinMark`) — no gradients or metallic cues anywhere.
 
 ### i18n
 

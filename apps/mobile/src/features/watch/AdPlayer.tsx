@@ -183,7 +183,6 @@ export function AdPlayer({
           styles.topBar,
           { paddingTop: insets.top + spacing.sm, paddingHorizontal: spacing.lg, position: showStage && isLandscape ? 'absolute' : 'relative' },
         ]}
-        pointerEvents="box-none"
       >
         <Tappable
           onPress={onClose}
@@ -354,7 +353,6 @@ export function AdPlayer({
               isLandscape ? styles.infoPanelOverlay : null,
               { padding: spacing.lg, paddingBottom: insets.bottom + spacing.lg },
             ]}
-            pointerEvents="box-none"
           >
             {state.phase === 'watching' ? (
               <>
@@ -463,7 +461,7 @@ function AttentionQuestion({ question, onAnswer }: { question: AttentionQuestion
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 8, zIndex: 2, left: 0, right: 0 },
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 8, zIndex: 2, left: 0, right: 0, pointerEvents: 'box-none' },
   closeButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   poster: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   posterPlay: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
@@ -474,7 +472,7 @@ const styles = StyleSheet.create({
   stage: { backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   absoluteFill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)', padding: 24 },
-  infoPanel: { width: '100%' },
+  infoPanel: { width: '100%', pointerEvents: 'box-none' },
   infoPanelOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)' },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
   option: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1.5, minHeight: 52 },

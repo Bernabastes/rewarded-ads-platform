@@ -68,7 +68,7 @@ export function ToastHost() {
   };
 
   return (
-    <View pointerEvents="box-none" style={[styles.host, { bottom: insets.bottom + 84 }]}>
+    <View style={[styles.host, { bottom: insets.bottom + 84 }]}>
       <Animated.View
         entering={FadeInUp.duration(220)}
         exiting={FadeOutDown.duration(180)}
@@ -96,7 +96,7 @@ export function ToastHost() {
 }
 
 const styles = StyleSheet.create({
-  host: { position: 'absolute', left: 16, right: 16, alignItems: 'center' },
+  host: { position: 'absolute', left: 16, right: 16, alignItems: 'center', pointerEvents: 'box-none' },
   toast: {
     flexDirection: 'row',
     alignItems: 'center',

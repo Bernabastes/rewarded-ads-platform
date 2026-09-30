@@ -2,6 +2,8 @@
  * Design tokens shared (by value) with the advertiser and admin web apps - spec §10.
  * Warm, optimistic, trustworthy. Coins are a flat two-tone mark (forest + terracotta), never metallic.
  */
+import { Platform, type ViewStyle } from 'react-native';
+
 export const palette = {
   forest: {
     50: '#EEF6F2',
@@ -173,30 +175,33 @@ export const spacing = {
 
 export const radii = { sm: 8, md: 12, lg: 16, xl: 24, full: 999 } as const;
 
+const SHADOW_RGB = '46, 41, 37'; // #2E2925
+
+/**
+ * One elevation level. react-native-web deprecates the `shadow*` styles in favour of CSS `boxShadow`, so web gets the
+ * equivalent box-shadow (same offset / blur / colour); iOS keeps the native shadow and Android its elevation.
+ */
+function shadow(opacity: number, radius: number, offsetY: number, elevation: number): ViewStyle {
+  return (
+    Platform.select<ViewStyle>({
+      web: { boxShadow: `0 ${offsetY}px ${radius}px rgba(${SHADOW_RGB}, ${opacity})` },
+      default: {
+        shadowColor: '#2E2925',
+        shadowOpacity: opacity,
+        shadowRadius: radius,
+        shadowOffset: { width: 0, height: offsetY },
+        elevation,
+      },
+    }) ?? {}
+  );
+}
+
 /** Soft, warm, low-opacity shadows (never harsh). */
 export const shadows = {
-  none: {},
-  sm: {
-    shadowColor: '#2E2925',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  md: {
-    shadowColor: '#2E2925',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  lg: {
-    shadowColor: '#2E2925',
-    shadowOpacity: 0.12,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6,
-  },
+  none: {} as ViewStyle,
+  sm: shadow(0.06, 8, 2, 1),
+  md: shadow(0.08, 16, 6, 3),
+  lg: shadow(0.12, 28, 12, 6),
 } as const;
 
 export const typeScale = {
