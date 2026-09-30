@@ -112,7 +112,10 @@ export default function ReferralsScreen() {
             <Card tone="muted" padding={spacing.md} testID="referral-referred-by">
               <View style={styles.rowBetween}>
                 <Text variant="bodySmall" weight="medium" style={{ flex: 1 }}>
-                  {t('referrals.referredBy', { coins: formatCoins(data.referredBy.bonusCoins, language) })}
+                  {t('referrals.referredBy', {
+                    // `referredBy.bonusCoins` is 0 until the referral qualifies; quote the configured referee bonus.
+                    coins: formatCoins(data.referredBy.bonusCoins || data.bonusCoins.referee, language),
+                  })}
                 </Text>
                 <Badge label={t(`referrals.status.${data.referredBy.status}`)} tone={REFERRAL_STATUS_TONE[data.referredBy.status]} />
               </View>
