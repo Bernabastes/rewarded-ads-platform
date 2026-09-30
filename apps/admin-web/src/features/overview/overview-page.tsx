@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, ArrowRight, Banknote, Building2, Coins, Flag, Megaphone, ShieldAlert, Smartphone, Users, Video } from 'lucide-react';
+import { Activity, ArrowRight, Banknote, BellRing, Building2, Coins, Flag, IdCard, Megaphone, ShieldAlert, Smartphone, UserRoundX, Users, Video } from 'lucide-react';
 import { Link } from 'react-router';
 import { fraudApi, homeApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/api/query-keys';
 import { useAuth } from '@/lib/auth/use-auth';
+import { useQueueCounters } from '@/lib/hooks/use-queue-counters';
 import { formatEtbBare, formatInt, formatPercent } from '@/lib/utils/format';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -16,6 +17,7 @@ export function OverviewPage() {
   const { admin, can } = useAuth();
   const overview = useQuery({ queryKey: queryKeys.overview, queryFn: homeApi.overview, refetchInterval: 30_000 });
   const fraud = useQuery({ queryKey: queryKeys.fraudMetrics, queryFn: fraudApi.metrics, enabled: can('fraud'), refetchInterval: 60_000 });
+  const { counters } = useQueueCounters();
   const o = overview.data;
 
   const hour = new Date().getHours();
@@ -27,10 +29,13 @@ export function OverviewPage() {
 
   const queues = [
     { key: 'reviewQueue' as const, label: 'Ads awaiting review', value: o?.pendingAdReviews, to: '/review', icon: Video, tone: 'accent' as const, hint: 'Approve against the banned-topics checklist' },
+    { key: 'alerts' as const, label: 'Open alerts', value: counters.openAlerts, to: '/alerts', icon: BellRing, tone: 'danger' as const, hint: 'Ledger drift, payout failures, minting, OTP spikes', loading: counters.openAlerts === undefined },
+    { key: 'kyc' as const, label: 'KYC submissions pending', value: counters.pendingKyc, to: '/kyc', icon: IdCard, tone: 'primary' as const, hint: 'Identity documents to review', loading: counters.pendingKyc === undefined },
     { key: 'campaigns' as const, label: 'Campaigns pending', value: o?.pendingCampaignReviews, to: '/campaigns?status=pending_review', icon: Megaphone, tone: 'warning' as const, hint: 'Campaign-level approvals' },
     { key: 'withdrawals' as const, label: 'Withdrawals held for review', value: o?.withdrawalsAwaitingReview, to: '/withdrawals?status=flagged_for_review', icon: Banknote, tone: 'accent' as const, hint: `${formatInt(o?.withdrawalsPendingPayout ?? 0)} queued / processing` },
     { key: 'adjustments' as const, label: 'Coin adjustments awaiting 2nd approval', value: o?.pendingCoinAdjustments, to: '/adjustments?status=pending_approval', icon: Coins, tone: 'warning' as const, hint: 'Needs a different admin than the requester' },
     { key: 'fraud' as const, label: 'Open fraud flags', value: o?.openFraudFlags, to: '/fraud', icon: ShieldAlert, tone: 'danger' as const, hint: `${formatInt(o?.suspendedUsers ?? 0)} users suspended` },
+    { key: 'deletionRequests' as const, label: 'Deletion requests pending', value: counters.pendingDeletionRequests, to: '/deletion-requests', icon: UserRoundX, tone: 'info' as const, hint: 'Grace period running; execute or cancel', loading: counters.pendingDeletionRequests === undefined },
     { key: 'adReports' as const, label: 'Open ad reports', value: o?.openAdReports, to: '/ad-reports', icon: Flag, tone: 'info' as const, hint: 'Submitted by users in the app' },
     { key: 'advertisers' as const, label: 'Advertisers to verify', value: o?.pendingAdvertiserVerifications, to: '/advertisers?status=pending', icon: Building2, tone: 'primary' as const, hint: 'Business registration checks' },
   ].filter((q) => can(q.key));
@@ -55,7 +60,7 @@ export function OverviewPage() {
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {queues.map((q) => (
-            <StatCard key={q.key} label={q.label} value={q.value} loading={overview.isPending} icon={q.icon} tone={q.tone} to={q.to} hint={q.hint} />
+            <StatCard key={q.key} label={q.label} value={q.value} loading={'loading' in q ? q.loading : overview.isPending} icon={q.icon} tone={q.tone} to={q.to} hint={q.hint} />
           ))}
         </div>
       </section>
@@ -123,10 +128,13 @@ export function OverviewPage() {
           <CardBody className="space-y-1 p-2">
             {[
               { to: '/review', label: 'Review next ad', icon: Video, key: 'reviewQueue' as const },
+              { to: '/kyc', label: 'Review KYC documents', icon: IdCard, key: 'kyc' as const },
+              { to: '/alerts', label: 'Check open alerts', icon: BellRing, key: 'alerts' as const },
               { to: '/withdrawals?status=flagged_for_review', label: 'Held withdrawals', icon: Banknote, key: 'withdrawals' as const },
               { to: '/adjustments', label: 'New coin adjustment', icon: Coins, key: 'adjustments' as const },
               { to: '/fraud', label: 'Triage fraud flags', icon: ShieldAlert, key: 'fraud' as const },
               { to: '/users', label: 'Find a user', icon: Users, key: 'users' as const },
+              { to: '/deletion-requests', label: 'Deletion requests', icon: UserRoundX, key: 'deletionRequests' as const },
               { to: '/app-installs', label: 'Verify app installs', icon: Smartphone, key: 'appInstalls' as const },
               { to: '/audit', label: 'Browse the audit log', icon: Activity, key: 'audit' as const },
             ]

@@ -1,7 +1,7 @@
 import type { ActorType, AuditLogItem } from '@rap/shared';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ChevronDown, ChevronRight, Download, ScrollText } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Download, Loader2, ScrollText } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { auditApi } from '@/lib/api/endpoints';
@@ -9,6 +9,7 @@ import { queryKeys } from '@/lib/api/query-keys';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useDebouncedValue } from '@/lib/hooks/use-misc';
 import { useListParams } from '@/lib/hooks/use-list-params';
+import { cn } from '@/lib/utils/cn';
 import { downloadCsv, toCsv } from '@/lib/utils/csv';
 import { formatDateTime, humanize } from '@/lib/utils/format';
 import { countChanges, diffJson } from '@/lib/utils/json-diff';
@@ -19,8 +20,9 @@ import { EmptyState } from '@/components/ui/feedback';
 import { Input, Label, NativeSelect, SearchInput } from '@/components/ui/input';
 import { DiffView, JsonView } from '@/components/ui/json';
 import { IdChip, PageHeader } from '@/components/ui/page';
+import { useResolveActor, useUserPhones } from './use-actor-resolution';
 
-const defaults = { q: '' as string, action: '' as string, actorType: '' as string, actorId: '' as string, targetType: '' as string, targetId: '' as string, from: '' as string, to: '' as string, page: 1, limit: 100 };
+const defaults = { q: '' as string, action: '' as string, actorType: '' as string, actorId: '' as string, actor: '' as string, targetType: '' as string, targetId: '' as string, from: '' as string, to: '' as string, page: 1, limit: 100 };
 
 const ACTION_TONE = (action: string): BadgeTone => {
   if (/reject|ban|suspend|fail/.test(action)) return 'danger';
@@ -38,6 +40,9 @@ const TARGET_ROUTE: Record<string, (id: string) => string> = {
   advertiser: (id) => `/advertisers/${id}`,
   coin_adjustment_request: (id) => `/adjustments/${id}?status=all`,
   fraud_flag: (id) => `/fraud/${id}?resolved=all`,
+  kyc_submission: (id) => `/kyc/${id}?status=approved`,
+  platform_alert: () => `/alerts?state=all`,
+  deletion_request: () => `/deletion-requests?status=executed`,
 };
 
 export function AuditPage() {
@@ -50,6 +55,23 @@ export function AuditPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // F9: the Actor box accepts an admin email, a user phone or an id and resolves it to `actorId` for the API.
+  // `actor` (what was typed) lives in the URL next to `actorId` so the chip survives reloads / sharing.
+  const [actorInput, setActorInput] = useState(params.actor);
+  const debouncedActor = useDebouncedValue(actorInput, 350);
+  const resolution = useResolveActor(debouncedActor);
+  useEffect(() => {
+    if (debouncedActor !== params.actor) set({ actor: debouncedActor, actorId: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedActor]);
+  useEffect(() => {
+    if (resolution.status === 'resolved' && resolution.id !== params.actorId) set({ actorId: resolution.id, actor: debouncedActor });
+    else if ((resolution.status === 'not_found' || resolution.status === 'invalid') && params.actorId && params.actor) set({ actorId: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolution]);
+  // Deep links from user pages set ?actorId= without ?actor=; block the query until an unresolvable actor is cleared.
+  const actorPending = Boolean(params.actor) && (resolution.status === 'resolving' || resolution.status === 'not_found' || resolution.status === 'invalid');
 
   const queryParams = useMemo(
     () => ({
@@ -66,7 +88,11 @@ export function AuditPage() {
     }),
     [params],
   );
-  const list = useQuery({ queryKey: queryKeys.audit(queryParams), queryFn: () => auditApi.list(queryParams), placeholderData: (p) => p });
+  const list = useQuery({ queryKey: queryKeys.audit(queryParams), queryFn: () => auditApi.list(queryParams), placeholderData: (p) => p, enabled: !actorPending });
+
+  // Phones next to user-actor ids (best effort - see use-actor-resolution).
+  const userActorIds = useMemo(() => (list.data?.data ?? []).filter((r) => r.actorType === 'user' && r.actorId).map((r) => r.actorId!), [list.data]);
+  const phones = useUserPhones(userActorIds, can('users'));
 
   const columns = useMemo<ColumnDef<AuditLogItem, unknown>[]>(
     () => [
@@ -81,15 +107,24 @@ export function AuditPage() {
       {
         id: 'actor',
         header: 'Actor',
-        cell: ({ row }) => (
-          <div className="min-w-0 text-xs">
-            <div className="truncate">
-              {row.original.actorEmail ?? (row.original.actorType === 'system' ? 'system' : row.original.actorId ? <span className="font-mono">{row.original.actorId.slice(0, 8)}…</span> : '—')}
+        cell: ({ row }) => {
+          const r = row.original;
+          const phone = r.actorType === 'user' && r.actorId ? phones.get(r.actorId) : undefined;
+          return (
+            <div className="min-w-0 text-xs">
+              <div className="truncate">
+                {r.actorEmail ?? (r.actorType === 'system' ? 'system' : r.actorId ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    {phone ? <span className="font-mono" data-testid="actor-phone">{phone}</span> : null}
+                    <span className={cn('font-mono', phone && 'text-fg-subtle')}>{r.actorId.slice(0, 8)}…</span>
+                  </span>
+                ) : '—')}
+              </div>
+              <div className="text-2xs text-fg-subtle">{humanize(r.actorType)}</div>
             </div>
-            <div className="text-2xs text-fg-subtle">{humanize(row.original.actorType)}</div>
-          </div>
-        ),
-        size: 180,
+          );
+        },
+        size: 200,
       },
       {
         id: 'target',
@@ -122,7 +157,7 @@ export function AuditPage() {
       },
       { id: 'ip', header: 'IP', cell: ({ row }) => <span className="font-mono text-2xs text-fg-subtle">{row.original.ipAddress ?? '—'}</span>, size: 110 },
     ],
-    [expanded],
+    [expanded, phones],
   );
 
   const hasFilters = Object.entries(params).some(([k, v]) => !['page', 'limit'].includes(k) && v !== '' && v !== undefined);
@@ -137,6 +172,7 @@ export function AuditPage() {
         { header: 'actor_type', value: (r) => r.actorType },
         { header: 'actor_id', value: (r) => r.actorId },
         { header: 'actor_email', value: (r) => r.actorEmail },
+        { header: 'actor_phone', value: (r) => (r.actorType === 'user' && r.actorId ? phones.get(r.actorId) ?? null : null) },
         { header: 'target_type', value: (r) => r.targetType },
         { header: 'target_id', value: (r) => r.targetId },
         { header: 'before_state', value: (r) => r.beforeState },
@@ -160,9 +196,26 @@ export function AuditPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-56">
             <Label htmlFor="audit-q" className="mb-1">
-              Search
+              Action or target type
             </Label>
-            <SearchInput id="audit-q" value={search} onValueChange={setSearch} placeholder="action or target type" />
+            <SearchInput id="audit-q" value={search} onValueChange={setSearch} placeholder="e.g. withdrawal, kyc.approved" />
+          </div>
+          <div className="w-64">
+            <Label htmlFor="audit-actor" className="mb-1">
+              Actor
+            </Label>
+            <div className="relative">
+              <Input id="audit-actor" value={actorInput} onChange={(e) => setActorInput(e.target.value)} placeholder="admin email, user phone or id" className="pr-7 font-mono text-xs" aria-describedby="audit-actor-status" />
+              <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2">
+                {resolution.status === 'resolving' ? (
+                  <Loader2 className="size-3.5 animate-spin text-fg-subtle" aria-hidden />
+                ) : resolution.status === 'resolved' ? (
+                  <CheckCircle2 className="size-3.5 text-success" aria-hidden />
+                ) : resolution.status === 'not_found' || resolution.status === 'invalid' ? (
+                  <CircleAlert className="size-3.5 text-danger" aria-hidden />
+                ) : null}
+              </span>
+            </div>
           </div>
           <div>
             <Label htmlFor="audit-action" className="mb-1">
@@ -170,7 +223,7 @@ export function AuditPage() {
             </Label>
             <Input id="audit-action" list="audit-actions" value={params.action} onChange={(e) => set({ action: e.target.value })} placeholder="withdrawal." className="w-44 font-mono text-xs" />
             <datalist id="audit-actions">
-              {['ad.', 'campaign.', 'user.', 'advertiser.', 'withdrawal.', 'coin_adjustment.', 'fraud_flag.', 'completion.', 'ad_report.'].map((a) => (
+              {['ad.', 'campaign.', 'user.', 'advertiser.', 'withdrawal.', 'coin_adjustment.', 'fraud_flag.', 'completion.', 'ad_report.', 'kyc.', 'alert.', 'deletion_request.', 'impersonation.', 'referral.'].map((a) => (
                 <option key={a} value={a} />
               ))}
             </datalist>
@@ -193,12 +246,12 @@ export function AuditPage() {
             </Label>
             <Input id="audit-target-type" list="audit-targets" value={params.targetType} onChange={(e) => set({ targetType: e.target.value })} placeholder="withdrawal" className="w-40 font-mono text-xs" />
             <datalist id="audit-targets">
-              {Object.keys(TARGET_ROUTE)
-                .concat(['ad_completion', 'ad_report', 'app_install_completion'])
-                .map((t) => (
-                  <option key={t} value={t} />
-                ))}
-            </datalist>
+            {Object.keys(TARGET_ROUTE)
+              .concat(['ad_completion', 'ad_report', 'app_install_completion', 'legal_document', 'referral', 'data_export'])
+              .map((t) => (
+                <option key={t} value={t} />
+              ))}
+          </datalist>
           </div>
           <div>
             <Label htmlFor="audit-from" className="mb-1">
@@ -218,6 +271,7 @@ export function AuditPage() {
               size="sm"
               onClick={() => {
                 setSearch('');
+                setActorInput('');
                 reset();
               }}
             >
@@ -225,9 +279,28 @@ export function AuditPage() {
             </Button>
           ) : null}
         </div>
-        {(params.actorId || params.targetId) && (
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-fg-muted">
-            {params.actorId ? (
+        {params.actor || params.actorId || params.targetId ? (
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-fg-muted" id="audit-actor-status" data-testid="audit-actor-status">
+            {params.actor && resolution.status === 'resolved' ? (
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 className="size-3.5 text-success" /> Actor{' '}
+                <span className="font-medium text-fg">{resolution.label}</span>
+                {resolution.kind !== 'unknown' ? (
+                  <Badge tone={resolution.kind === 'admin' ? 'primary' : 'info'} size="sm">
+                    {resolution.kind}
+                  </Badge>
+                ) : null}
+                <IdChip id={resolution.id} to={resolution.kind === 'user' && can('users') ? `/users/${resolution.id}` : undefined} />
+              </span>
+            ) : params.actor && resolution.status === 'resolving' ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="size-3.5 animate-spin" /> Looking up <span className="font-mono">{params.actor}</span>…
+              </span>
+            ) : params.actor && (resolution.status === 'not_found' || resolution.status === 'invalid') ? (
+              <span className="inline-flex items-center gap-1.5 text-danger" role="alert">
+                <CircleAlert className="size-3.5" /> {resolution.message}
+              </span>
+            ) : params.actorId ? (
               <span>
                 Actor <IdChip id={params.actorId} />
               </span>
@@ -238,31 +311,38 @@ export function AuditPage() {
               </span>
             ) : null}
           </div>
-        )}
+        ) : null}
       </PageHeader>
 
       <DataTable
         columns={columns}
-        data={list.data?.data}
+        data={actorPending ? [] : list.data?.data}
         getRowId={(r) => r.id}
-        isLoading={list.isPending}
+        isLoading={actorPending ? resolution.status === 'resolving' : list.isPending}
         error={list.error}
         onRetry={() => void list.refetch()}
         onRowClick={(r) => setExpanded((e) => (e === r.id ? null : r.id))}
         expandedRowId={expanded}
-        renderExpanded={(r) => <AuditRowDetail row={r} canOpenUsers={can('users')} />}
+        renderExpanded={(r) => <AuditRowDetail row={r} canOpenUsers={can('users')} phone={r.actorType === 'user' && r.actorId ? phones.get(r.actorId) : undefined} />}
         virtualized
         rowHeight={44}
         maxHeight="calc(100vh - 21rem)"
-        emptyState={<EmptyState compact icon={ScrollText} title="No audit entries" description="Try widening the date range or clearing filters." />}
+        emptyState={
+          <EmptyState
+            compact
+            icon={ScrollText}
+            title={actorPending ? 'Actor not resolved' : 'No audit entries'}
+            description={actorPending ? 'Fix the Actor filter (or clear it) to search the log.' : 'Try widening the date range or clearing filters.'}
+          />
+        }
         aria-label="Audit log"
       />
-      <PaginationBar page={params.page} limit={params.limit} total={list.data?.meta.total} onPageChange={(p) => set({ page: p })} onLimitChange={(l) => set({ limit: l, page: 1 })} limits={[50, 100]} isFetching={list.isFetching} />
+      <PaginationBar page={params.page} limit={params.limit} total={actorPending ? 0 : list.data?.meta.total} onPageChange={(p) => set({ page: p })} onLimitChange={(l) => set({ limit: l, page: 1 })} limits={[50, 100]} isFetching={list.isFetching} />
     </div>
   );
 }
 
-function AuditRowDetail({ row, canOpenUsers }: { row: AuditLogItem; canOpenUsers: boolean }) {
+function AuditRowDetail({ row, canOpenUsers, phone }: { row: AuditLogItem; canOpenUsers: boolean; phone?: string }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div>
@@ -277,7 +357,7 @@ function AuditRowDetail({ row, canOpenUsers }: { row: AuditLogItem; canOpenUsers
           </dd>
           <dt className="text-fg-subtle">Actor</dt>
           <dd>
-            {row.actorEmail ?? '—'} <IdChip id={row.actorId} />
+            {row.actorEmail ?? phone ?? '—'} <IdChip id={row.actorId} />
             {row.actorType === 'user' && row.actorId && canOpenUsers ? (
               <Link to={`/users/${row.actorId}`} className="ml-1 text-primary hover:underline">
                 open user
