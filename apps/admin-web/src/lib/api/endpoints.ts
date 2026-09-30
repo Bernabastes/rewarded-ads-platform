@@ -28,6 +28,7 @@ import {
   type AlertRulesRunResult,
   type ApproveAdDto,
   type AuditLogItem,
+  type AuditLogMeta,
   type AuditLogQuery,
   type BalanceResponse,
   type BannedTopicsChecklist,
@@ -232,7 +233,7 @@ export const revenueApi = {
 /* ------------------------------- audit log -------------------------- */
 
 export const auditApi = {
-  list: (params?: AuditLogQuery) => api.get<Paginated<AuditLogItem>>(API_ROUTES.admin.auditLog, { query: q(params) }),
+  list: (params?: AuditLogQuery) => api.get<Paginated<AuditLogItem, AuditLogMeta>>(API_ROUTES.admin.auditLog, { query: q(params) }),
 };
 
 /* ----------------------------- app installs ------------------------- */

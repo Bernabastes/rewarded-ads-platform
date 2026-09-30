@@ -466,8 +466,20 @@ conflicts. Gaps they reported were closed in the API (all backwards compatible):
   queue counters (one request for every sidebar badge); `AdminKycDetail.duplicateIdentityUsers` lists the accounts;
   `?mediaStatus=` on the review queue; `GET /admin/alerts` readable by every admin role (ack: support/finance/super;
   run-rules: super) and admin `permissions[]` extended accordingly.
-- Deferred on purpose: the admin audit page still resolves the actor client-side before calling the API (its
-  MSW-tested flow asserts `actorId=`); switching it to `actor=` is a UI-only follow-up now that the server supports it.
+
+### 12e. Phase 4D – QA clean-up (2026-09-30)
+
+- **KYC boundary is inclusive** (P4-F1, product decision): `evaluateThreshold` uses strict `lessThan`, so a projected
+  rolling-30-day total equal to `KYC_REQUIRED_ABOVE_MONTHLY_ETB` already requires KYC; see §12c-3. Variable and field
+  names are unchanged for compatibility; the mobile `kycProjection` mirror uses `>=` too.
+- **Audit actor filter is fully server-side** (P4-F4): the admin console sends the typed value verbatim as `actor=` and
+  reads `meta.actorResolved` plus the new additive `meta.actor { id, actorType, label }` (also filled for legacy
+  `actorId=` deep links, by looking the id up across admins / users / advertisers). The client-side email/phone
+  resolution hook and the per-row `GET /admin/users/:id` phone lookups were deleted – `actorLabel` covers them.
+- **Review queue media filter** (P4-F3): `?mediaStatus=` chips in the admin UI; the queue endpoint applies the same
+  `where` to rows and total, and an unfiltered `limit=1` request keeps the tab count meaningful while filtering.
+- **RN-web deprecations** (P4-F2): `pointerEvents` moved into `style`, `shadow*` styles replaced by `boxShadow` on web
+  (native keeps `shadow*`/`elevation` via `Platform.select`).
 
 ## 13. Assumptions
 

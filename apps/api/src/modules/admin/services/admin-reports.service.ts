@@ -14,6 +14,15 @@ import { NotificationService } from '../../notifications/notifications.module';
 import { AdminUsersService } from './admin-users.service';
 import type { AdminActor } from './admin-review.service';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Who an audit-log `actor=` / `actorId=` filter resolved to (exposed as `meta.actor`). */
+export interface ResolvedActor {
+  id: string;
+  actorType: ActorType | null;
+  label: string;
+}
+
 @Injectable()
 export class AdminReportsService {
   constructor(
@@ -335,13 +344,15 @@ export class AdminReportsService {
     to?: string;
   }) {
     const p = pageArgs(query);
-    let actorId: string | undefined = query.actorId;
-    if (!actorId && query.actor?.trim()) {
-      const resolved = await this.resolveActor(query.actor.trim());
+    let actor: ResolvedActor | null = null;
+    if (query.actorId) {
+      actor = (await this.lookupActorById(query.actorId)) ?? { id: query.actorId, actorType: null, label: query.actorId };
+    } else if (query.actor?.trim()) {
+      actor = await this.resolveActorDetail(query.actor.trim());
       // unknown actor => no rows (never silently drop the filter)
-      if (!resolved) return paginated([], 0, p, { actorResolved: false });
-      actorId = resolved;
+      if (!actor) return paginated([], 0, p, { actorResolved: false, actor: null });
     }
+    const actorId = actor?.id;
     const where: Prisma.AuditLogWhereInput = {
       actorId,
       actorType: query.actorType,
@@ -378,25 +389,51 @@ export class AdminReportsService {
       })),
       total,
       p,
-      { actorResolved: Boolean(actorId) || undefined },
+      actor ? { actorResolved: true, actor } : {},
     );
   }
 
   /** Admin email / advertiser email / user phone -> id. Returns null when nothing matches. */
   async resolveActor(input: string): Promise<string | null> {
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)) return input;
+    return (await this.resolveActorDetail(input))?.id ?? null;
+  }
+
+  /**
+   * Admin email / advertiser email / user phone (any Ethiopian format) / uuid -> who it is. A uuid that matches no
+   * known account is still accepted as a raw actor id (e.g. a removed admin) with `actorType: null`.
+   */
+  async resolveActorDetail(input: string): Promise<ResolvedActor | null> {
+    if (UUID_RE.test(input)) {
+      return (await this.lookupActorById(input)) ?? { id: input, actorType: null, label: input };
+    }
     if (input.includes('@')) {
       const email = input.toLowerCase();
-      const admin = await this.prisma.adminUser.findUnique({ where: { email }, select: { id: true } });
-      if (admin) return admin.id;
-      const advertiser = await this.prisma.advertiser.findUnique({ where: { contactEmail: email }, select: { id: true } });
-      return advertiser?.id ?? null;
+      const admin = await this.prisma.adminUser.findUnique({ where: { email }, select: { id: true, email: true } });
+      if (admin) return { id: admin.id, actorType: 'admin', label: admin.email ?? email };
+      const advertiser = await this.prisma.advertiser.findUnique({
+        where: { contactEmail: email },
+        select: { id: true, contactEmail: true },
+      });
+      return advertiser ? { id: advertiser.id, actorType: 'advertiser', label: advertiser.contactEmail ?? email } : null;
     }
     const phone = normalizeEthiopianPhone(input);
     if (phone) {
-      const user = await this.prisma.user.findUnique({ where: { phoneNumber: phone }, select: { id: true } });
-      return user?.id ?? null;
+      const user = await this.prisma.user.findUnique({ where: { phoneNumber: phone }, select: { id: true, phoneNumber: true } });
+      return user ? { id: user.id, actorType: 'user', label: user.phoneNumber ?? phone } : null;
     }
+    return null;
+  }
+
+  /** Which account (admin / user / advertiser) a raw id belongs to, with its human label; null when unknown. */
+  private async lookupActorById(id: string): Promise<ResolvedActor | null> {
+    const [admin, user, advertiser] = await Promise.all([
+      this.prisma.adminUser.findUnique({ where: { id }, select: { id: true, email: true } }),
+      this.prisma.user.findUnique({ where: { id }, select: { id: true, phoneNumber: true } }),
+      this.prisma.advertiser.findUnique({ where: { id }, select: { id: true, contactEmail: true } }),
+    ]);
+    if (admin) return { id, actorType: 'admin', label: admin.email ?? id };
+    if (user) return { id, actorType: 'user', label: user.phoneNumber ?? id };
+    if (advertiser) return { id, actorType: 'advertiser', label: advertiser.contactEmail ?? id };
     return null;
   }
 

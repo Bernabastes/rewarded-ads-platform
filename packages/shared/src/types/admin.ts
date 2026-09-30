@@ -474,8 +474,19 @@ export interface AuditLogQuery extends PaginationQuery, DateRangeQuery {
 }
 
 export interface AuditLogMeta extends PaginationMeta {
-  /** Present when `actor=` was used: false means the actor could not be resolved. */
+  /** Present when `actor=` (or `actorId=`) was used: false means the actor could not be resolved. */
   actorResolved?: boolean;
+  /**
+   * Present with `actorResolved: true`: who the filter resolved to. `label` is the admin email, advertiser email or
+   * user phone (falls back to the raw id when nothing is known about that uuid; `actorType` is then null).
+   */
+  actor?: AuditLogActorMeta | null;
+}
+
+export interface AuditLogActorMeta {
+  id: Uuid;
+  actorType: ActorType | null;
+  label: string;
 }
 
 /* ---------- ad reports / offers ---------- */

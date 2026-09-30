@@ -231,7 +231,7 @@ KYC queue `J/K` move, `A` approve…, `R` reject…, `Z` zoom the front document
 | `/withdrawals`       | Tabs per status; first-withdrawal marker, dual-approval progress; drawer with user, masked destination (reveal toggle), **partner-confirmed account holder + verified-at** (or "not verified" for known destinations), approvals list, provider info; **Approve disabled when the current admin is already in `approvals[]`**, "1 of 2" progress, reject (refund) with reason, retry failed payouts (≤ 3 attempts).                                                                                                                                                       |
 | `/adjustments`       | Two-step workflow: create (user combobox, ± coins with ETB preview, reason, reference, **Idempotency-Key per intent**), list by status; drawer with decision trail; **Approve disabled for the requester**, cancel own pending request, executed requests link to the ledger entry and audit rows.                                                                                                                                                                                                                                                                  |
 | `/revenue`           | Presets / custom UTC range; cards for platform revenue, **referral bonuses (platform cost)** and **net platform revenue**, spend, payouts, top-ups; revenue-over-time chart (+ net line), take-rate donut, top advertisers, by action type, daily table with referral-bonus and net columns, CSV export (daily incl. the new columns + advertisers).                                                                                                                                                                                                                  |
-| `/audit`             | Filters ("Action or target type" search, **Actor** = admin email / user phone / id resolved to `actorId` with a status chip, action prefix, actor type, target type / id, date range), virtualised table showing the **phone next to user-actor ids**, expandable rows with before/after diff + raw JSON + metadata, CSV export of the page (incl. actor phone). Target ids link to their record (incl. KYC submissions, alerts, deletion requests).                                                                                                                  |
+| `/audit`             | Filters ("Action or target type" search, **Actor** = admin / advertiser email, user phone or id sent as `actor=` and resolved server-side, with a status chip, action prefix, actor type, target type / id, date range), virtualised table showing the server-side **actor label (email / phone) next to every actor**, expandable rows with before/after diff + raw JSON + metadata, CSV export of the page (incl. actor label). Target ids link to their record (incl. KYC submissions, alerts, deletion requests).                                                                                                                  |
 | `/config`            | Read-only effective platform config with `@rap/shared` defaults for comparison; economics, completion rules, fraud engine, **KYC & payout destinations, frequency caps & referrals, data rights & alert-rule thresholds**; all seven mock-provider flags labelled (`sms`, `payouts`, `paymentGateway`, `push`, `idVerification`, `alerts`, `destinationLookup`).                                                                                                                                                                                                       |
 
 ---
@@ -249,8 +249,9 @@ KYC queue `J/K` move, `A` approve…, `R` reject…, `Z` zoom the front document
   reason, `KYC_NOT_PENDING`, role guard)**, **alerts (list, ack, `ALERT_ALREADY_ACKNOWLEDGED`, run rules summary,
   empty state)**, **view-as panel (impersonation bearer only, banner countdown, no write actions, expiry closes the
   panel, `IMPERSONATION_READ_ONLY`, no-session state)**, **command palette (input pinned outside the scrolling list,
-  new entries + keywords, role gating)** and **audit actor resolution (email → admin id, phone → user id, unknown
-  input blocks the query, phones next to user actors)**.
+  new entries + keywords, role gating)** and **audit actor filter (server-side `actor=` round-trip in the URL, `meta.actor` chip with a link to the
+  user, unknown actor → empty page + alert chip, legacy `actorId=` deep links, no per-row user lookups)**, plus the
+  **review-queue media filter (chips → `?mediaStatus=`, shared-URL restore, count-aware empty state)**.
 - Live E2E (Playwright, Chromium, against the seeded Docker API through the Vite proxy on :5176 — 148 checks, all
   passing, **0 console errors** across 12 routes × 4 roles × light + dark): support approved `+251911001233` (now
   `id_verified`) and rejected `+251911001918` with a reason from the KYC drawer (documents, 05:00 countdown, zoom,
@@ -312,10 +313,11 @@ KYC queue `J/K` move, `A` approve…, `R` reject…, `Z` zoom the front document
   visible creative is `processing` the queue / detail poll every 10 s so the gate lifts on its own.
 - **Deletion "Execute"** is disabled client-side from `pendingWithdrawals` (the list row) and the API still enforces
   `DELETION_BLOCKED_PENDING_WITHDRAWALS`; both dialogs state that the ledger, withdrawals and audit rows are retained.
-- **Audit actor resolution** has no admin directory to query: admin emails are matched against the `actorEmail` of the
-  latest 100 admin audit rows (plus the signed-in admin), phones via `GET /admin/users?q=`; user-actor ids on a page
-  are resolved to phones with cached per-id detail calls (max 25 per page). Unresolvable input blocks the query and
-  says so rather than silently showing everything.
+- **Audit actor filter is server-side** (Phase 4D): the Actor box sends what was typed verbatim as
+  `GET /admin/audit-log?actor=` (admin / advertiser email, user phone in any Ethiopian format, or an id) and reads
+  `meta.actorResolved` + `meta.actor { id, actorType, label }` for the status chip. An unknown actor yields an empty
+  page and a red "No admin, advertiser or user matches …" chip rather than silently showing everything. Rows are
+  labelled from `actorLabel`, so there are no per-row user lookups any more; legacy `?actorId=` links still work.
 - **Alerts for reviewers**: hidden (see RBAC note) - the API returns 403 for `ad_reviewer`.
 - **DataTable virtualisation** falls back to plain rows whenever the virtualizer cannot measure a viewport (jsdom,
   `display: none` ancestors) instead of rendering an empty table.
@@ -348,7 +350,12 @@ KYC queue `J/K` move, `A` approve…, `R` reject…, `Z` zoom the front document
 
 ## API gaps found during Phase 4B (admin UI for the Phase 4A backend)
 
-All worked around client-side; none blocks the features.
+> Status after Phase 4C/4D: items 1, 2, 3, 4, 5 and 7 are **fixed in the API / `@rap/shared`** and the UI now uses
+> the server-side contract (enriched deletion rows, `actorLabel` + `actor=` with `meta.actor`, overview counters,
+> `duplicateIdentityUsers`, alerts readable by `ad_reviewer`, `?mediaStatus=` filter chips). Items 6 and 8 are
+> expected behaviour. The text below is kept as the historical record of what was found.
+
+All worked around client-side at the time; none blocked the features.
 
 1. **`POST /admin/deletion-requests/:id/execute|cancel` return a bare `DeletionRequestItem`** (no `user`,
    `pendingWithdrawals`, …) although the natural type is `AdminDeletionRequestItem` like the list rows. The UI reads

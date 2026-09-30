@@ -44,28 +44,35 @@ describe('AdminReportsService audit log (Phase 4C: actor labels + actor= filter)
   });
 
   it('resolves actor= (admin email / user phone in any format / advertiser email / uuid) to actorId', async () => {
-    prisma.adminUser.findUnique.mockResolvedValue({ id: ADMIN });
+    prisma.adminUser.findUnique.mockResolvedValue({ id: ADMIN, email: 'finance@rap.et' });
     expect(await service.resolveActor('Finance@rap.et')).toBe(ADMIN);
-    expect(prisma.adminUser.findUnique).toHaveBeenCalledWith({ where: { email: 'finance@rap.et' }, select: { id: true } });
+    expect(prisma.adminUser.findUnique).toHaveBeenCalledWith({ where: { email: 'finance@rap.et' }, select: { id: true, email: true } });
 
     prisma.adminUser.findUnique.mockResolvedValue(null);
-    prisma.advertiser.findUnique.mockResolvedValue({ id: ADVERTISER });
+    prisma.advertiser.findUnique.mockResolvedValue({ id: ADVERTISER, contactEmail: 'ads@habesha-coffee.et' });
     expect(await service.resolveActor('ads@habesha-coffee.et')).toBe(ADVERTISER);
+    expect(await service.resolveActorDetail('ads@habesha-coffee.et')).toEqual({ id: ADVERTISER, actorType: 'advertiser', label: 'ads@habesha-coffee.et' });
 
-    prisma.user.findUnique.mockResolvedValue({ id: USER });
+    prisma.user.findUnique.mockResolvedValue({ id: USER, phoneNumber: '+251911000000' });
     expect(await service.resolveActor('0911 000 000')).toBe(USER);
-    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { phoneNumber: '+251911000000' }, select: { id: true } });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { phoneNumber: '+251911000000' }, select: { id: true, phoneNumber: true } });
+    expect(await service.resolveActorDetail('0911 000 000')).toEqual({ id: USER, actorType: 'user', label: '+251911000000' });
 
-    expect(await service.resolveActor(USER)).toBe(USER);
+    // a uuid is looked up across the three account tables; user matches here
+    prisma.advertiser.findUnique.mockResolvedValue(null);
+    expect(await service.resolveActorDetail(USER)).toEqual({ id: USER, actorType: 'user', label: '+251911000000' });
     prisma.user.findUnique.mockResolvedValue(null);
+    // an unknown uuid is still usable as a raw actor id (e.g. a removed admin)
+    expect(await service.resolveActorDetail(uuid(9))).toEqual({ id: uuid(9), actorType: null, label: uuid(9) });
     expect(await service.resolveActor('0911999999')).toBeNull();
     expect(await service.resolveActor('not an actor')).toBeNull();
   });
 
-  it('actor= filters by the resolved id; an unknown actor yields an empty page instead of dropping the filter', async () => {
-    prisma.adminUser.findUnique.mockResolvedValue({ id: ADMIN });
-    await service.auditLog({ actor: 'finance@rap.et' });
+  it('actor= filters by the resolved id and describes it in meta.actor; an unknown actor yields an empty page instead of dropping the filter', async () => {
+    prisma.adminUser.findUnique.mockResolvedValue({ id: ADMIN, email: 'finance@rap.et' });
+    const page = await service.auditLog({ actor: 'finance@rap.et' });
     expect(prisma.auditLog.findMany.mock.calls[0][0].where.actorId).toBe(ADMIN);
+    expect(page.meta).toMatchObject({ actorResolved: true, actor: { id: ADMIN, actorType: 'admin', label: 'finance@rap.et' } });
 
     prisma.adminUser.findUnique.mockResolvedValue(null);
     prisma.advertiser.findUnique.mockResolvedValue(null);
@@ -73,7 +80,19 @@ describe('AdminReportsService audit log (Phase 4C: actor labels + actor= filter)
     expect(empty.data).toEqual([]);
     expect(empty.meta.total).toBe(0);
     expect((empty.meta as any).actorResolved).toBe(false);
+    expect((empty.meta as any).actor).toBeNull();
     expect(prisma.auditLog.findMany).toHaveBeenCalledTimes(1); // no second query
+  });
+
+  it('actorId= deep links are labelled too, and a page without an actor filter carries no actor meta', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: USER, phoneNumber: '+251911000000' });
+    const byId = await service.auditLog({ actorId: USER });
+    expect(prisma.auditLog.findMany.mock.calls[0][0].where.actorId).toBe(USER);
+    expect(byId.meta).toMatchObject({ actorResolved: true, actor: { id: USER, actorType: 'user', label: '+251911000000' } });
+
+    const plain = await service.auditLog({});
+    expect((plain.meta as any).actorResolved).toBeUndefined();
+    expect((plain.meta as any).actor).toBeUndefined();
   });
 });
 
