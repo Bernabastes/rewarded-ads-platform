@@ -109,7 +109,7 @@ export function FrequencyCapControl({
 export function FrequencyCapSummary({ cap, className }: { cap: number; className?: string }) {
   return (
     <Tooltip content={FREQUENCY_CAP_HELP}>
-      <span className={cn('inline-flex items-center gap-1.5 text-sm text-fg', className)}>
+      <span className={cn('inline-flex items-center gap-1.5 text-sm whitespace-nowrap text-fg', className)}>
         <Users className="size-4 text-fg-subtle" aria-hidden="true" />
         <span className="font-semibold tabular-nums">{cap}</span>
         <span className="text-fg-muted">{cap === 1 ? 'view' : 'views'} / person / day</span>
