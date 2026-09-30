@@ -1,8 +1,9 @@
 # @rap/admin-web — Gize Admin
 
-Internal admin console for the Rewarded Ads Platform (Ethiopia): ad review, user / advertiser management, fraud
-triage, the withdrawal queue with dual approval, two-step manual coin adjustments, revenue, audit log and platform
-configuration. React 19 + TypeScript strict + Vite 7 + Tailwind CSS v4, talking to the NestJS API through the
+Internal admin console for the Rewarded Ads Platform (Ethiopia): ad review (with the media-pipeline gate), user /
+advertiser management, KYC queue, fraud triage, money-day alerts, referrals, account-deletion requests, read-only
+user impersonation, the withdrawal queue with dual approval, two-step manual coin adjustments, revenue, audit log and
+platform configuration. React 19 + TypeScript strict + Vite 7 + Tailwind CSS v4, talking to the NestJS API through the
 `@rap/shared` contract.
 
 > **Brand placeholder.** The product name **"Gize"** (Amharic ጊዜ, "time") is a working title chosen for this build.
@@ -20,7 +21,7 @@ pnpm --filter @rap/admin-web dev               # http://localhost:5174 (strict p
 
 pnpm --filter @rap/admin-web typecheck         # tsc (app + node configs)
 pnpm --filter @rap/admin-web lint              # eslint (root flat config + react-hooks)
-pnpm --filter @rap/admin-web test              # vitest + testing-library + msw (63 tests)
+pnpm --filter @rap/admin-web test              # vitest + testing-library + msw (98 tests)
 pnpm --filter @rap/admin-web build             # vite build → dist/
 pnpm --filter @rap/admin-web preview           # serve dist/ on :5174
 ```
@@ -28,21 +29,33 @@ pnpm --filter @rap/admin-web preview           # serve dist/ on :5174
 The API must be running (Docker container `rap-api`, or `pnpm dev:api`) at `VITE_API_URL`; CORS already allows
 `http://localhost:5174`. Health: `GET http://localhost:3000/health/ready`.
 
+**Another port / same-origin mode.** When :5174 is taken (e.g. by the nginx container `rap-admin-web`) run the dev
+server on any port and let Vite proxy the API so the browser stays same-origin and CORS never applies:
+
+```bash
+VITE_API_URL=/ pnpm --filter @rap/admin-web exec vite --port 5176 --strictPort
+# PowerShell:  $env:VITE_API_URL='/'; pnpm --filter @rap/admin-web exec vite --port 5176 --strictPort
+```
+
+`vite.config.ts` forwards `/api/*` to `VITE_DEV_PROXY_TARGET` (default `http://localhost:3000`); `VITE_API_URL=/`
+(or empty) makes the client call the relative `/api/v1`.
+
 ### Environment variables
 
-| Variable       | Default                 | Purpose                                                                        |
-| -------------- | ----------------------- | ------------------------------------------------------------------------------ |
-| `VITE_API_URL` | `http://localhost:3000` | Origin of the API. `API_BASE_PATH` (`/api/v1`) from `@rap/shared` is appended. |
+| Variable                | Default                 | Purpose                                                                                                   |
+| ----------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `VITE_API_URL`          | `http://localhost:3000` | Origin of the API. `API_BASE_PATH` (`/api/v1`) from `@rap/shared` is appended. `/` = same-origin (proxy). |
+| `VITE_DEV_PROXY_TARGET` | `http://localhost:3000` | Where the Vite dev/preview server forwards `/api/*` (dev only).                                           |
 
 ### Demo accounts (seeded; password `Admin123!`)
 
-| Email             | Role          | What you can do in the console                                                              |
-| ----------------- | ------------- | ------------------------------------------------------------------------------------------- |
-| `super@rap.et`    | `super_admin` | Everything                                                                                  |
-| `reviewer@rap.et` | `ad_reviewer` | Ad review queue, campaign moderation, ad reports                                            |
-| `support@rap.et`  | `support`     | Users (suspend/ban/reinstate), advertiser verification, fraud, reports, app installs, audit |
-| `finance@rap.et`  | `finance`     | Withdrawals, coin adjustments, revenue, fraud, audit (users/campaigns read-only)            |
-| `finance2@rap.et` | `finance`     | Second finance account — use it to give the _second_ approval                               |
+| Email             | Role          | What you can do in the console                                                                                          |
+| ----------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `super@rap.et`    | `super_admin` | Everything, incl. "Run alert rules now"                                                                                 |
+| `reviewer@rap.et` | `ad_reviewer` | Ad review queue (media gate, reprocess), campaign moderation, ad reports                                                |
+| `support@rap.et`  | `support`     | Users (suspend/ban/reinstate, impersonate), KYC, advertiser verification, fraud, alerts, referrals, deletions, audit    |
+| `finance@rap.et`  | `finance`     | Withdrawals, coin adjustments, revenue, KYC, alerts, referrals, fraud, audit (users/campaigns read-only)                 |
+| `finance2@rap.et` | `finance`     | Second finance account — use it to give the _second_ approval                                                           |
 
 ---
 
@@ -72,22 +85,28 @@ src/
       auth-store.ts        tiny external store (useSyncExternalStore) for { status, admin, lastLogoutReason }
       use-auth.ts          useAuth() → login / logout / can(); useAuthBootstrap() restores + keeps sessions warm
       rbac.ts              ACCESS matrix mirroring the API's @Roles decorators; can(role, key); role labels
+      impersonation-store.ts  in-memory "view as user" session (token, expiry timer, countdown hook) - never persisted
     domain/
-      review-rules.ts      banned-topics checklist gating, rejection-reason composer
+      review-rules.ts      banned-topics checklist gating, rejection-reason composer, media-pipeline gate (MEDIA_NOT_READY)
       finance-rules.ts     dual-approval state (approvals[] vs me), adjustment self-approval guard, retry rules
+      kyc-rules.ts         provider pre-check parsing / grading, reviewer warnings, presigned-link expiry
+      data-rights-rules.ts deletion execute block (in-flight withdrawals), overdue detection
+      config-labels.ts     labels for the mock-provider flags
     hooks/                 use-theme (light/dark/system), use-hotkeys (token map), use-list-params (URL state),
-                           use-misc (debounce, media query, clipboard)
-    utils/                 cn, format (ETB/coins/dates/relative), json-diff (audit before/after), csv (export)
+                           use-misc (debounce, media query, clipboard, ticking clock), use-queue-counters (sidebar badges)
+    utils/                 cn, format (ETB/coins/dates/relative), json-diff (audit before/after), csv (export), ids (uuid)
   components/
-    ui/                    Button, Input/Textarea/NativeSelect/Field, Badge/StatusBadge/SeverityBadge, Card,
-                           Dialog/Sheet, ConfirmDialog/ReasonDialog, Tabs/Tooltip/Checkbox/DropdownMenu,
-                           DataTable (TanStack Table + react-virtual, sticky header, expandable rows) + PaginationBar,
+    ui/                    Button, Input/Textarea/NativeSelect/Field, Badge/StatusBadge/SeverityBadge/media + alert tones,
+                           Card, Dialog (+ bare/hideHeader for the palette)/Sheet, ConfirmDialog/ReasonDialog,
+                           Tabs/Tooltip/Checkbox/DropdownMenu, DataTable (TanStack Table + react-virtual, sticky header,
+                           expandable rows, plain fallback when the viewport cannot be measured) + PaginationBar,
                            StatCard/CountUp (Framer Motion), Skeleton*, Empty/Error/NoAccess states, JsonView/DiffView
-    layout/                AppShell (topbar, page transitions, "g" sequences, ? help), Sidebar (role-aware, live
-                           queue counters), CommandPalette (cmdk)
+    layout/                AppShell (topbar, impersonation banner, page transitions, "g" sequences, ? help), Sidebar
+                           (role-aware, live queue counters incl. KYC / alerts / deletions), CommandPalette (cmdk, pinned input)
     guards/                RequireAuth, RedirectIfAuthed, RequireRole, BootSplash
-  features/<area>/         one folder per page area (overview, review, campaigns, reports, installs, users,
-                           advertisers, fraud, withdrawals, adjustments, revenue, audit, config, auth, errors)
+  features/<area>/         one folder per page area (overview, review, campaigns, reports, installs, users (+ view-as),
+                           kyc, alerts, referrals, deletion, advertisers, fraud, withdrawals, adjustments, revenue,
+                           audit, config, auth, errors)
   test/                    vitest setup, MSW server + handlers + fixtures, renderWithProviders helper
   styles/globals.css       Tailwind v4 @theme tokens, light/dark variables, fonts, utilities, overlay keyframes
 ```
@@ -96,18 +115,20 @@ src/
 
 `react-router` v7 data router. `/login` is public; everything else sits under `<RequireAuth>` → `<AppShell>`.
 Detail views that are drawers keep their id in the URL (`/withdrawals/:id`, `/adjustments/:id`, `/fraud/:id`,
-`/review/:adId`) so any record is deep-linkable and the browser back button closes the panel. List filters,
-tabs and pagination live in the query string (`useListParams`) so views are shareable and survive reloads.
+`/review/:adId`, `/kyc/:id`) so any record is deep-linkable and the browser back button closes the panel. List
+filters, tabs and pagination live in the query string (`useListParams`) so views are shareable and survive reloads.
+`/users/:id/view-as` is the read-only impersonation panel (needs an in-memory session; a reload shows an explanation).
 
 ### RBAC
 
 The server is authoritative (`403 ROLE_NOT_ALLOWED`). The UI mirrors the matrix in `src/lib/auth/rbac.ts`
-(copied from `apps/api/src/modules/admin/controllers/admin.controllers.ts`):
+(copied from `apps/api/src/modules/admin/controllers/admin.controllers.ts` and the Phase 4A module controllers):
 
 | Area                                   | super_admin | ad_reviewer | support | finance |
 | -------------------------------------- | :---------: | :---------: | :-----: | :-----: |
 | Overview, platform config              |      ✓      |      ✓      |    ✓    |    ✓    |
 | Ad review queue, approve/reject ads    |      ✓      |      ✓      |         |         |
+| Reprocess media                        |      ✓      |      ✓      |         |         |
 | Ad detail (read)                       |      ✓      |      ✓      |    ✓    |         |
 | Campaign lists & detail                |      ✓      |      ✓      |    ✓    |    ✓    |
 | Campaign approve/reject                |      ✓      |      ✓      |         |         |
@@ -115,12 +136,21 @@ The server is authoritative (`403 ROLE_NOT_ALLOWED`). The UI mirrors the matrix 
 | Ad reports                             |      ✓      |      ✓      |    ✓    |         |
 | Users (list/detail)                    |      ✓      |             |    ✓    |    ✓    |
 | Users suspend/ban/reinstate            |      ✓      |             |    ✓    |         |
+| Impersonate (read-only "view as user") |      ✓      |             |    ✓    |         |
+| KYC queue, approve/reject              |      ✓      |             |    ✓    |    ✓    |
+| Alerts (list, acknowledge)             |      ✓      |             |    ✓    |    ✓    |
+| Alerts: run rules now                  |      ✓      |             |         |         |
+| Referrals                              |      ✓      |             |    ✓    |    ✓    |
+| Deletion requests (execute/cancel)     |      ✓      |             |    ✓    |         |
 | Advertisers (list/detail)              |      ✓      |      ✓      |    ✓    |    ✓    |
 | Advertiser verify/reject               |      ✓      |             |    ✓    |         |
 | Fraud dashboard + actions              |      ✓      |             |    ✓    |    ✓    |
 | Withdrawals, coin adjustments, revenue |      ✓      |             |         |    ✓    |
 | Audit log                              |      ✓      |             |    ✓    |    ✓    |
 | App-install verification               |      ✓      |             |    ✓    |         |
+
+> The brief described alerts as "all roles read", but `GET /admin/alerts` is gated to support / finance / super_admin
+> on the API (`ad_reviewer` gets 403), so the page is hidden from reviewers too.
 
 `can(role, key)` drives: which sidebar sections / palette items render, `<RequireRole>` on every route (renders a
 designed "no access" state instead of the page), and per-action buttons inside pages (e.g. finance sees users but
@@ -138,6 +168,16 @@ no Suspend button). Any `403` the server still returns is rendered through `desc
   401 clears the session and the login page explains why. A 30 s timer keeps long-lived tabs refreshed.
 - **Errors**: `ApiError { status, code, details }`; `400 VALIDATION_ERROR` details are mapped onto form fields
   (`applyFieldErrors`), other codes go to `sonner` toasts. Every mutation has a success and a failure toast.
+- **Idempotency**: `POST /admin/coin-adjustments` carries an `Idempotency-Key` (one UUID per "Submit" intent, reused
+  on retries of the same payload, rotated after every server response). `409 IDEMPOTENCY_KEY_REUSED` closes the form
+  and refreshes the list (`details.inProgress` distinguishes "still running" from "different payload").
+- **Impersonation**: `POST /admin/users/:id/impersonate` returns a 10-minute read-only user token. It is kept only in
+  `impersonationStore` (module memory - never localStorage, never the admin `ApiClient`), sent explicitly as the
+  bearer of `anonymous` requests so the client never tries to refresh it, and dropped on expiry / logout / auth loss.
+  The view-as panel calls `/users/me`, `/users/me/balance`, `/users/me/ledger`, `/ads/feed`, `/withdrawals` and
+  `/users/me/notifications`; a 401 marks the session expired, a 403 `IMPERSONATION_READ_ONLY` renders a blocked state.
+- **Live queue counters**: `useQueueCounters` merges `GET /admin/overview` with one-row list requests for pending KYC
+  (`meta.total`), open alerts (`meta.openCount`) and pending deletion requests, each only when the role may call it.
 - **Shared contract**: enums, `API_ROUTES`, `ErrorCode`, `BANNED_TOPICS`, `PLATFORM_DEFAULTS`, money helpers and
   all admin types are imported from `@rap/shared`. `src/lib/api/types.ts` only widens a few response fields the API
   returns but the shared types don't declare yet (see "API gaps").
@@ -159,43 +199,77 @@ no Suspend button). Any `403` the server still returns is rendered through `desc
 
 ### Keyboard
 
-`Ctrl/⌘ K` command palette · `?` shortcut help · `Ctrl/⌘ ⇧ L` theme · `g` then `o r c p i u v f w a e l g` jump to a
-section · in the review queue `J/K` (or arrows) move, `1–8` toggle a banned-topic checkbox, `⇧ A` tick all,
-`A` approve (only when 8/8 and nothing is flagged), `R` reject, `Esc` closes panels · `Ctrl/⌘ Enter` submits
-reason dialogs.
+`Ctrl/⌘ K` command palette (the search box stays pinned while the list scrolls) · `?` shortcut help · `Ctrl/⌘ ⇧ L`
+theme · `g` then `o r c p i u k n d v f t w a e l g` jump to a section (k = KYC, n = referrals, d = deletion
+requests, t = alerts) · in the review queue `J/K` (or arrows) move, `1–8` toggle a banned-topic checkbox, `⇧ A` tick
+all, `A` approve (only when 8/8, nothing flagged **and the media is ready**), `R` reject, `Esc` closes panels · in the
+KYC queue `J/K` move, `A` approve…, `R` reject…, `Z` zoom the front document (`←/→` switch documents) ·
+`Ctrl/⌘ Enter` submits reason dialogs.
 
 ---
 
 ## What each page does
 
-| Route           | Highlights                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/login`        | Email + password, field-level validation, explains expired / revoked sessions, silent restore on reload.                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `/`             | Count-up metrics for every queue the role can act on, today's completions / flagged share / revenue, 7-day fraud filter chart, shortcuts. Refreshes every 30 s.                                                                                                                                                                                                                                                                                                                                                         |
-| `/review`       | Split pane: pending / approved / rejected tabs, list with thumbnails and open-report markers, media player, campaign + advertiser (verification) context, attention questions with `correctIndex`, **banned-topics checklist rendered from `BANNED_TOPICS` — Approve stays disabled until 8/8**, "Flag" marks a topic as present (blocks approval, pre-fills the reject category), structured reject dialog with stored-reason preview, optimistic queue removal, decision record + checklist snapshot on history tabs. |
-| `/campaigns`    | Status tabs, spend/budget progress, valid vs raw completions; detail with 30-day chart, fraud-filtered rate, creatives table, approve / reject (refund) / pause / resume with reasons.                                                                                                                                                                                                                                                                                                                                  |
-| `/ad-reports`   | Open / reviewed / dismissed; close a report with a note and optionally pull the ad (reason required).                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `/app-installs` | Verify (credits the user) or reject install claims.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `/users`        | Search by phone / name, status and trust-score filters, "has open flags" (current page), dense table. Detail: profile, stats, ledger (with highlight from adjustment links), withdrawals, fraud flags, devices / shared-device evidence, audit trail with JSON diffs; suspend / ban / reinstate with mandatory reason.                                                                                                                                                                                                  |
-| `/advertisers`  | Pending verification / verified / rejected; detail with registration details, wallet + lifetime spend, campaigns; verify / reject with reason.                                                                                                                                                                                                                                                                                                                                                                          |
-| `/fraud`        | Weekly flagged %, open flags by severity (donut), by rule (bars), daily trend; virtualised flags table with severity colouring and filters (state, severity, rule, user); drawer with metadata JSON, sibling-flag awareness — **the dismiss confirmation states when dismissing will credit the completion**; escalate (−10 trust) / suspend user (reason).                                                                                                                                                             |
-| `/withdrawals`  | Tabs per status; first-withdrawal marker, dual-approval progress; drawer with user, masked destination (reveal toggle), approvals list, provider info; **Approve disabled when the current admin is already in `approvals[]`**, "1 of 2" progress with explanation, reject (refund) with reason, retry failed payouts (≤ 3 attempts).                                                                                                                                                                                   |
-| `/adjustments`  | Two-step workflow: create (user combobox, ± coins with ETB preview and balance-after, reason, reference), list by status; drawer with decision trail; **Approve disabled for the requester**, cancel own pending request, executed requests link to the ledger entry and audit rows.                                                                                                                                                                                                                                    |
-| `/revenue`      | Presets / custom UTC range, revenue-over-time area chart, take-rate donut, top advertisers, by action type, daily table, CSV export (daily + advertisers).                                                                                                                                                                                                                                                                                                                                                              |
-| `/audit`        | Filters (search, action prefix, actor type / id, target type / id, date range), virtualised table, expandable rows with before/after diff (changed keys highlighted) + raw JSON + metadata, CSV export of the page. Target ids link to their record.                                                                                                                                                                                                                                                                    |
-| `/config`       | Read-only effective platform config with `@rap/shared` defaults for comparison, mock-provider flags, fraud thresholds.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Route                | Highlights                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/login`             | Email + password, field-level validation, explains expired / revoked sessions, silent restore on reload.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `/`                  | Count-up tiles for every queue the role can act on — incl. **open alerts, pending KYC, pending deletion requests** — today's completions / flagged share / revenue, 7-day fraud filter chart, shortcuts. Refreshes every 30 s.                                                                                                                                                                                                                                                                                                                                       |
+| `/review`            | Split pane: pending / approved / rejected tabs, list with thumbnails, open-report markers and a **media-status chip**, media player, **media pipeline card** (status, declared → probed duration, `WxH codec`, poster, **Reprocess media**), campaign + advertiser context, attention questions, banned-topics checklist — **Approve stays disabled until 8/8 and while `mediaStatus` is `processing` / `failed`** (the queue polls every 10 s while something is processing), structured reject dialog, optimistic queue removal, decision record on history tabs. |
+| `/campaigns`         | Status tabs, spend/budget progress, valid vs raw completions; detail with 30-day chart, fraud-filtered rate, creatives table, approve / reject (refund) / pause / resume with reasons.                                                                                                                                                                                                                                                                                                                                                                             |
+| `/ad-reports`        | Open / reviewed / dismissed; close a report with a note and optionally pull the ad (reason required).                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `/app-installs`      | Verify (credits the user) or reject install claims.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `/users`             | Search by phone / name, status and trust-score filters, dense table. Detail: profile, stats, **KYC card** (tier, latest submission, pre-check, link to the queue), **deletion-request card** (scheduled date, execute block explanation), **referral stats** (invite code, invited / paid / bonus), ledger, withdrawals, fraud flags, devices, audit trail; suspend / ban / reinstate with mandatory reason; **Impersonate (read-only)** → reason/ticket dialog → `/users/:id/view-as`.                                                                                     |
+| `/users/:id/view-as` | What the user's app shows: profile + consent state, balance / ledger checksum / ledger, ad feed with daily-cap and frequency-cap meta, withdrawals (masked), notifications — all through the read-only token, with a persistent banner "Viewing as {phone} — read-only, expires in mm:ss", no write actions anywhere, expiry → banner turns red and the panel closes.                                                                                                                                                                                              |
+| `/kyc`               | Pending / approved / rejected tabs, id-type filter, search (phone / name / last 4). Drawer: the three **presigned documents** (5-minute links — fetched fresh on every open, live "expires in mm:ss" countdown, refresh, zoom lightbox with `←/→`), submitted name / DOB vs profile with match badges, **duplicate-identity** warning (links to the matching last-4 searches), **registry pre-check** card (score, matches, MOCK badge, raw JSON), warnings summary; **Approve** (optional note) / **Reject** (reason shown to the user), toasts, optimistic queue removal, `J/K/A/R/Z` hotkeys. |
+| `/alerts`            | Money-day alerts with state / type / severity / date filters, severity colouring, expandable rows with the **payload JSON** and deliveries, **Acknowledge** (409 `ALERT_ALREADY_ACKNOWLEDGED` → "refresh"), **Run rules now** (super admin) with a per-rule raised / checked summary, notifier pills (`log · mock`), sidebar badge from `meta.openCount`. Reachable from the palette ("Run alert rules now").                                                                                                                                                       |
+| `/referrals`         | Metrics cards (total / paid / bonus coins paid as platform cost / rejected / last 7 days), top referrers, table with status, referrer / referee (links to users), bonuses, **rejection reason** (tooltip explains `self_referral_device`, …), signup IP / device fingerprint, created / qualified / paid dates; filters by status / referrer / referee id.                                                                                                                                                                                                             |
+| `/deletion-requests` | Pending / executed / cancelled tabs, `scheduledFor` with grace period and "due" marker, in-flight withdrawals count — **Execute is disabled with an explanation while > 0** —, **Execute now** / **Cancel request** dialogs (optional note) that spell out that anonymisation keeps the ledger, withdrawals and audit rows.                                                                                                                                                                                                                                        |
+| `/advertisers`       | Pending verification / verified / rejected; detail with registration details, wallet + lifetime spend, campaigns; verify / reject with reason.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `/fraud`             | Weekly flagged %, open flags by severity (donut), by rule (bars), daily trend; virtualised flags table with severity colouring and filters; drawer with metadata JSON, sibling-flag awareness — **the dismiss confirmation states when dismissing will credit the completion**; escalate (−10 trust) / suspend user (reason).                                                                                                                                                                                                                                       |
+| `/withdrawals`       | Tabs per status; first-withdrawal marker, dual-approval progress; drawer with user, masked destination (reveal toggle), **partner-confirmed account holder + verified-at** (or "not verified" for known destinations), approvals list, provider info; **Approve disabled when the current admin is already in `approvals[]`**, "1 of 2" progress, reject (refund) with reason, retry failed payouts (≤ 3 attempts).                                                                                                                                                       |
+| `/adjustments`       | Two-step workflow: create (user combobox, ± coins with ETB preview, reason, reference, **Idempotency-Key per intent**), list by status; drawer with decision trail; **Approve disabled for the requester**, cancel own pending request, executed requests link to the ledger entry and audit rows.                                                                                                                                                                                                                                                                  |
+| `/revenue`           | Presets / custom UTC range; cards for platform revenue, **referral bonuses (platform cost)** and **net platform revenue**, spend, payouts, top-ups; revenue-over-time chart (+ net line), take-rate donut, top advertisers, by action type, daily table with referral-bonus and net columns, CSV export (daily incl. the new columns + advertisers).                                                                                                                                                                                                                  |
+| `/audit`             | Filters ("Action or target type" search, **Actor** = admin email / user phone / id resolved to `actorId` with a status chip, action prefix, actor type, target type / id, date range), virtualised table showing the **phone next to user-actor ids**, expandable rows with before/after diff + raw JSON + metadata, CSV export of the page (incl. actor phone). Target ids link to their record (incl. KYC submissions, alerts, deletion requests).                                                                                                                  |
+| `/config`            | Read-only effective platform config with `@rap/shared` defaults for comparison; economics, completion rules, fraud engine, **KYC & payout destinations, frequency caps & referrals, data rights & alert-rule thresholds**; all seven mock-provider flags labelled (`sms`, `payouts`, `paymentGateway`, `push`, `idVerification`, `alerts`, `destinationLookup`).                                                                                                                                                                                                       |
 
 ---
 
 ## Verification
 
 - `pnpm --filter @rap/admin-web typecheck | lint | test | build` and root `pnpm typecheck | lint | test` pass.
-- Vitest (63 tests): API client (refresh on `TOKEN_EXPIRED`, single in-flight refresh with queued retries, logout on
-  `REFRESH_TOKEN_REUSED` / invalid token, proactive refresh, anonymous requests, network errors), RBAC matrix,
-  banned-topics gating, dual-approval + self-approval guards, JSON diff, CSV escaping, field-error mapping, hotkey
-  tokens, palette ranking; component tests with MSW for the login page, review pane, withdrawal sheet (already-approved
-  admin blocked, second admin releases, reject requires reason, `DUAL_APPROVAL_SAME_ADMIN` toast) and the adjustment
-  form / sheet (validation, `INSUFFICIENT_BALANCE` mapping, self-approval block, executed links).
+- Vitest (98 tests): API client (refresh on `TOKEN_EXPIRED`, single in-flight refresh with queued retries, logout on
+  `REFRESH_TOKEN_REUSED` / invalid token, proactive refresh, anonymous requests, network errors), RBAC matrix (incl.
+  the Phase 4A routes), banned-topics gating, **media-pipeline gating**, dual-approval + self-approval guards,
+  **KYC pre-check grading / warnings / link expiry**, **deletion execute block**, **impersonation store (memory-only
+  token, timer, expiry)**, JSON diff, CSV escaping, field-error mapping, hotkey tokens, palette ranking; component
+  tests with MSW for the login page, review pane (checklist + **processing / failed / duration-corrected media**),
+  withdrawal sheet, adjustment form / sheet, **KYC queue (list, drawer, approve + optimistic removal, reject requires a
+  reason, `KYC_NOT_PENDING`, role guard)**, **alerts (list, ack, `ALERT_ALREADY_ACKNOWLEDGED`, run rules summary,
+  empty state)**, **view-as panel (impersonation bearer only, banner countdown, no write actions, expiry closes the
+  panel, `IMPERSONATION_READ_ONLY`, no-session state)**, **command palette (input pinned outside the scrolling list,
+  new entries + keywords, role gating)** and **audit actor resolution (email → admin id, phone → user id, unknown
+  input blocks the query, phones next to user actors)**.
+- Live E2E (Playwright, Chromium, against the seeded Docker API through the Vite proxy on :5176 — 148 checks, all
+  passing, **0 console errors** across 12 routes × 4 roles × light + dark): support approved `+251911001233` (now
+  `id_verified`) and rejected `+251911001918` with a reason from the KYC drawer (documents, 05:00 countdown, zoom,
+  mismatch warnings, MOCK badge; `J`/`Z` hotkeys); super acknowledged all three seeded alerts one per run
+  (`openCount` 3→2→1→0, sidebar badge matched), ran the rules (4-rule summary), expanded payloads, and the API refused
+  a second ack with `409 ALERT_ALREADY_ACKNOWLEDGED`; referrals metrics + rejected shared-device row
+  (`+251911002466 → +251911002740`); deletion queue showed the seeded pending request (left untouched) and, for a
+  fresh user created through the user API, Cancel (with note) then a second request executed early (user became
+  `deleted`, ledger kept, `Execute` had been enabled with 0 in-flight withdrawals); support impersonated
+  `+251911000137` — banner "Viewing as … — read-only, expires in 10:00", balance / ledger / feed loaded with the
+  impersonation bearer, no write buttons in the panel, a direct `PATCH /users/me` with that token returned
+  `403 IMPERSONATION_READ_ONLY`, `impersonation.issued` landed in the audit log, End session cleared everything; the
+  reviewer used **Reprocess media** on a pending creative → `processing` chip in queue + pane, Approve disabled with the
+  explanation even at 8/8, the API answered `422 MEDIA_NOT_READY`, and once the worker finished the gate lifted by
+  polling without a reload (nothing was approved); the duration-corrected creative showed `20s → 15s` + probe
+  dimensions; revenue daily table / CSV gained referral-bonus and net columns; the withdrawal drawer showed the
+  partner-confirmed holder; `Idempotency-Key` replay returned the same adjustment with `Idempotent-Replayed: true`,
+  a different payload → `409 IDEMPOTENCY_KEY_REUSED`, and the UI create sent a UUID key; audit `Actor` resolved
+  `finance@rap.et` → admin id (14 filtered rows) and `+251911002192` → user id with the phone shown on user rows;
+  `/config` listed the 7 mock flags; the palette on `/config` in dark mode kept its input pinned while the list was
+  scrolled to the bottom. Screenshots and the JSON report were kept outside the repo (session artifacts).
 - Manual E2E with Playwright against the live API and all five accounts: reviewer approved and rejected creatives
   through the checklist gate (reject reason stored as composed); support reinstated then re-suspended
   `+251911002877` and saw both actions in the audit trail; support escalated and dismissed fraud flags; finance@ saw
@@ -227,6 +301,22 @@ reason dialogs.
 - **Mock banner**: when `GET /admin/config` reports any `mocks.*` true, the topbar shows a "Mock mode" badge.
 - **Dates** are shown in the browser locale (en-GB style, 24 h) with UTC day keys for charts, matching the API's UTC
   day buckets.
+- **Impersonation token** is deliberately not persisted: a reload of `/users/:id/view-as` shows a "no active session"
+  explanation instead of restoring the token. The banner auto-dismisses 20 s after expiry.
+- **KYC document links** are presigned for 5 minutes, so the drawer never serves a cached detail (`staleTime: 0`,
+  `gcTime: 0`) and shows a countdown computed from the shortest `expiresInSeconds`; images fade out when expired and a
+  "Refresh links" button re-fetches. Pre-check and profile mismatches are **warnings, not blockers** — the admin decides.
+- **Media gate** is client-side mirrored (`mediaApproveBlock`) and server-enforced (`422 MEDIA_NOT_READY`); while a
+  visible creative is `processing` the queue / detail poll every 10 s so the gate lifts on its own.
+- **Deletion "Execute"** is disabled client-side from `pendingWithdrawals` (the list row) and the API still enforces
+  `DELETION_BLOCKED_PENDING_WITHDRAWALS`; both dialogs state that the ledger, withdrawals and audit rows are retained.
+- **Audit actor resolution** has no admin directory to query: admin emails are matched against the `actorEmail` of the
+  latest 100 admin audit rows (plus the signed-in admin), phones via `GET /admin/users?q=`; user-actor ids on a page
+  are resolved to phones with cached per-id detail calls (max 25 per page). Unresolvable input blocks the query and
+  says so rather than silently showing everything.
+- **Alerts for reviewers**: hidden (see RBAC note) - the API returns 403 for `ad_reviewer`.
+- **DataTable virtualisation** falls back to plain rows whenever the virtualizer cannot measure a viewport (jsdom,
+  `display: none` ancestors) instead of rendering an empty table.
 
 ## API gaps found during Phase 2 (resolved in Phase 3 unless noted)
 
@@ -254,6 +344,33 @@ reason dialogs.
    `pnpm-workspace.yaml` `allowBuilds` block (pnpm 11 build-script policy). It was reverted here because root files
    are out of scope; adding `msw: false` there is the permanent fix (msw's postinstall only prints a message).
 
+## API gaps found during Phase 4B (admin UI for the Phase 4A backend)
+
+All worked around client-side; none blocks the features.
+
+1. **`POST /admin/deletion-requests/:id/execute|cancel` return a bare `DeletionRequestItem`** (no `user`,
+   `pendingWithdrawals`, …) although the natural type is `AdminDeletionRequestItem` like the list rows. The UI reads
+   the phone for its toast from the cached list row. Returning the enriched row would let drawers update in place.
+2. **No `actorPhone` on audit rows** (only `actorEmail` for admins) and **no admin directory endpoint** — the audit
+   "Actor" filter resolves emails through recent admin audit rows and phones through the users search, and user-actor
+   phones need one `GET /admin/users/:id` per distinct id per page. `actorPhone` / `actorDisplay` on
+   `AuditLogItem`, or an `actorEmail=` / `actorPhone=` query, would remove ~25 requests per page.
+3. **`AdminOverview` has no Phase 4A counters** (pending KYC, open alerts, pending deletion requests); the sidebar
+   badges and overview tiles issue one-row list requests instead (`limit=1`, reading `meta.total` /
+   `meta.openCount`). Adding `pendingKyc`, `openAlerts`, `pendingDeletionRequests` to `GET /admin/overview` would
+   save three polls.
+4. **`AdminKycDetail.duplicateIdentityUsers` is a count only** — the drawer can't link to the other accounts; it links
+   to KYC searches on the same last-4 digits instead. Returning the user ids (support/super_admin) would allow direct
+   links.
+5. **`GET /admin/alerts` is not readable by `ad_reviewer`** (403) although the brief said "all roles read"; the UI
+   follows the API. Also `meta.notifiers` / `meta.openCount` are not declared in `@rap/shared` (typed locally as
+   `AlertsMeta`).
+6. **Alert rule dedupe** means "Run rules now" rarely raises anything on demo data; the result dialog therefore shows
+   "clear" for most rules — expected, but worth a note for demos.
+7. **`GET /admin/ads/review-queue` cannot filter by `mediaStatus`**; the queue shows a chip per row and polls faster
+   while anything is processing, but a `mediaStatus=` filter would help reviewers triage failed uploads.
+8. **KYC `reject` DTO's `reason` minimum is 3 chars** (other admin DTOs use 5); the UI mirrors 3 for KYC.
+
 ## Known gaps / next steps
 
 - No admin-side creation of fraud flags (`POST /fraud/flags`) or trust recompute UI; both endpoints exist.
@@ -262,4 +379,7 @@ reason dialogs.
 - The users list filters trust score server-side but "has open flags" only on the current page (see above).
 - No i18n layer: the console is English-only (internal tool); user-facing strings that could be localised are
   centralised in components, not extracted.
+- The view-as panel covers the read endpoints the brief listed (`/users/me`, balance, ledger, feed, withdrawals,
+  notifications); `/users/me/summary`, `/users/me/kyc`, `/users/me/referrals` and offers could be added the same way.
+- Referral filters take user ids; a phone-based lookup (like the audit Actor box) would be friendlier.
 - Playwright E2E scripts used for verification live outside the repo (session artifacts) and are not part of CI.
