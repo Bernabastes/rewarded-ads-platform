@@ -502,9 +502,11 @@ async function main() {
     body: { amountEtb: 50, payoutMethod: 'telebirr', payoutDestinationId: knownId },
     allowError: true,
   });
+  // The id lookup runs BEFORE the rate-limit / in-flight / balance gates, so any of those codes proves the
+  // destination gates were satisfied without a number, lookup or OTP (the demo user hit the 3/day limit above).
   assert(
-    byId.status === 422 && byId.body.code === 'INSUFFICIENT_BALANCE',
-    `withdrawal by payoutDestinationId passes the destination gates and stops only at the balance (${byId.body.code}: ${byId.body.details?.coinBalance} coins)`,
+    ['WITHDRAWAL_RATE_LIMITED', 'INSUFFICIENT_BALANCE', 'WITHDRAWAL_PENDING_EXISTS'].includes(byId.body.code),
+    `withdrawal by payoutDestinationId passes the destination gates and stops at a later money gate (${byId.body.code})`,
   );
   const foreignId = await call('POST', '/withdrawals', {
     token: userToken,

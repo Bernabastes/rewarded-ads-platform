@@ -89,7 +89,7 @@ pnpm dev:mobile                               # Expo web on :8081 (EXPO_PUBLIC_A
 | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm build` | Fan out to every workspace (`scripts/run-workspace.mjs`)                                      |
 | `pnpm --filter @rap/api test:e2e`                           | Supertest e2e against the live database (skips when unreachable)                              |
-| `pnpm smoke`                                                | `scripts/smoke.ps1`: user money flow against a running API                                    |
+| `pnpm smoke`                                                | `scripts/smoke.ps1`: 21-step user money flow (consent, watch, destination lookup + OTP, payout) |
 | `node scripts/demo-flow.mjs`                                | Cross-surface investor demo journey (see below) with assertions                               |
 | `pnpm --filter @rap/api seed`                               | Reset + seed demo data and upload the demo media to MinIO (**destructive**, development only) |
 | `pnpm --filter @rap/api openapi:export`                     | Regenerate `docs/openapi.json` from the code                                                  |

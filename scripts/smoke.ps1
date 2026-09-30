@@ -82,6 +82,17 @@ Step "Complete adult profile"
 $profile = Call POST '/auth/users/complete-profile' @{ fullName = 'Smoke Tester (ሙከራ)'; dateOfBirth = '1992-05-14'; languagePreference = 'am' } $userToken
 Assert ($profile.ageVerificationStatus -eq 'verified_adult' -and $profile.profileComplete) "verified_adult, language=$($profile.languagePreference)"
 
+Step "Consent gate: ads are refused until the current terms + privacy notice are accepted"
+$noConsent = Call GET '/ads/feed?limit=20' $null $userToken -AllowError
+Assert ($noConsent.code -eq 'CONSENT_REQUIRED') "feed blocked with CONSENT_REQUIRED for $($noConsent.details.requiresConsent -join ', ')"
+$legal = Call GET '/legal/current?locale=am' $null $userToken
+foreach ($doc in $legal.documents) {
+  $consent = Call POST '/users/me/consents' @{ kind = $doc.kind; version = $doc.version } $userToken
+  if ($null -eq $consent) { Fail "consent for $($doc.kind) v$($doc.version) returned no body" }
+}
+$me = Call GET '/users/me' $null $userToken
+Assert ($me.requiresConsent.Count -eq 0) "accepted $($legal.documents.Count) legal documents ($(($legal.documents | ForEach-Object { "$($_.kind) v$($_.version)" }) -join ', ')), nothing outstanding"
+
 Step "Ad feed"
 $feed = Call GET '/ads/feed?limit=20' $null $userToken
 Assert ($feed.data.Count -gt 0) "$($feed.data.Count) ads available (daily $($feed.meta.dailyCompleted)/$($feed.meta.dailyLimit))"
@@ -153,8 +164,22 @@ $cfg = Call GET '/withdrawals/config' $null $userToken
 Ok "min $($cfg.minWithdrawalEtb) ETB, $($cfg.coinsPerEtb) coins/ETB, methods: $(($cfg.methods | Where-Object available | ForEach-Object method) -join ', ')"
 $tooSmall = Call POST '/withdrawals' @{ amountEtb = 10; payoutMethod = 'telebirr'; payoutDestination = $phone } $userToken -AllowError
 Assert ($tooSmall.code -eq 'BELOW_MIN_WITHDRAWAL') "10 ETB rejected: $($tooSmall.code)"
-$wd = Call POST '/withdrawals' @{ amountEtb = 50; payoutMethod = 'telebirr'; payoutDestination = $phone } $userToken
+
+Step "New payout destination: partner account lookup + OTP re-check before the first withdrawal"
+$unverified = Call POST '/withdrawals' @{ amountEtb = 50; payoutMethod = 'telebirr'; payoutDestination = $phone } $userToken -AllowError
+Assert ($unverified.code -eq 'DESTINATION_NOT_VERIFIED') "unverified destination refused: $($unverified.code)"
+$resolved = Call POST '/withdrawals/destinations/resolve' @{ payoutMethod = 'telebirr'; payoutDestination = $phone } $userToken
+Assert ($resolved.accountName -and $resolved.otpRequired) "lookup: '$($resolved.accountName)' via $($resolved.provider) (mock=$($resolved.mock)), OTP required"
+$destination = $resolved.normalizedDestination
+$destOtp = Call POST '/withdrawals/destinations/otp/request' @{} $userToken
+if (-not $destOtp.devCode) { Fail 'OTP_DEV_ECHO must be enabled for the smoke test (destination OTP)' }
+$destVerified = Call POST '/withdrawals/destinations/otp/verify' @{ code = $destOtp.devCode; payoutMethod = 'telebirr'; payoutDestination = $destination } $userToken
+Ok "destination OTP verified ($destination)"
+
+Step "Withdrawal request (first-ever -> held for review)"
+$wd = Call POST '/withdrawals' @{ amountEtb = 50; payoutMethod = 'telebirr'; payoutDestination = $destination } $userToken
 Assert ($wd.status -eq 'flagged_for_review' -and ($wd.reviewReasons -contains 'first_withdrawal')) "withdrawal $($wd.id) held: [$($wd.reviewReasons -join ',')]"
+Assert ($wd.destinationAccountName -eq $resolved.accountName) "account name persisted on the withdrawal: $($wd.destinationAccountName)"
 $balance3 = Call GET '/users/me/balance' $null $userToken
 Assert ($balance3.coinBalance -eq ($expected + 6000 - 5000)) "coins held immediately: balance $($balance3.coinBalance)"
 
