@@ -33,6 +33,7 @@ import {
   type BannedTopicsChecklist,
   type CoinAdjustmentItem,
   type CreateCoinAdjustmentDto,
+  type DeletionRequestItem,
   type FraudFlagItem,
   type FraudFlagsQuery,
   type FraudMetrics,
@@ -163,8 +164,9 @@ export const referralsApi = {
 export const deletionRequestsApi = {
   list: (params?: AdminDeletionRequestsQuery) =>
     api.get<Paginated<AdminDeletionRequestItem>>(API_ROUTES.admin.deletionRequests, { query: q(params) }),
-  execute: (id: string, note?: string) => api.post<AdminDeletionRequestItem>(API_ROUTES.admin.deletionRequestExecute(id), { note: note || undefined }),
-  cancel: (id: string, note?: string) => api.post<AdminDeletionRequestItem>(API_ROUTES.admin.deletionRequestCancel(id), { note: note || undefined }),
+  // The API returns the bare request (DeletionRequestItem, no `user`) from these two, unlike the list rows.
+  execute: (id: string, note?: string) => api.post<DeletionRequestItem>(API_ROUTES.admin.deletionRequestExecute(id), { note: note || undefined }),
+  cancel: (id: string, note?: string) => api.post<DeletionRequestItem>(API_ROUTES.admin.deletionRequestCancel(id), { note: note || undefined }),
 };
 
 /* ---------------------------- advertisers --------------------------- */

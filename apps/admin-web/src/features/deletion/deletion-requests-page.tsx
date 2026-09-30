@@ -46,10 +46,12 @@ export function DeletionRequestsPage() {
   };
 
   const decide = useMutation({
+    // NOTE: the API returns a plain DeletionRequestItem here (no `user`), unlike the list rows.
     mutationFn: ({ kind, id, note }: { kind: 'execute' | 'cancel'; id: string; note: string }) => (kind === 'execute' ? deletionRequestsApi.execute(id, note) : deletionRequestsApi.cancel(id, note)),
-    onSuccess: (res, { kind }) => {
+    onSuccess: (_res, { kind, id }) => {
+      const phone = list.data?.data.find((r) => r.id === id)?.user.phoneNumber ?? 'The account';
       toast.success(kind === 'execute' ? 'Account anonymised' : 'Deletion request cancelled', {
-        description: kind === 'execute' ? `${res.user.phoneNumber} is now status “deleted”; ledger and audit rows were kept.` : 'The account stays active; the user was notified.',
+        description: kind === 'execute' ? `${phone} is now status “deleted”; ledger and audit rows were kept.` : 'The account stays active; the user was notified.',
       });
       setTarget(null);
       invalidate();
