@@ -43,6 +43,9 @@ const BLOCKING_CODES = new Set<string>([
   ErrorCode.ACCOUNT_BANNED,
 ]);
 
+/** 401 codes that mean "the access token is no good" (refresh / sign out), as opposed to business 401s like OTP_INVALID. */
+const TOKEN_PROBLEM_CODES = new Set<string>([ErrorCode.UNAUTHORIZED, ErrorCode.INVALID_TOKEN, ErrorCode.TOKEN_EXPIRED]);
+
 /** `details.requiresConsent` of a 403 CONSENT_REQUIRED envelope (empty when absent). */
 export function consentKindsOf(details: unknown): string[] {
   const list = (details as { requiresConsent?: unknown } | null | undefined)?.requiresConsent;
@@ -106,18 +109,21 @@ export class ApiClient {
     let response = await this.send(method, path, options, tokens?.accessToken);
 
     if (response.status === 401 && useAuth && tokens) {
+      const error = await this.toError(response);
+      // Business 401s (e.g. OTP_INVALID on the destination OTP check) are not token problems: no refresh, no retry.
+      if (!TOKEN_PROBLEM_CODES.has(error.code)) throw error;
       const refreshed = await this.refreshTokens(tokens.refreshToken);
-      if (!refreshed) {
-        throw await this.toError(response);
-      }
+      if (!refreshed) throw error;
       tokens = refreshed;
       response = await this.send(method, path, options, tokens.accessToken);
       if (response.status === 401) {
         // Still unauthorised with a freshly issued token (denylisted / deleted account): the session is unusable.
-        const error = await this.toError(response);
-        await this.tokenStore.set(null);
-        this.onAuthFailure?.(error.code);
-        throw error;
+        const again = await this.toError(response);
+        if (TOKEN_PROBLEM_CODES.has(again.code)) {
+          await this.tokenStore.set(null);
+          this.onAuthFailure?.(again.code);
+        }
+        throw again;
       }
     }
 

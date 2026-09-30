@@ -318,6 +318,24 @@ describe('ApiClient', () => {
     }
   });
 
+  it('does not refresh or retry on a business 401 such as a wrong destination OTP', async () => {
+    const tokens = memoryTokenStore(makeTokens('fine'));
+    const onAuthFailure = jest.fn();
+    const { fetchFn, calls } = scriptedFetch(() =>
+      jsonResponse(401, { statusCode: 401, code: ErrorCode.OTP_INVALID, message: 'wrong code', details: { attemptsRemaining: 2 } }),
+    );
+    const client = new ApiClient({ baseUrl: BASE, tokenStore: tokens, fetchFn, onAuthFailure });
+
+    const error = await rejection(client.post(API_ROUTES.withdrawals.destinationOtpVerify, { code: '000000' }));
+
+    expect(error.code).toBe(ErrorCode.OTP_INVALID);
+    expect(error.attemptsRemaining).toBe(2);
+    // One request only: a wrong OTP must never be re-sent (it would burn another attempt) or refresh the session.
+    expect(calls).toHaveLength(1);
+    expect(tokens.current?.accessToken).toBe('access-fine');
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
+
   it('reports the kinds behind a 403 CONSENT_REQUIRED', async () => {
     const tokens = memoryTokenStore(makeTokens('1'));
     const onConsentRequired = jest.fn();

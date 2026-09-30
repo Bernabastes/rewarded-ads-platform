@@ -55,7 +55,7 @@ export default function WalletScreen() {
         onHistory={() => router.push('/wallet/withdrawals')}
       />
       {kyc ? (
-        <Card padding={spacing.md} onPress={() => router.push('/kyc')} accessibilityLabel={t('wallet.kyc.cardA11y')} testID="wallet-kyc-card">
+        <Card padding={spacing.md} testID="wallet-kyc-card">
           <View style={styles.noteRow}>
             <Icon name="shield" size={18} color={kyc.tier === 'id_verified' ? colors.success : colors.primary} />
             <View style={{ flex: 1, gap: 6 }}>
@@ -75,13 +75,23 @@ export default function WalletScreen() {
                     {t('wallet.kyc.monthlyProgress', { used: formatEtb(kyc.monthlyEtb, t, language), limit: formatEtb(kyc.thresholdEtb, t, language) })}
                   </Text>
                   <ProgressBar progress={kyc.progress} accessibilityLabel={t('wallet.kyc.monthlyProgress', { used: formatEtb(kyc.monthlyEtb, t, language), limit: formatEtb(kyc.thresholdEtb, t, language) })} />
-                  <Button title={t('wallet.kyc.verifyCta')} onPress={() => router.push('/kyc')} size="sm" variant="ghost" fullWidth={false} icon="chevronRight" iconPosition="right" />
                 </>
               ) : (
                 <Text variant="caption" tone="secondary">
                   {t('wallet.kyc.verifiedBody')}
                 </Text>
               )}
+              <Button
+                title={kyc.tier === 'phone_only' ? t('wallet.kyc.verifyCta') : t('kyc.title')}
+                onPress={() => router.push('/kyc')}
+                size="sm"
+                variant="ghost"
+                fullWidth={false}
+                icon="chevronRight"
+                iconPosition="right"
+                accessibilityHint={t('wallet.kyc.cardA11y')}
+                testID="wallet-kyc-cta"
+              />
             </View>
           </View>
         </Card>
