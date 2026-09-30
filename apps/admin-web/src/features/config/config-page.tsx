@@ -1,11 +1,12 @@
 import { PLATFORM_DEFAULTS } from '@rap/shared';
 import { useQuery } from '@tanstack/react-query';
-import { FlaskConical, Info, Settings2 } from 'lucide-react';
+import { BellRing, FlaskConical, IdCard, Info, Settings2 } from 'lucide-react';
 import { homeApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/api/query-keys';
+import { MOCK_LABELS } from '@/lib/domain/config-labels';
 import { env } from '@/lib/env';
 import { cn } from '@/lib/utils/cn';
-import { formatEtb, formatInt, formatPercent } from '@/lib/utils/format';
+import { formatCoins, formatEtb, formatInt, formatPercent } from '@/lib/utils/format';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ErrorState, Skeleton } from '@/components/ui/feedback';
@@ -66,16 +67,21 @@ export function ConfigPage() {
         <FlaskConical className={cn('mt-0.5 size-4 shrink-0', anyMock ? 'text-warning' : 'text-success')} />
         <div className="text-sm">
           <div className="font-medium">{anyMock ? 'Some providers are mocked' : 'All providers are live'}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
+          <div className="mt-1 flex flex-wrap gap-1.5" data-testid="mock-flags">
             {c
               ? mocks.map(([k, v]) => (
                   <Badge key={k} tone={v ? 'warning' : 'success'} dot>
-                    {k === 'sms' ? 'SMS / OTP' : k === 'payouts' ? 'Payouts (telebirr, Chapa)' : k === 'paymentGateway' ? 'Payment gateway (Chapa)' : 'Push (FCM)'} · {v ? 'mock' : 'live'}
+                    {MOCK_LABELS[k] ?? k} · {v ? 'mock' : 'live'}
                   </Badge>
                 ))
               : null}
           </div>
-          {anyMock ? <p className="mt-1.5 text-xs text-fg-muted">Mocked payouts simulate async processing with a deterministic failure rate; OTPs are echoed in API responses. Nothing leaves this environment.</p> : null}
+          {anyMock ? (
+            <p className="mt-1.5 text-xs text-fg-muted">
+              Mocked payouts simulate async processing with a deterministic failure rate; OTPs are echoed in API responses; the id registry answers from the id number’s last digits; alerts are only
+              written to the API log; destination lookups invent an account holder (numbers ending 0000 are “not found”). Nothing leaves this environment.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -136,6 +142,64 @@ export function ConfigPage() {
                 This console talks to <span className="font-mono text-fg">{env.apiBaseUrl}</span>. Values marked “default” differ from the <span className="font-mono">@rap/shared</span> fallback constants.
               </span>
             </div>
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3" data-testid="config-phase4">
+        <Card>
+          <CardHeader title="KYC & payout destinations" actions={<IdCard className="size-4 text-fg-subtle" />} />
+          <CardBody>
+            {c ? (
+              <ConfigTable
+                rows={[
+                  { label: 'KYC required above (30 days)', value: formatEtb(c.kycRequiredAboveMonthlyEtb), fallback: formatEtb(PLATFORM_DEFAULTS.KYC_REQUIRED_ABOVE_MONTHLY_ETB), note: 'Phone-only users: completed + in-flight payouts per rolling 30 days' },
+                  { label: 'Destination lookup validity', value: `${c.destinationResolveTtlMinutes} min`, fallback: `${PLATFORM_DEFAULTS.DESTINATION_RESOLVE_TTL_MINUTES} min`, note: 'New payout destinations need resolve + OTP within this window' },
+                  { label: 'Payout attempts', value: formatInt(c.payoutMaxAttempts), fallback: formatInt(PLATFORM_DEFAULTS.PAYOUT_MAX_ATTEMPTS), note: 'Retries before a withdrawal stays failed' },
+                  { label: 'Minimum top-up', value: formatEtb(c.minTopupEtb), fallback: formatEtb(PLATFORM_DEFAULTS.MIN_TOPUP_ETB) },
+                  { label: 'Minimum campaign budget', value: formatEtb(c.minCampaignBudgetEtb), fallback: formatEtb(PLATFORM_DEFAULTS.MIN_CAMPAIGN_BUDGET_ETB) },
+                  { label: 'Minimum cost / action', value: formatEtb(c.minCostPerActionEtb), fallback: formatEtb(PLATFORM_DEFAULTS.MIN_COST_PER_ACTION_ETB) },
+                ]}
+              />
+            ) : (
+              <Skeleton className="h-48 w-full" />
+            )}
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title="Frequency caps & referrals" />
+          <CardBody>
+            {c ? (
+              <ConfigTable
+                rows={[
+                  { label: 'Default campaign frequency cap', value: `${formatInt(c.defaultFrequencyCap)} / user / day`, fallback: `${formatInt(PLATFORM_DEFAULTS.DEFAULT_FREQUENCY_CAP)} / user / day`, note: `Advertisers may set ${PLATFORM_DEFAULTS.MIN_FREQUENCY_CAP}–${PLATFORM_DEFAULTS.MAX_FREQUENCY_CAP}` },
+                  { label: 'Advertiser impression cap', value: `${formatInt(c.advertiserImpressionCapPerUserPerDay)} ads / user / day`, fallback: `${formatInt(PLATFORM_DEFAULTS.ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY)} ads / user / day`, note: 'Distinct ads from one advertiser' },
+                  { label: 'Referrer bonus', value: `${formatCoins(c.referralBonusCoins)} coins`, fallback: `${formatCoins(PLATFORM_DEFAULTS.REFERRAL_BONUS_COINS)} coins`, note: 'Credited with the referee’s first valid completion' },
+                  { label: 'Referee bonus', value: `${formatCoins(c.refereeBonusCoins)} coins`, fallback: `${formatCoins(PLATFORM_DEFAULTS.REFEREE_BONUS_COINS)} coins` },
+                  { label: 'Paid referrals / referrer / day', value: formatInt(c.referralMaxPerReferrerPerDay), fallback: formatInt(PLATFORM_DEFAULTS.REFERRAL_MAX_PER_REFERRER_PER_DAY), note: 'Beyond this the referral stays “qualified” (withheld)' },
+                ]}
+              />
+            ) : (
+              <Skeleton className="h-48 w-full" />
+            )}
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title="Data rights & alert rules" actions={<BellRing className="size-4 text-fg-subtle" />} />
+          <CardBody>
+            {c ? (
+              <ConfigTable
+                rows={[
+                  { label: 'Account deletion grace', value: `${formatInt(c.accountDeletionGraceDays)} days`, fallback: `${formatInt(PLATFORM_DEFAULTS.ACCOUNT_DELETION_GRACE_DAYS)} days`, note: 'Cancellable until executed; ledger & audit are kept' },
+                  { label: 'Payout failure-rate alert', value: formatPercent(c.alerts.payoutFailureRate, 0), note: 'Failed / (completed + failed) in the last hour' },
+                  { label: 'Account-minting alert', value: `${formatInt(c.alerts.accountsPerDevicePerHour)} accounts / device / h`, note: 'New accounts on one device fingerprint' },
+                  { label: 'Spend-velocity alert', value: `${c.alerts.spendVelocityMultiplier}× baseline`, note: 'Advertiser spend vs its recent hourly average' },
+                  { label: 'OTP-spike alert', value: `${formatInt(c.alerts.otpRequestsPerIpPerHour)} requests / IP / h` },
+                ]}
+              />
+            ) : (
+              <Skeleton className="h-48 w-full" />
+            )}
           </CardBody>
         </Card>
       </div>

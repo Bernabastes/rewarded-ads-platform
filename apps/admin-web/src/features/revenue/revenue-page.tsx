@@ -1,11 +1,12 @@
 import type { RevenueOverview } from '@rap/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Landmark, PiggyBank, Receipt, TrendingUp, Wallet } from 'lucide-react';
+import { Download, Gift, Landmark, PiggyBank, Receipt, Scale, TrendingUp, Wallet } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { revenueApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/api/query-keys';
+import { useAuth } from '@/lib/auth/use-auth';
 import { useListParams } from '@/lib/hooks/use-list-params';
 import { downloadCsv, toCsv } from '@/lib/utils/csv';
 import { daysAgo, formatEtb, formatEtbBare, formatInt, formatPercent, formatShortDate, humanize, toIsoDate, toNumber } from '@/lib/utils/format';
@@ -29,6 +30,8 @@ const defaults = { from: '' as string, to: '' as string };
 const etbFmt = (v: number) => `ETB ${formatEtbBare(v)}`;
 
 export function RevenuePage() {
+  const { can } = useAuth();
+  const canReferrals = can('referrals');
   const { params, set } = useListParams(defaults);
   const to = params.to || toIsoDate(new Date());
   const from = params.from || toIsoDate(daysAgo(29));
@@ -45,12 +48,14 @@ export function RevenuePage() {
         spend: toNumber(d.advertiserSpendEtb),
         rewards: toNumber(d.userRewardsEtb),
         revenue: toNumber(d.platformRevenueEtb),
+        referralBonuses: toNumber(d.referralBonusesEtb),
+        net: toNumber(d.platformRevenueEtb) - toNumber(d.referralBonusesEtb),
         payouts: toNumber(d.payoutsEtb),
         topups: toNumber(d.topupsEtb),
       })),
     [r],
   );
-  const hasActivity = daily.some((d) => d.spend > 0 || d.payouts > 0 || d.topups > 0);
+  const hasActivity = daily.some((d) => d.spend > 0 || d.payouts > 0 || d.topups > 0 || d.referralBonuses > 0);
 
   const exportCsv = () => {
     if (!r) return;
@@ -59,6 +64,8 @@ export function RevenuePage() {
       { header: 'advertiser_spend_etb', value: (d) => d.spend.toFixed(2) },
       { header: 'user_rewards_etb', value: (d) => d.rewards.toFixed(2) },
       { header: 'platform_revenue_etb', value: (d) => d.revenue.toFixed(2) },
+      { header: 'referral_bonuses_etb', value: (d) => d.referralBonuses.toFixed(2) },
+      { header: 'net_platform_revenue_etb', value: (d) => d.net.toFixed(2) },
       { header: 'payouts_completed_etb', value: (d) => d.payouts.toFixed(2) },
       { header: 'topups_etb', value: (d) => d.topups.toFixed(2) },
     ]);
@@ -82,7 +89,7 @@ export function RevenuePage() {
     <div className="space-y-4">
       <PageHeader
         title="Revenue"
-        description="Platform revenue = advertiser spend on valid actions − user rewards. Payouts and top-ups are cash movements, not revenue."
+        description="Platform revenue = advertiser spend on valid actions − user rewards. Referral bonuses are a platform cost deducted to get net revenue; payouts and top-ups are cash movements, not revenue."
         actions={
           <>
             <Button variant="outline" size="sm" onClick={exportAdvertisers} disabled={!r}>
@@ -124,8 +131,34 @@ export function RevenuePage() {
 
       {q.isError ? <ErrorState error={q.error} onRetry={() => void q.refetch()} compact /> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Platform revenue" value={t ? toNumber(t.platformRevenueEtb) : undefined} format={etbFmt} loading={!t} icon={TrendingUp} tone="primary" hint={t ? `${formatPercent(toNumber(t.takeRate), 0)} take rate on ${formatInt(t.validCompletions)} valid actions` : undefined} />
+        <StatCard
+          label="Referral bonuses"
+          value={t ? toNumber(t.referralBonusesEtb) : undefined}
+          format={(v) => `− ${etbFmt(v)}`}
+          loading={!t}
+          icon={Gift}
+          tone="accent"
+          hint="Platform cost: invite bonuses credited from our own pocket, not funded by advertisers"
+          to={canReferrals ? '/referrals' : undefined}
+        />
+        <StatCard
+          label="Net platform revenue"
+          value={t ? toNumber(t.netPlatformRevenueEtb) : undefined}
+          format={etbFmt}
+          loading={!t}
+          icon={Scale}
+          tone={t && toNumber(t.netPlatformRevenueEtb) < 0 ? 'danger' : 'success'}
+          hint="Platform revenue − referral bonuses"
+          trailing={
+            t ? (
+              <Badge tone={toNumber(t.netPlatformRevenueEtb) < 0 ? 'danger' : 'success'} size="sm" className="tabular">
+                {toNumber(t.platformRevenueEtb) > 0 ? formatPercent(toNumber(t.netPlatformRevenueEtb) / toNumber(t.platformRevenueEtb), 0) : '—'} kept
+              </Badge>
+            ) : undefined
+          }
+        />
         <StatCard label="Advertiser spend" value={t ? toNumber(t.advertiserSpendEtb) : undefined} format={etbFmt} loading={!t} icon={Receipt} hint={t ? `${formatEtb(t.userRewardsEtb)} passed to users as rewards` : undefined} />
         <StatCard label="Payouts completed" value={t ? toNumber(t.payoutsCompletedEtb) : undefined} format={etbFmt} loading={!t} icon={Landmark} tone="accent" hint={t ? `${formatEtb(t.payoutsPendingEtb)} pending / processing / held` : undefined} />
         <StatCard label="Advertiser top-ups" value={t ? toNumber(t.topupsEtb) : undefined} format={etbFmt} loading={!t} icon={Wallet} tone="info" hint="Completed wallet payments in range" />
@@ -156,6 +189,7 @@ export function RevenuePage() {
                   <Area type="monotone" dataKey="spend" stroke={CHART_COLORS.muted} fill="transparent" strokeDasharray="4 3" />
                   <Area type="monotone" dataKey="rewards" stroke={CHART_COLORS.accent} fill="transparent" />
                   <Area type="monotone" dataKey="revenue" stroke={CHART_COLORS.primary} fill="url(#gRev)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="net" name="net revenue" stroke={CHART_COLORS.primarySoft} fill="transparent" strokeDasharray="2 3" />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -231,20 +265,30 @@ export function RevenuePage() {
           description={r ? `${formatShortDate(r.from)} → ${formatShortDate(r.to)} · ${daily.length} days` : undefined}
           actions={
             t ? (
-              <Badge tone="outline" className="tabular">
-                Σ revenue ETB {formatEtbBare(t.platformRevenueEtb)}
-              </Badge>
+              <span className="flex flex-wrap items-center gap-1.5">
+                <Badge tone="outline" className="tabular">
+                  Σ revenue ETB {formatEtbBare(t.platformRevenueEtb)}
+                </Badge>
+                <Badge tone="outline" className="tabular">
+                  Σ referral bonuses ETB {formatEtbBare(t.referralBonusesEtb)}
+                </Badge>
+                <Badge tone="primary" className="tabular">
+                  Σ net ETB {formatEtbBare(t.netPlatformRevenueEtb)}
+                </Badge>
+              </span>
             ) : null
           }
         />
         <div className="max-h-80 overflow-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" data-testid="revenue-daily">
             <thead className="sticky top-0 bg-surface text-2xs font-semibold tracking-wider text-fg-subtle uppercase">
               <tr>
                 <th className="px-4 py-2 text-left">Date</th>
                 <th className="px-4 py-2 text-right">Spend</th>
                 <th className="px-4 py-2 text-right">Rewards</th>
                 <th className="px-4 py-2 text-right">Revenue</th>
+                <th className="px-4 py-2 text-right">Referral bonuses</th>
+                <th className="px-4 py-2 text-right">Net revenue</th>
                 <th className="px-4 py-2 text-right">Payouts</th>
                 <th className="px-4 py-2 text-right">Top-ups</th>
               </tr>
@@ -254,11 +298,13 @@ export function RevenuePage() {
                 .slice()
                 .reverse()
                 .map((d) => (
-                  <tr key={d.date} className={d.spend === 0 && d.payouts === 0 && d.topups === 0 ? 'text-fg-subtle' : ''}>
+                  <tr key={d.date} className={d.spend === 0 && d.payouts === 0 && d.topups === 0 && d.referralBonuses === 0 ? 'text-fg-subtle' : ''}>
                     <td className="px-4 py-1.5 font-mono text-xs">{d.date}</td>
                     <td className="px-4 py-1.5 text-right">{formatEtbBare(d.spend)}</td>
                     <td className="px-4 py-1.5 text-right">{formatEtbBare(d.rewards)}</td>
                     <td className="px-4 py-1.5 text-right font-medium">{formatEtbBare(d.revenue)}</td>
+                    <td className={`px-4 py-1.5 text-right ${d.referralBonuses > 0 ? 'text-accent' : ''}`}>{d.referralBonuses > 0 ? `− ${formatEtbBare(d.referralBonuses)}` : formatEtbBare(0)}</td>
+                    <td className={`px-4 py-1.5 text-right font-medium ${d.net < 0 ? 'text-danger' : ''}`}>{formatEtbBare(d.net)}</td>
                     <td className="px-4 py-1.5 text-right">{formatEtbBare(d.payouts)}</td>
                     <td className="px-4 py-1.5 text-right">{formatEtbBare(d.topups)}</td>
                   </tr>

@@ -1,4 +1,4 @@
-import { BANNED_TOPICS, type BannedTopicKey, type BannedTopicsChecklist } from '@rap/shared';
+import { BANNED_TOPICS, type BannedTopicKey, type BannedTopicsChecklist, type MediaStatus, type MediaProbe } from '@rap/shared';
 
 export type Checks = Record<BannedTopicKey, boolean>;
 
@@ -48,4 +48,43 @@ export function composeRejectionReason(key: RejectionReasonKey, detail: string, 
     : '';
   const text = detail.trim();
   return text ? `${label}${topics}: ${text}` : `${label}${topics}`;
+}
+
+/* ------------------------------ media pipeline ------------------------------ */
+
+export interface MediaFacts {
+  mediaStatus: MediaStatus;
+  mediaProbe: MediaProbe | null;
+  durationDeclaredSeconds: number | null;
+  durationProbedSeconds: number | null;
+  mediaError: string | null;
+}
+
+/** The API refuses approval (422 MEDIA_NOT_READY) while the pipeline is running or has failed. */
+export function isMediaReady(status: MediaStatus): boolean {
+  return status === 'ready' || status === 'duration_corrected';
+}
+
+/** Why Approve must stay disabled because of the media pipeline (null = media is fine). */
+export function mediaApproveBlock(ad: Pick<MediaFacts, 'mediaStatus' | 'mediaError'>): string | null {
+  if (ad.mediaStatus === 'processing') return 'Media is still being probed / transcoded. Approve becomes available once the pipeline finishes.';
+  if (ad.mediaStatus === 'failed') return `Media processing failed${ad.mediaError ? `: ${ad.mediaError}` : ''}. Reprocess the media (or reject the creative) before approving.`;
+  return null;
+}
+
+/** "15s → 17s" style summary when the pipeline corrected the declared duration. */
+export function durationCorrectionLabel(ad: Pick<MediaFacts, 'durationDeclaredSeconds' | 'durationProbedSeconds'>): string | null {
+  if (ad.durationDeclaredSeconds === null || ad.durationProbedSeconds === null) return null;
+  if (Math.abs(ad.durationDeclaredSeconds - ad.durationProbedSeconds) <= 1) return null;
+  return `${ad.durationDeclaredSeconds}s → ${ad.durationProbedSeconds}s`;
+}
+
+/** "1280×720 h264" for the probe details. */
+export function probeSummary(probe: MediaProbe | null): string | null {
+  if (!probe) return null;
+  const parts: string[] = [];
+  if (probe.width && probe.height) parts.push(`${probe.width}×${probe.height}`);
+  if (probe.codec) parts.push(probe.codec);
+  if (probe.container) parts.push(probe.container);
+  return parts.length ? parts.join(' ') : null;
 }

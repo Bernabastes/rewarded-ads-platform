@@ -1,7 +1,7 @@
 import { type WithdrawalStatus } from '@rap/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
-import { AlertTriangle, Check, Eye, EyeOff, RotateCcw, Sparkles, UserRound, X } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, Check, Eye, EyeOff, RotateCcw, Sparkles, UserRound, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -391,7 +391,27 @@ export function WithdrawalSheet({ id, initial, onClose }: { id: string | null; i
                       </span>
                     ),
                   },
-                  ...(w.destinationName ? [{ label: 'Account holder', value: w.destinationName }] : []),
+                  ...(w.destinationName ? [{ label: 'Name given by user', value: w.destinationName }] : []),
+                  {
+                    label: 'Partner-confirmed holder',
+                    span: 2 as const,
+                    value: w.destinationAccountName ? (
+                      <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="destination-verified">
+                        <span className="font-medium">{w.destinationAccountName}</span>
+                        <Badge tone="success" size="sm" className="gap-1">
+                          <BadgeCheck className="size-2.5" /> verified {w.destinationVerifiedAt ? formatRelative(w.destinationVerifiedAt) : ''}
+                        </Badge>
+                        {w.destinationVerifiedAt ? <span className="text-2xs text-fg-subtle">{formatDateTime(w.destinationVerifiedAt)}</span> : null}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-fg-muted">
+                        <Badge tone="neutral" size="sm">
+                          not verified
+                        </Badge>
+                        <span className="text-2xs">Known destination from earlier successful payouts (no lookup / OTP needed) or requested before Phase 4A.</span>
+                      </span>
+                    ),
+                  },
                   ...(w.bankCode ? [{ label: 'Bank code', value: w.bankCode, mono: true }] : []),
                   { label: 'Provider', value: w.providerName ?? '—' },
                   { label: 'Provider payout id', value: w.providerPayoutId ?? '—', mono: true },

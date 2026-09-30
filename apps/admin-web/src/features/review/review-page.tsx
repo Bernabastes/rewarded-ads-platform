@@ -10,7 +10,7 @@ import { describeError, isApiError } from '@/lib/api/errors';
 import { queryKeys } from '@/lib/api/query-keys';
 import type { AdReview } from '@/lib/api/types';
 import { useAuth } from '@/lib/auth/use-auth';
-import { allChecks, type Checks, emptyChecks, isChecklistComplete, toChecklist } from '@/lib/domain/review-rules';
+import { allChecks, type Checks, emptyChecks, isChecklistComplete, mediaApproveBlock, toChecklist } from '@/lib/domain/review-rules';
 import { useHotkeys } from '@/lib/hooks/use-hotkeys';
 import { useListParams } from '@/lib/hooks/use-list-params';
 import { cn } from '@/lib/utils/cn';
@@ -21,7 +21,7 @@ import { EmptyState, ErrorState, Kbd, Skeleton } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/ui/page';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives';
 import { RejectDialog } from './reject-dialog';
-import { ReviewPane } from './review-pane';
+import { MediaStatusBadge, ReviewPane } from './review-pane';
 
 const TABS: Array<{ value: ReviewStatus; label: string }> = [
   { value: 'pending', label: 'Pending' },
@@ -42,7 +42,7 @@ export function ReviewPage() {
   const status = (TABS.some((t) => t.value === params.status) ? params.status : 'pending') as ReviewStatus;
 
   const queryParams = useMemo(() => ({ status, page: params.page, limit: params.limit }), [status, params.page, params.limit]);
-  const queue = useQuery({ queryKey: queryKeys.reviewQueue(queryParams), queryFn: () => reviewApi.queue(queryParams), refetchInterval: status === 'pending' ? 30_000 : false });
+  const queue = useQuery({ queryKey: queryKeys.reviewQueue(queryParams), queryFn: () => reviewApi.queue(queryParams), refetchInterval: (q) => (q.state.data?.data.some((a) => a.mediaStatus === 'processing') ? 10_000 : status === 'pending' ? 30_000 : false) });
   const items = useMemo(() => queue.data?.data ?? [], [queue.data]);
 
   // Selected ad: URL param, else first in list.
@@ -52,6 +52,7 @@ export function ReviewPage() {
     queryKey: queryKeys.ad(selectedId ?? ''),
     queryFn: () => reviewApi.ad(selectedId!),
     enabled: Boolean(selectedId) && !selectedFromList,
+    refetchInterval: (q) => (q.state.data?.mediaStatus === 'processing' ? 10_000 : false),
   });
   const selected: AdReview | undefined = selectedFromList ?? detail.data;
 
@@ -111,8 +112,21 @@ export function ReviewPage() {
     },
   });
 
+  const reprocess = useMutation({
+    mutationFn: (ad: AdReview) => reviewApi.reprocessMedia(ad.id),
+    onSuccess: (res, ad) => {
+      toast.success('Media re-queued', { description: `${ad.title}: probe, transcode and poster will run again. The status updates automatically.` });
+      // Patch the list + detail caches with the fresh row (status is back to `processing`), then poll.
+      queryClient.setQueryData(queryKeys.reviewQueue(queryParams), (old: typeof queue.data) => (old ? { ...old, data: old.data.map((a) => (a.id === ad.id ? { ...a, ...res } : a)) } : old));
+      queryClient.setQueryData(queryKeys.ad(ad.id), (old: AdReview | undefined) => (old ? { ...old, ...res } : res));
+      void queryClient.invalidateQueries({ queryKey: ['review'] });
+    },
+    onError: (err) => toast.error('Could not reprocess media', { description: describeError(err) }),
+  });
+
   const busy = approve.isPending || reject.isPending;
   const pending = selected?.reviewStatus === 'pending';
+  const mediaReady = selected ? mediaApproveBlock(selected) === null : false;
 
   const move = (delta: number) => {
     if (!items.length) return;
@@ -133,7 +147,7 @@ export function ReviewPage() {
       move(-1);
     },
     a: () => {
-      if (selected && pending && canDecide && isChecklistComplete(checks) && !flagged.length && !busy) approve.mutate(selected);
+      if (selected && pending && canDecide && mediaReady && isChecklistComplete(checks) && !flagged.length && !busy) approve.mutate(selected);
     },
     r: () => {
       if (selected && pending && canDecide && !busy) setRejectOpen(true);
@@ -246,6 +260,7 @@ export function ReviewPage() {
                               <span>·</span>
                               <span className="shrink-0">{formatRelative(ad.createdAt)}</span>
                               {status !== 'pending' ? <StatusBadge status={ad.reviewStatus} size="sm" /> : null}
+                              {ad.mediaStatus !== 'ready' ? <MediaStatusBadge ad={ad} size="sm" /> : null}
                             </div>
                           </div>
                         </button>
@@ -277,6 +292,8 @@ export function ReviewPage() {
               onReject={() => setRejectOpen(true)}
               approving={approve.isPending}
               canDecide={canDecide}
+              onReprocessMedia={can('mediaReprocess') ? () => reprocess.mutate(selected) : undefined}
+              reprocessing={reprocess.isPending}
             />
           ) : detail.isError ? (
             <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
