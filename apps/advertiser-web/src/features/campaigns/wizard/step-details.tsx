@@ -8,6 +8,12 @@ import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
 import { Switch } from '@/components/ui/primitives';
 import { TARGET_ACTION_META } from '@/features/campaigns/campaign-card';
+import {
+  DEFAULT_FREQUENCY_CAP,
+  describeFrequencyCap,
+  FREQUENCY_CAP_HELP,
+  FrequencyCapControl,
+} from '@/features/campaigns/frequency-cap';
 import { handleFormError } from '@/lib/forms';
 import { cn } from '@/lib/utils/cn';
 import { todayIsoDate } from '@/lib/utils/format';
@@ -21,6 +27,7 @@ export function detailsFromCampaign(campaign: CampaignDetail): DetailsValues {
     startDate: campaign.startDate ?? '',
     endDate: campaign.endDate ?? '',
     attentionCheckEnabled: campaign.attentionCheckEnabled,
+    frequencyCapPerUserPerDay: campaign.frequencyCapPerUserPerDay ?? DEFAULT_FREQUENCY_CAP,
   };
 }
 
@@ -31,6 +38,7 @@ export const DEFAULT_DETAILS: DetailsValues = {
   startDate: '',
   endDate: '',
   attentionCheckEnabled: true,
+  frequencyCapPerUserPerDay: DEFAULT_FREQUENCY_CAP,
 };
 
 export function DetailsStep({
@@ -52,6 +60,7 @@ export function DetailsStep({
   const { register, handleSubmit, formState, control, setValue } = form;
   const targetActionType = useWatch({ control, name: 'targetActionType' });
   const attentionCheckEnabled = useWatch({ control, name: 'attentionCheckEnabled' });
+  const frequencyCap = useWatch({ control, name: 'frequencyCapPerUserPerDay' });
   const startDate = useWatch({ control, name: 'startDate' });
 
   const submit = handleSubmit(async (values) => {
@@ -210,6 +219,35 @@ export function DetailsStep({
           aria-labelledby="attention-label"
           aria-describedby="attention-hint"
         />
+      </div>
+
+      <div className="flex flex-col gap-4 rounded-md border border-border p-4">
+        <Field
+          label="Max views per person per day"
+          required
+          error={formState.errors.frequencyCapPerUserPerDay?.message}
+          hint={
+            <>
+              <span className="font-medium text-fg-muted">{describeFrequencyCap(frequencyCap ?? DEFAULT_FREQUENCY_CAP)}.</span>{' '}
+              {FREQUENCY_CAP_HELP}
+              {frequencyCap === DEFAULT_FREQUENCY_CAP
+                ? ' The default of 1 is what most advertisers keep.'
+                : ' Raising it lets loyal viewers complete the ad more than once a day.'}
+            </>
+          }
+        >
+          {({ id, describedBy, invalid }) => (
+            <FrequencyCapControl
+              id={id}
+              describedBy={describedBy}
+              invalid={invalid}
+              value={frequencyCap ?? DEFAULT_FREQUENCY_CAP}
+              onChange={(value) =>
+                setValue('frequencyCapPerUserPerDay', value, { shouldDirty: true, shouldValidate: true })
+              }
+            />
+          )}
+        </Field>
       </div>
 
       <div className="flex justify-end">

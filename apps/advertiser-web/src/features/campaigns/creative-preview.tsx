@@ -1,5 +1,5 @@
 import type { AdSummary, MediaType } from '@rap/shared';
-import { ImageIcon, PlayCircle } from 'lucide-react';
+import { ImageIcon, Loader2, PlayCircle } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { formatDuration } from '@/lib/utils/format';
@@ -69,14 +69,26 @@ export function CreativePreview({
 }
 
 export function AdPreview({ ad, compact }: { ad: AdSummary; compact?: boolean }) {
+  const processing = ad.mediaType === 'video' && ad.mediaStatus === 'processing';
   return (
-    <CreativePreview
-      src={ad.mediaUrl}
-      poster={ad.thumbnailUrl}
-      mediaType={ad.mediaType}
-      title={ad.title}
-      durationSeconds={ad.durationSeconds}
-      compact={compact}
-    />
+    <div className="relative">
+      {/* `mediaUrl` is the 720p transcode and `thumbnailUrl` the generated poster once processing finished. */}
+      <CreativePreview
+        src={ad.mediaUrl}
+        poster={ad.thumbnailUrl}
+        mediaType={ad.mediaType}
+        title={ad.title}
+        durationSeconds={ad.durationSeconds}
+        compact={compact}
+      />
+      {processing && (
+        <span
+          className="pointer-events-none absolute top-2 left-2 inline-flex items-center gap-1 rounded-sm bg-stone-950/70 px-1.5 py-0.5 text-[11px] font-medium text-stone-50"
+          data-testid="preview-processing"
+        >
+          <Loader2 className="size-3 animate-spin" aria-hidden="true" /> Processing
+        </span>
+      )}
+    </div>
   );
 }

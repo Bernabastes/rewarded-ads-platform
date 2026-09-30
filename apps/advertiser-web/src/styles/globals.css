@@ -302,13 +302,27 @@
   scrollbar-color: var(--border-strong) transparent;
 }
 
+/* Print: only the document (e.g. an invoice) — never the app chrome, toasts or overlays (finding F7). */
+@page {
+  margin: 14mm;
+}
 @media print {
-  .print-hidden {
+  .print-hidden,
+  [data-app-chrome],
+  [data-sonner-toaster],
+  [data-radix-popper-content-wrapper] {
     display: none !important;
   }
+  html,
   body {
     background: #fff !important;
     color: #000 !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+  a[href]::after {
+    content: '';
   }
 }
 

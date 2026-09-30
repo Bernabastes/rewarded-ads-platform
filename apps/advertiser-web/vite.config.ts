@@ -34,6 +34,15 @@ export default defineConfig(({ mode }) => {
       }
     : undefined;
 
+  // Same-origin dev mode: with VITE_API_URL="" the client calls relative `/api/v1/...` URLs and the dev
+  // server forwards them to the API. Lets the portal run on any port (e.g. 5175 while the nginx container
+  // occupies 5173) without touching the API's CORS_ORIGINS.
+  const apiProxyTarget = env.VITE_DEV_API_PROXY_TARGET || 'http://localhost:3000';
+  const apiProxy = {
+    '/api': { target: apiProxyTarget, changeOrigin: true },
+    '/health': { target: apiProxyTarget, changeOrigin: true },
+  };
+
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -42,7 +51,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true,
-      proxy: uploadProxy,
+      proxy: { ...apiProxy, ...uploadProxy },
     },
     build: {
       sourcemap: false,

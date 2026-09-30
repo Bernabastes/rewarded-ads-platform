@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { useWalletBalance } from '@/features/billing/hooks';
 import { useCampaign, useCreateCampaign, useUpdateCampaign } from '@/features/campaigns/hooks';
+import { useMediaProcessingPoll } from '@/features/campaigns/media-status';
 import { useSubmitCampaignFlow } from '@/features/campaigns/submit-flow';
 import {
   canNavigateTo,
@@ -38,6 +39,7 @@ function toDto(details: DetailsValues, budget: BudgetValues) {
     startDate: details.startDate || undefined,
     endDate: details.endDate || undefined,
     attentionCheckEnabled: details.attentionCheckEnabled,
+    frequencyCapPerUserPerDay: details.frequencyCapPerUserPerDay,
     budgetEtb: budget.budgetEtb,
     costPerActionEtb: budget.costPerActionEtb,
   };
@@ -88,6 +90,8 @@ export function WizardPage() {
   });
 
   const campaign = campaignQuery.data;
+  // Keeps `campaign.ads` fresh (5 s) while uploaded creatives are being processed by the media pipeline.
+  useMediaProcessingPoll(campaign);
   const state = useWizardState(campaign, params.get('step'));
 
   const goTo = useCallback(
@@ -148,6 +152,7 @@ export function WizardPage() {
           startDate: values.startDate || undefined,
           endDate: values.endDate || undefined,
           attentionCheckEnabled: values.attentionCheckEnabled,
+          frequencyCapPerUserPerDay: values.frequencyCapPerUserPerDay,
         },
       });
       toast.success('Details saved');

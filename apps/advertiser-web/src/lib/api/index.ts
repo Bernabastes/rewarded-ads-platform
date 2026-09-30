@@ -1,8 +1,11 @@
 import {
   API_ROUTES,
+  IDEMPOTENCY_KEY_HEADER,
+  type AcceptConsentDto,
   type AdvertiserAuthResponse,
   type AdvertiserLedgerEntry,
   type AdvertiserOverview,
+  type AdvertiserProfile,
   type AdvertiserRegisterDto,
   type AdSummary,
   type AuthTokens,
@@ -10,18 +13,24 @@ import {
   type CampaignDetail,
   type CampaignStatus,
   type CampaignSummary,
+  type ChangePasswordDto,
   type CreateAdDto,
   type CreateCampaignDto,
   type CreateTopupDto,
+  type CurrentLegalDocumentsResponse,
   type EmailPasswordLoginDto,
   type InvoiceItem,
+  type Language,
+  type LegalDocumentKind,
   type Paginated,
   type PaymentItem,
   type PaymentStatus,
   type PresignUploadDto,
   type PresignUploadResponse,
   type TopupResponse,
+  type UpdateAdvertiserProfileDto,
   type UpdateCampaignDto,
+  type UserConsentState,
   type WalletBalanceResponse,
 } from '@rap/shared';
 import { env } from '@/config/env';
@@ -43,6 +52,22 @@ export interface PageQuery {
   limit?: number;
 }
 
+/** `POST /auth/advertiser/change-password` response (not yet typed in `@rap/shared`). */
+export interface ChangePasswordResponse {
+  changed: boolean;
+  /** Every refresh token was revoked; the advertiser must sign in again. */
+  sessionsRevoked: boolean;
+}
+
+/** `GET|POST /advertisers/me/consents` response: the generic per-kind state plus the advertiser terms shortcut fields. */
+export interface AdvertiserConsentState {
+  consents: UserConsentState[];
+  requiresConsent: LegalDocumentKind[];
+  acceptedTermsVersion: string | null;
+  currentTermsVersion: string | null;
+  requiresTermsAcceptance: boolean;
+}
+
 export const authApi = {
   login: (dto: EmailPasswordLoginDto) =>
     apiClient.post<AdvertiserAuthResponse>(API_ROUTES.auth.advertiserLogin, dto, { auth: false }),
@@ -50,6 +75,23 @@ export const authApi = {
     apiClient.post<AdvertiserAuthResponse>(API_ROUTES.auth.advertiserRegister, dto, { auth: false }),
   logout: (refreshToken: string) =>
     apiClient.post<void>(API_ROUTES.auth.logout, { refreshToken }, { auth: false }),
+  changePassword: (dto: ChangePasswordDto) =>
+    apiClient.post<ChangePasswordResponse>(API_ROUTES.auth.advertiserChangePassword, dto),
+};
+
+export const legalApi = {
+  /** Public: the current legal documents for an audience (advertisers only have `terms`). */
+  current: (query: { audience: 'user' | 'advertiser'; locale?: Language } = { audience: 'advertiser' }) =>
+    apiClient.get<CurrentLegalDocumentsResponse>(API_ROUTES.legal.current, { query, auth: false }),
+};
+
+export const advertisersApi = {
+  me: () => apiClient.get<AdvertiserProfile>(API_ROUTES.advertisers.me),
+  update: (dto: UpdateAdvertiserProfileDto) =>
+    apiClient.patch<AdvertiserProfile>(API_ROUTES.advertisers.me, dto),
+  consentState: () => apiClient.get<AdvertiserConsentState>(API_ROUTES.advertisers.consents),
+  acceptConsent: (dto: AcceptConsentDto) =>
+    apiClient.post<AdvertiserConsentState>(API_ROUTES.advertisers.consents, dto),
 };
 
 export const campaignsApi = {
@@ -77,7 +119,14 @@ export const billingApi = {
   balance: () => apiClient.get<WalletBalanceResponse>(API_ROUTES.billing.balance),
   ledger: (query: PageQuery = {}) =>
     apiClient.get<Paginated<AdvertiserLedgerEntry>>(API_ROUTES.billing.ledger, { query }),
-  createTopup: (dto: CreateTopupDto) => apiClient.post<TopupResponse>(API_ROUTES.billing.topups, dto),
+  /**
+   * Money POST: pass the per-intent `Idempotency-Key` so a retried request replays the stored response instead
+   * of creating a second payment (see `createTopupIdempotent` for the 409 handling).
+   */
+  createTopup: (dto: CreateTopupDto, options: { idempotencyKey?: string } = {}) =>
+    apiClient.post<TopupResponse>(API_ROUTES.billing.topups, dto, {
+      headers: options.idempotencyKey ? { [IDEMPOTENCY_KEY_HEADER]: options.idempotencyKey } : undefined,
+    }),
   payments: (query: PageQuery = {}) =>
     apiClient.get<Paginated<PaymentItem>>(API_ROUTES.billing.payments, { query }),
   payment: (id: string) => apiClient.get<PaymentItem>(API_ROUTES.billing.payment(id)),

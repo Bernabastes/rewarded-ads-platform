@@ -14,6 +14,7 @@ import { Progress } from '@/components/ui/progress';
 import { uploadCreative, type UploadProgress } from '@/lib/api/upload';
 import { useAddAd, useRemoveAd } from '@/features/campaigns/hooks';
 import { AdPreview, CreativePreview } from '@/features/campaigns/creative-preview';
+import { MediaProbeDetails, MediaStatusBadge } from '@/features/campaigns/media-status';
 import { handleFormError, toastApiError } from '@/lib/forms';
 import { cn } from '@/lib/utils/cn';
 import { formatBytes, formatDuration } from '@/lib/utils/format';
@@ -163,7 +164,10 @@ export function CreativeUploader({
         },
       });
       toast.success('Creative added', {
-        description: `“${ad.title}” is queued for review with the campaign.`,
+        description:
+          ad.mediaType === 'video' && ad.mediaStatus === 'processing'
+            ? `“${ad.title}” is being processed (duration check, 720p transcode, poster) — usually under a minute.`
+            : `“${ad.title}” is queued for review with the campaign.`,
       });
       onAdded?.(ad);
       cancel();
@@ -493,6 +497,12 @@ export function ExistingCreatives({ campaign }: { campaign: CampaignDetail }) {
               {formatDuration(ad.durationSeconds)} · {ad.attentionQuestionsCount} question
               {ad.attentionQuestionsCount === 1 ? '' : 's'}
             </p>
+            {ad.mediaType === 'video' && (
+              <div>
+                <MediaStatusBadge status={ad.mediaStatus} size="sm" />
+              </div>
+            )}
+            <MediaProbeDetails ad={ad} compact />
             {ad.rejectionReason && <p className="text-xs text-danger">{ad.rejectionReason}</p>}
             {ad.reviewStatus === 'approved' ? (
               <span className="mt-auto inline-flex items-center gap-1 text-xs text-success">

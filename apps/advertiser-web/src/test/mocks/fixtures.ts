@@ -5,10 +5,13 @@ import type {
   CampaignAnalytics,
   CampaignDetail,
   CampaignSummary,
+  CurrentLegalDocumentsResponse,
   InvoiceItem,
+  LegalDocumentItem,
   PaymentItem,
   WalletBalanceResponse,
 } from '@rap/shared';
+import type { AdvertiserConsentState } from '@/lib/api';
 
 export const tokensFixture: AuthTokens = {
   accessToken: 'access-token-1',
@@ -40,6 +43,64 @@ export const pendingProfileFixture: AdvertiserProfile = {
   contactEmail: 'hello@shegerfashion.et',
   verificationStatus: 'pending',
   walletBalanceEtb: 0,
+};
+
+/** Advertiser whose accepted terms version is behind the current one (not seedable on the live API). */
+export const outdatedTermsProfileFixture: AdvertiserProfile = {
+  ...profileFixture,
+  acceptedTermsVersion: '1.0',
+  currentTermsVersion: '1.1',
+  requiresTermsAcceptance: true,
+};
+
+export const termsDocumentFixture: LegalDocumentItem = {
+  id: 'legal-terms-1',
+  kind: 'terms',
+  version: '1.1',
+  locale: 'en',
+  title: 'Gize Terms of Service',
+  url: 'https://gize.app/legal/terms?v=1.1&lang=en',
+  contentMarkdown:
+    '# Gize Terms of Service (v1.1)\n\nBy using Gize you agree to:\n\n- watch advertisements **honestly**\n- hold one account per person\n\nAdvertisers agree to the banned-topics policy and prepaid billing. Full text: https://gize.app/legal/terms',
+  publishedAt: '2026-09-20T09:00:00.000Z',
+};
+
+export const legalCurrentFixture: CurrentLegalDocumentsResponse = {
+  locale: 'en',
+  audience: 'advertiser',
+  documents: [termsDocumentFixture],
+};
+
+export const consentStateFixture: AdvertiserConsentState = {
+  consents: [
+    {
+      kind: 'terms',
+      acceptedVersion: '1.0',
+      currentVersion: '1.1',
+      acceptedAt: '2026-08-01T10:00:00.000Z',
+      outdated: true,
+    },
+  ],
+  requiresConsent: ['terms'],
+  acceptedTermsVersion: '1.0',
+  currentTermsVersion: '1.1',
+  requiresTermsAcceptance: true,
+};
+
+export const acceptedConsentStateFixture: AdvertiserConsentState = {
+  consents: [
+    {
+      kind: 'terms',
+      acceptedVersion: '1.1',
+      currentVersion: '1.1',
+      acceptedAt: '2026-09-24T09:00:00.000Z',
+      outdated: false,
+    },
+  ],
+  requiresConsent: [],
+  acceptedTermsVersion: '1.1',
+  currentTermsVersion: '1.1',
+  requiresTermsAcceptance: false,
 };
 
 export const campaignFixture: CampaignSummary = {
@@ -91,8 +152,8 @@ export const campaignDetailFixture: CampaignDetail = {
       campaignId: 'camp-1',
       title: 'Morning Roast — 30s spot',
       description: null,
-      mediaUrl: 'http://localhost:9000/rap-media/creatives/ad-1.mp4',
-      thumbnailUrl: null,
+      mediaUrl: 'http://localhost:9000/rap-media/creatives/processed/ad-1/transcoded.mp4',
+      thumbnailUrl: 'http://localhost:9000/rap-media/creatives/processed/ad-1/poster.png',
       mediaType: 'video',
       durationSeconds: 30,
       reviewStatus: 'approved',
@@ -100,11 +161,11 @@ export const campaignDetailFixture: CampaignDetail = {
       reviewedAt: '2026-09-01T10:00:00.000Z',
       attentionQuestionsCount: 1,
       mediaStatus: 'ready',
-      mediaProbe: null,
+      mediaProbe: { durationSeconds: 30, codec: 'h264', width: 1280, height: 720, bitrate: 1_800_000, container: 'mov,mp4' },
       durationDeclaredSeconds: 30,
       durationProbedSeconds: 30,
       mediaError: null,
-      mediaProcessedAt: null,
+      mediaProcessedAt: '2026-08-30T10:01:00.000Z',
       createdAt: '2026-08-30T10:00:00.000Z',
     },
     {
