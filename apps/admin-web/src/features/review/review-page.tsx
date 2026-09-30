@@ -1,7 +1,7 @@
-import { type BannedTopicKey, type ReviewStatus } from '@rap/shared';
+import { type BannedTopicKey, type MediaStatus, type ReviewStatus } from '@rap/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { CheckCheck, Flag, Video } from 'lucide-react';
+import { CheckCheck, Clapperboard, Flag, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -15,11 +15,12 @@ import { useHotkeys } from '@/lib/hooks/use-hotkeys';
 import { useListParams } from '@/lib/hooks/use-list-params';
 import { cn } from '@/lib/utils/cn';
 import { formatDuration, formatRelative } from '@/lib/utils/format';
-import { Badge, StatusBadge } from '@/components/ui/badge';
+import { Badge, MEDIA_STATUS_TONE, StatusBadge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { PaginationBar } from '@/components/ui/data-table';
 import { EmptyState, ErrorState, Kbd, Skeleton } from '@/components/ui/feedback';
 import { PageHeader } from '@/components/ui/page';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives';
+import { Tabs, TabsList, TabsTrigger, Tooltip } from '@/components/ui/primitives';
 import { RejectDialog } from './reject-dialog';
 import { MediaStatusBadge, ReviewPane } from './review-pane';
 
@@ -29,7 +30,17 @@ const TABS: Array<{ value: ReviewStatus; label: string }> = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-const defaults = { status: 'pending' as string, page: 1, limit: 50 };
+/** Media pipeline filter (`?mediaStatus=`); "All" keeps the parameter out of the URL and the request. */
+const MEDIA_FILTERS: Array<{ value: MediaStatus; label: string; hint: string; empty: string }> = [
+  { value: 'processing', label: 'Processing', hint: 'Probe / transcode / poster still running (approval is blocked)', empty: 'still being processed' },
+  { value: 'ready', label: 'Ready', hint: 'Transcoded and ready for the feed', empty: 'transcoded and ready' },
+  { value: 'duration_corrected', label: 'Duration corrected', hint: 'Declared duration differed from the probed one by more than 1 s', empty: 'duration-corrected' },
+  { value: 'failed', label: 'Failed', hint: 'Media pipeline failed - reprocess or ask for a re-upload (approval is blocked)', empty: 'failed media processing' },
+];
+
+const MEDIA_FILTER_VALUES = MEDIA_FILTERS.map((f) => f.value) as string[];
+
+const defaults = { status: 'pending' as string, mediaStatus: '' as string, page: 1, limit: 50 };
 
 export function ReviewPage() {
   const { adId } = useParams();
@@ -40,10 +51,20 @@ export function ReviewPage() {
   const reduce = useReducedMotion();
   const { params, set } = useListParams(defaults);
   const status = (TABS.some((t) => t.value === params.status) ? params.status : 'pending') as ReviewStatus;
+  const mediaFilter = (MEDIA_FILTER_VALUES.includes(params.mediaStatus) ? params.mediaStatus : '') as MediaStatus | '';
+  const mediaFilterMeta = MEDIA_FILTERS.find((f) => f.value === mediaFilter);
 
-  const queryParams = useMemo(() => ({ status, page: params.page, limit: params.limit }), [status, params.page, params.limit]);
+  const queryParams = useMemo(
+    () => ({ status, page: params.page, limit: params.limit, ...(mediaFilter ? { mediaStatus: mediaFilter } : {}) }),
+    [status, params.page, params.limit, mediaFilter],
+  );
   const queue = useQuery({ queryKey: queryKeys.reviewQueue(queryParams), queryFn: () => reviewApi.queue(queryParams), refetchInterval: (q) => (q.state.data?.data.some((a) => a.mediaStatus === 'processing') ? 10_000 : status === 'pending' ? 30_000 : false) });
   const items = useMemo(() => queue.data?.data ?? [], [queue.data]);
+
+  // Unfiltered total for the current tab, so the tab count and the empty state stay meaningful while a media filter is active.
+  const unfilteredParams = useMemo(() => ({ status, page: 1, limit: 1 }), [status]);
+  const unfiltered = useQuery({ queryKey: queryKeys.reviewQueue(unfilteredParams), queryFn: () => reviewApi.queue(unfilteredParams), enabled: Boolean(mediaFilter) });
+  const tabTotal = mediaFilter ? unfiltered.data?.meta.total : queue.data?.meta.total;
 
   // Selected ad: URL param, else first in list.
   const selectedId = adId ?? items[0]?.id ?? null;
@@ -185,16 +206,38 @@ export function ReviewPage() {
           </div>
         }
       >
-        <Tabs value={status} onValueChange={(v) => set({ status: v, page: 1 })}>
-          <TabsList>
-            {TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value}>
-                {t.label}
-                {t.value === 'pending' && queue.data && status === 'pending' ? <Badge tone="accent" size="sm" className="tabular">{queue.data.meta.total}</Badge> : null}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Tabs value={status} onValueChange={(v) => set({ status: v, page: 1 })}>
+            <TabsList>
+              {TABS.map((t) => (
+                <TabsTrigger key={t.value} value={t.value}>
+                  {t.label}
+                  {t.value === 'pending' && status === 'pending' && tabTotal !== undefined ? <Badge tone="accent" size="sm" className="tabular">{tabTotal}</Badge> : null}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <div role="group" aria-label="Media status filter" data-testid="media-filter" className="flex flex-wrap items-center gap-1">
+            <span className="mr-0.5 inline-flex items-center gap-1 text-xs text-fg-subtle">
+              <Clapperboard className="size-3" aria-hidden /> Media
+            </span>
+            <Button variant={mediaFilter === '' ? 'secondary' : 'ghost'} size="xs" aria-pressed={mediaFilter === ''} onClick={() => set({ mediaStatus: '' })}>
+              All
+            </Button>
+            {MEDIA_FILTERS.map((f) => {
+              const active = mediaFilter === f.value;
+              return (
+                <Tooltip key={f.value} content={f.hint}>
+                  <Button variant={active ? 'secondary' : 'ghost'} size="xs" aria-pressed={active} onClick={() => set({ mediaStatus: active ? '' : f.value })} className={cn(active && 'ring-1 ring-border-strong')}>
+                    <span className={cn('size-1.5 rounded-full', MEDIA_STATUS_TONE[f.value] === 'info' && 'bg-info', MEDIA_STATUS_TONE[f.value] === 'success' && 'bg-success', MEDIA_STATUS_TONE[f.value] === 'warning' && 'bg-warning', MEDIA_STATUS_TONE[f.value] === 'danger' && 'bg-danger')} aria-hidden />
+                    {f.label}
+                    {active && queue.data ? <span className="tabular text-fg-subtle">{queue.data.meta.total}</span> : null}
+                  </Button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </div>
       </PageHeader>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
@@ -215,12 +258,32 @@ export function ReviewPage() {
             ) : queue.isError ? (
               <ErrorState error={queue.error} onRetry={() => void queue.refetch()} compact />
             ) : items.length === 0 ? (
-              <EmptyState
-                compact
-                icon={status === 'pending' ? CheckCheck : Video}
-                title={status === 'pending' ? 'Queue is clear' : `No ${status} ads`}
-                description={status === 'pending' ? 'Every submitted creative has been reviewed. New submissions appear here automatically.' : 'Decisions will show up here once made.'}
-              />
+              mediaFilterMeta ? (
+                <EmptyState
+                  compact
+                  icon={Clapperboard}
+                  title={`No ${mediaFilterMeta.label.toLowerCase()} creatives`}
+                  description={
+                    unfiltered.data
+                      ? unfiltered.data.meta.total === 0
+                        ? `There are no ${status} ads at all right now.`
+                        : `None of the ${unfiltered.data.meta.total} ${status} ${unfiltered.data.meta.total === 1 ? 'ad is' : 'ads are'} ${mediaFilterMeta.empty}.`
+                      : `No ${status} ads match this media filter.`
+                  }
+                  action={
+                    <Button variant="outline" size="sm" onClick={() => set({ mediaStatus: '' })} data-testid="media-filter-clear">
+                      Show all media
+                    </Button>
+                  }
+                />
+              ) : (
+                <EmptyState
+                  compact
+                  icon={status === 'pending' ? CheckCheck : Video}
+                  title={status === 'pending' ? 'Queue is clear' : `No ${status} ads`}
+                  description={status === 'pending' ? 'Every submitted creative has been reviewed. New submissions appear here automatically.' : 'Decisions will show up here once made.'}
+                />
+              )
             ) : (
               <ul role="listbox" aria-label={`${status} ads`} className="divide-y">
                 <AnimatePresence initial={false}>

@@ -116,7 +116,9 @@ src/
 `react-router` v7 data router. `/login` is public; everything else sits under `<RequireAuth>` → `<AppShell>`.
 Detail views that are drawers keep their id in the URL (`/withdrawals/:id`, `/adjustments/:id`, `/fraud/:id`,
 `/review/:adId`, `/kyc/:id`) so any record is deep-linkable and the browser back button closes the panel. List
-filters, tabs and pagination live in the query string (`useListParams`) so views are shareable and survive reloads.
+filters, tabs and pagination live in the query string (`useListParams`) so views are shareable and survive reloads
+(e.g. `/review?status=pending&mediaStatus=failed` opens the review queue filtered to creatives whose media pipeline
+failed; the filter chips next to the Pending/Approved/Rejected tabs drive `GET /admin/ads/review-queue?mediaStatus=`).
 `/users/:id/view-as` is the read-only impersonation panel (needs an in-memory session; a reload shows an explanation).
 
 ### RBAC
