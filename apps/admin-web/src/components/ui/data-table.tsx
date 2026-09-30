@@ -101,8 +101,11 @@ export function DataTable<T>({
   });
 
   const virtualItems = virtualized ? virtualizer.getVirtualItems() : null;
-  const paddingTop = virtualItems && virtualItems.length > 0 ? virtualItems[0]!.start : 0;
-  const paddingBottom = virtualItems && virtualItems.length > 0 ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1]!.end : 0;
+  // A 0px viewport (jsdom, `display: none` ancestors) makes the virtualizer yield nothing; render plainly rather
+  // than an empty table until it can measure.
+  const useVirtual = virtualItems !== null && (virtualItems.length > 0 || tableRows.length === 0);
+  const paddingTop = useVirtual && virtualItems.length > 0 ? virtualItems[0]!.start : 0;
+  const paddingBottom = useVirtual && virtualItems.length > 0 ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1]!.end : 0;
 
   const colCount = table.getVisibleLeafColumns().length;
   const interactive = Boolean(onRowClick);
@@ -133,7 +136,7 @@ export function DataTable<T>({
             expanded && 'bg-sunken/50',
             rowClassName?.(row.original),
           )}
-          style={virtualized ? { height: rowHeight } : undefined}
+          style={useVirtual ? { height: rowHeight } : undefined}
         >
           {row.getVisibleCells().map((cell) => {
             const meta = cell.column.columnDef.meta;
@@ -227,7 +230,7 @@ export function DataTable<T>({
               </td>
             </tr>
           </tbody>
-        ) : virtualized && virtualItems ? (
+        ) : useVirtual && virtualItems ? (
           <Fragment>
             {paddingTop > 0 ? (
               <tbody>

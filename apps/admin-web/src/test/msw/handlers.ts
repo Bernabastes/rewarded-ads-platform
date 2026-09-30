@@ -1,5 +1,23 @@
 import { http, HttpResponse } from 'msw';
-import { adminSuper, BASE, config, largeWithdrawal, overview, pendingAdjustment, reviewQueue, tokens } from './fixtures';
+import {
+  adminSuper,
+  alertsOpen,
+  auditAdminRow,
+  auditUserRow,
+  BASE,
+  config,
+  deletionPending,
+  kycDetail,
+  kycMismatchDetail,
+  kycQueue,
+  largeWithdrawal,
+  overview,
+  pendingAdjustment,
+  referralMetrics,
+  referralRejected,
+  reviewQueue,
+  tokens,
+} from './fixtures';
 
 /** Default happy-path handlers; individual tests override with `server.use(...)`. */
 export const handlers = [
@@ -33,4 +51,19 @@ export const handlers = [
   http.get(`${BASE}/admin/coin-adjustments`, () => HttpResponse.json({ data: [pendingAdjustment], meta: { page: 1, limit: 20, total: 1 } })),
   http.get(`${BASE}/admin/coin-adjustments/:id`, () => HttpResponse.json(pendingAdjustment)),
   http.get(`${BASE}/admin/users`, () => HttpResponse.json({ data: [], meta: { page: 1, limit: 20, total: 0 } })),
+
+  // Phase 4A
+  http.get(`${BASE}/admin/kyc`, ({ request }) => {
+    const status = new URL(request.url).searchParams.get('status') ?? 'pending';
+    return HttpResponse.json(status === 'pending' ? kycQueue : { data: [], meta: { page: 1, limit: 50, total: 0 } });
+  }),
+  http.get(`${BASE}/admin/kyc/:id`, ({ params }) => HttpResponse.json(params.id === kycMismatchDetail.id ? kycMismatchDetail : kycDetail)),
+  http.get(`${BASE}/admin/alerts`, ({ request }) => {
+    const state = new URL(request.url).searchParams.get('acknowledged');
+    return HttpResponse.json(state === 'true' ? { data: [], meta: { ...alertsOpen.meta, total: 0 } } : alertsOpen);
+  }),
+  http.get(`${BASE}/admin/referrals/metrics`, () => HttpResponse.json(referralMetrics)),
+  http.get(`${BASE}/admin/referrals`, () => HttpResponse.json({ data: [referralRejected], meta: { page: 1, limit: 50, total: 1 } })),
+  http.get(`${BASE}/admin/deletion-requests`, () => HttpResponse.json({ data: [deletionPending], meta: { page: 1, limit: 50, total: 1 } })),
+  http.get(`${BASE}/admin/audit-log`, () => HttpResponse.json({ data: [auditAdminRow, auditUserRow], meta: { page: 1, limit: 100, total: 2 } })),
 ];
