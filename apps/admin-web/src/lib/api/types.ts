@@ -10,6 +10,7 @@ import type {
   AdminUserDetail,
   AdminWithdrawalItem,
   AdReviewItem,
+  PaginationMeta,
 } from '@rap/shared';
 
 export type AdReview = AdReviewItem;
@@ -23,3 +24,15 @@ export type AdminCampaign = AdminCampaignItem;
 export type AdminCampaignDetail = SharedAdminCampaignDetail;
 
 export type AdminAdvertiser = AdminAdvertiserDetail;
+
+/** One configured alert delivery channel (`meta.notifiers` of GET /admin/alerts); `log` is the mock notifier. */
+export interface AlertNotifierInfo {
+  name: string;
+  mock: boolean;
+}
+
+/** `GET /admin/alerts` pagination meta extras (not declared in `@rap/shared`, documented in docs/API.md). */
+export interface AlertsMeta extends PaginationMeta {
+  openCount: number;
+  notifiers: AlertNotifierInfo[];
+}

@@ -31,4 +31,17 @@ export const queryKeys = {
   revenue: (params: object) => ['revenue', params] as const,
   audit: (params: object) => ['audit', params] as const,
   appInstalls: (params: object) => ['app-installs', params] as const,
+
+  kycQueue: (params: object) => ['kyc', 'list', params] as const,
+  kyc: (id: string) => ['kyc', 'detail', id] as const,
+
+  alerts: (params: object) => ['alerts', 'list', params] as const,
+
+  referralMetrics: ['referrals', 'metrics'] as const,
+  referrals: (params: object) => ['referrals', 'list', params] as const,
+
+  deletionRequests: (params: object) => ['deletion-requests', 'list', params] as const,
+
+  /** Requests made with an impersonation token; scoped by user id so a new session never reuses stale data. */
+  viewAs: (userId: string, resource: string, params: object = {}) => ['view-as', userId, resource, params] as const,
 };

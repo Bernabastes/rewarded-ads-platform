@@ -1,15 +1,19 @@
 import type { AuditLogItem } from '@rap/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Fingerprint, ShieldAlert, ShieldCheck, UserRoundX, Wallet } from 'lucide-react';
+import { Ban, CalendarClock, Eye, Fingerprint, Gift, IdCard, ShieldAlert, ShieldCheck, UserRoundX, Wallet } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { auditApi, fraudApi, usersApi } from '@/lib/api/endpoints';
 import { describeError } from '@/lib/api/errors';
 import { queryKeys } from '@/lib/api/query-keys';
+import type { AdminUser } from '@/lib/api/types';
+import { impersonationStore, useImpersonation } from '@/lib/auth/impersonation-store';
 import { useAuth } from '@/lib/auth/use-auth';
+import { deletionExecuteBlock } from '@/lib/domain/data-rights-rules';
+import { parseProviderResult, preCheckVerdict } from '@/lib/domain/kyc-rules';
 import { cn } from '@/lib/utils/cn';
-import { formatCoins, formatDate, formatDateTime, formatEtb, formatInt, formatPercent, humanize } from '@/lib/utils/format';
+import { formatCoins, formatDate, formatDateTime, formatEtb, formatInt, formatPercent, formatRelative, humanize } from '@/lib/utils/format';
 import { Badge, StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, DescriptionList } from '@/components/ui/card';
@@ -17,11 +21,11 @@ import { ReasonDialog } from '@/components/ui/confirm';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
 import { DiffView } from '@/components/ui/json';
 import { IdChip, Initials, PageHeader } from '@/components/ui/page';
-import { Tabs, TabsContent, TabsUnderline, TabsUnderlineTrigger } from '@/components/ui/primitives';
+import { Tabs, TabsContent, TabsUnderline, TabsUnderlineTrigger, Tooltip } from '@/components/ui/primitives';
 import { StatCard } from '@/components/ui/stat';
 import { FlagsTable, LedgerTable, UserWithdrawalsTable } from './user-tables';
 
-type Action = 'suspend' | 'ban' | 'reinstate';
+type Action = 'suspend' | 'ban' | 'reinstate' | 'impersonate';
 
 export function UserDetailPage() {
   const { userId = '' } = useParams();
@@ -33,9 +37,11 @@ export function UserDetailPage() {
   const { can } = useAuth();
   const user = useQuery({ queryKey: queryKeys.user(userId), queryFn: () => usersApi.detail(userId), enabled: Boolean(userId) });
   const [action, setAction] = useState<Action | null>(null);
+  const impersonation = useImpersonation();
+  const viewingThisUser = impersonation.status === 'active' && impersonation.session.user.id === userId;
 
   const moderate = useMutation({
-    mutationFn: ({ kind, reason }: { kind: Action; reason: string }) =>
+    mutationFn: ({ kind, reason }: { kind: Exclude<Action, 'impersonate'>; reason: string }) =>
       kind === 'suspend' ? usersApi.suspend(userId, reason) : kind === 'ban' ? usersApi.ban(userId, reason) : usersApi.reinstate(userId, reason),
     onSuccess: (_res, { kind }) => {
       toast.success(kind === 'reinstate' ? 'User reinstated' : kind === 'suspend' ? 'User suspended' : 'User banned', {
@@ -50,8 +56,23 @@ export function UserDetailPage() {
     onError: (err) => toast.error('Action failed', { description: describeError(err) }),
   });
 
+  const impersonate = useMutation({
+    mutationFn: (reason: string) => usersApi.impersonate(userId, reason),
+    onSuccess: (res, reason) => {
+      // Token stays in memory only (impersonationStore); nothing is persisted.
+      impersonationStore.start(res, reason);
+      void queryClient.removeQueries({ queryKey: ['view-as', userId] });
+      void queryClient.invalidateQueries({ queryKey: ['audit'] });
+      toast.success('Read-only session started', { description: `Viewing as ${res.user.phoneNumber} for ${Math.round(res.expiresIn / 60)} minutes. Every request is audited.` });
+      setAction(null);
+      navigate(`/users/${userId}/view-as`);
+    },
+    onError: (err) => toast.error('Could not start impersonation', { description: describeError(err) }),
+  });
+
   const u = user.data;
   const canModerate = can('usersModerate');
+  const canImpersonate = can('impersonate');
 
   if (user.isError) return <ErrorState error={user.error} onRetry={() => void user.refetch()} title="Could not load this user" />;
 
@@ -75,22 +96,39 @@ export function UserDetailPage() {
         }
         description={u?.statusReason ? <span className="text-danger">Status reason: {u.statusReason}</span> : u ? `Joined ${formatDate(u.createdAt)} · last login ${formatDateTime(u.lastLoginAt)}` : undefined}
         actions={
-          u && canModerate ? (
+          u ? (
             <>
-              {u.status !== 'active' ? (
-                <Button variant="success" onClick={() => setAction('reinstate')}>
-                  <ShieldCheck className="size-4" /> Reinstate
-                </Button>
+              {canImpersonate && u.status !== 'deleted' ? (
+                viewingThisUser ? (
+                  <Button variant="secondary" onClick={() => navigate(`/users/${userId}/view-as`)} data-testid="open-view-as">
+                    <Eye className="size-4" /> Open “view as user”
+                  </Button>
+                ) : (
+                  <Tooltip content="Issues a 10-minute read-only user token (audited). You will see the app exactly as the user does; nothing can be changed.">
+                    <Button variant="outline" onClick={() => setAction('impersonate')} data-testid="impersonate">
+                      <Eye className="size-4" /> Impersonate (read-only)
+                    </Button>
+                  </Tooltip>
+                )
               ) : null}
-              {u.status !== 'suspended' && u.status !== 'banned' ? (
-                <Button variant="outline" onClick={() => setAction('suspend')}>
-                  <UserRoundX className="size-4 text-warning" /> Suspend
-                </Button>
-              ) : null}
-              {u.status !== 'banned' ? (
-                <Button variant="danger" onClick={() => setAction('ban')}>
-                  <Ban className="size-4" /> Ban
-                </Button>
+              {canModerate ? (
+                <>
+                  {u.status !== 'active' && u.status !== 'deleted' ? (
+                    <Button variant="success" onClick={() => setAction('reinstate')}>
+                      <ShieldCheck className="size-4" /> Reinstate
+                    </Button>
+                  ) : null}
+                  {u.status === 'active' ? (
+                    <Button variant="outline" onClick={() => setAction('suspend')}>
+                      <UserRoundX className="size-4 text-warning" /> Suspend
+                    </Button>
+                  ) : null}
+                  {u.status !== 'banned' && u.status !== 'deleted' ? (
+                    <Button variant="danger" onClick={() => setAction('ban')}>
+                      <Ban className="size-4" /> Ban
+                    </Button>
+                  ) : null}
+                </>
               ) : null}
             </>
           ) : null
@@ -152,6 +190,10 @@ export function UserDetailPage() {
                   <p className="mt-3 text-xs text-fg-subtle">Per-completion detail is not exposed by the admin API; flagged completions are visible through their fraud flags.</p>
                 </CardBody>
               </Card>
+
+              <KycCard user={u} canOpenKyc={can('kyc')} />
+              <DeletionRequestCard user={u} canOpenQueue={can('deletionRequests')} />
+              <ReferralStatsCard user={u} canOpenReferrals={can('referrals')} />
             </div>
           ) : (
             <Skeleton className="h-64 w-full" />
@@ -193,25 +235,183 @@ export function UserDetailPage() {
       </Tabs>
 
       {u ? (
-        <ReasonDialog
-          open={action !== null}
-          onOpenChange={(o) => !o && setAction(null)}
-          destructive={action !== 'reinstate'}
-          title={action === 'suspend' ? `Suspend ${u.fullName ?? u.phoneNumber}?` : action === 'ban' ? `Ban ${u.fullName ?? u.phoneNumber}?` : `Reinstate ${u.fullName ?? u.phoneNumber}?`}
-          description={
-            action === 'suspend'
-              ? 'The user is signed out everywhere, active watch sessions are abandoned and the feed is blocked until reinstated.'
-              : action === 'ban'
-                ? 'Permanent block: the account cannot sign in or earn. Pending withdrawals should be decided separately in the finance queue.'
-                : 'The account returns to active, the status reason is cleared and the user gets a notification.'
-          }
-          confirmLabel={action === 'suspend' ? 'Suspend user' : action === 'ban' ? 'Ban user' : 'Reinstate user'}
-          confirmVariant={action === 'reinstate' ? 'success' : undefined}
-          loading={moderate.isPending}
-          onConfirm={(reason) => { if (action) moderate.mutate({ kind: action, reason }); }}
-        />
+        <>
+          <ReasonDialog
+            open={action !== null && action !== 'impersonate'}
+            onOpenChange={(o) => !o && setAction(null)}
+            destructive={action !== 'reinstate'}
+            title={action === 'suspend' ? `Suspend ${u.fullName ?? u.phoneNumber}?` : action === 'ban' ? `Ban ${u.fullName ?? u.phoneNumber}?` : `Reinstate ${u.fullName ?? u.phoneNumber}?`}
+            description={
+              action === 'suspend'
+                ? 'The user is signed out everywhere, active watch sessions are abandoned and the feed is blocked until reinstated.'
+                : action === 'ban'
+                  ? 'Permanent block: the account cannot sign in or earn. Pending withdrawals should be decided separately in the finance queue.'
+                  : 'The account returns to active, the status reason is cleared and the user gets a notification.'
+            }
+            confirmLabel={action === 'suspend' ? 'Suspend user' : action === 'ban' ? 'Ban user' : 'Reinstate user'}
+            confirmVariant={action === 'reinstate' ? 'success' : undefined}
+            loading={moderate.isPending}
+            onConfirm={(reason) => {
+              if (action && action !== 'impersonate') moderate.mutate({ kind: action, reason });
+            }}
+          />
+          <ReasonDialog
+            open={action === 'impersonate'}
+            onOpenChange={(o) => !o && setAction(null)}
+            title={`View the app as ${u.fullName ?? u.phoneNumber}?`}
+            description="A 10-minute READ-ONLY user token is issued and every request made with it is audited under your admin id. Give the support-ticket reference so the audit log explains why."
+            confirmLabel="Start read-only session"
+            reasonLabel="Reason / ticket reference"
+            placeholder="e.g. TICKET-1042 - user reports missing reward"
+            loading={impersonate.isPending}
+            onConfirm={(reason) => impersonate.mutate(reason)}
+          >
+            <ul className="space-y-1 rounded-md border bg-sunken/50 px-3 py-2 text-xs text-fg-muted">
+              <li>• The token never leaves this browser tab’s memory and expires on its own.</li>
+              <li>• Only GET endpoints work: balance, ledger, feed, withdrawals, notifications. Any write returns 403.</li>
+              <li>• A banner shows who you are viewing and the time left; end it any time.</li>
+            </ul>
+          </ReasonDialog>
+        </>
       ) : null}
     </div>
+  );
+}
+
+/* ----------------------------- Phase 4A cards ----------------------------- */
+
+type UserDetail = AdminUser;
+
+function KycCard({ user: u, canOpenKyc }: { user: UserDetail; canOpenKyc: boolean }) {
+  const k = u.kyc;
+  const provider = k ? parseProviderResult(k.providerResult) : null;
+  const verdict = preCheckVerdict(provider);
+  return (
+    <Card data-testid="user-kyc-card">
+      <CardHeader
+        title="Identity (KYC)"
+        description={u.kycTier === 'id_verified' ? 'Verified - no monthly payout cap.' : 'Phone-only accounts are capped per rolling 30 days until an id is approved.'}
+        actions={
+          <span className="flex items-center gap-1.5">
+            <Badge tone={u.kycTier === 'id_verified' ? 'success' : 'outline'} className="gap-1">
+              <IdCard className="size-3" /> {humanize(u.kycTier)}
+            </Badge>
+            {k && canOpenKyc ? (
+              <Link to={`/kyc/${k.id}?status=${k.status}`} className="text-xs font-medium text-primary hover:underline">
+                Open submission →
+              </Link>
+            ) : null}
+          </span>
+        }
+      />
+      <CardBody>
+        {k ? (
+          <DescriptionList
+            items={[
+              { label: 'Latest submission', value: <StatusBadge status={k.status} /> },
+              { label: 'Submitted', value: <Tooltip content={formatDateTime(k.createdAt)}><span>{formatRelative(k.createdAt)}</span></Tooltip> },
+              { label: 'Document', value: `${humanize(k.idType)} · •••• ${k.idNumberLast4}` },
+              { label: 'Name on document', value: k.fullName },
+              {
+                label: 'Registry pre-check',
+                value: provider ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Badge tone={verdict === 'strong' ? 'success' : verdict === 'weak' ? 'warning' : 'danger'} size="sm">
+                      {verdict === 'not_found' ? 'not found' : verdict === 'error' ? 'error' : formatPercent(provider.score, 0)}
+                    </Badge>
+                    {provider.mock ? (
+                      <Badge tone="warning" size="sm">
+                        MOCK
+                      </Badge>
+                    ) : null}
+                  </span>
+                ) : (
+                  '—'
+                ),
+              },
+              { label: k.status === 'rejected' ? 'Rejection reason' : 'Reviewed', value: k.status === 'rejected' ? <span className="text-danger">{k.reason ?? '—'}</span> : formatDateTime(k.reviewedAt) },
+            ]}
+          />
+        ) : (
+          <p className="text-xs text-fg-muted">No identity documents submitted yet.</p>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function DeletionRequestCard({ user: u, canOpenQueue }: { user: UserDetail; canOpenQueue: boolean }) {
+  const d = u.deletionRequest;
+  return (
+    <Card data-testid="user-deletion-card">
+      <CardHeader
+        title="Account deletion"
+        description={d ? `Requested ${formatRelative(d.requestedAt)} · ${d.graceDays}-day grace period.` : u.status === 'deleted' ? 'This account was anonymised.' : 'No pending deletion request.'}
+        actions={
+          d && canOpenQueue ? (
+            <Link to="/deletion-requests?status=pending" className="text-xs font-medium text-primary hover:underline">
+              Open queue →
+            </Link>
+          ) : null
+        }
+      />
+      {d ? (
+        <CardBody>
+          <DescriptionList
+            items={[
+              { label: 'Status', value: <StatusBadge status={d.status} /> },
+              {
+                label: 'Scheduled for',
+                value: (
+                  <span className="inline-flex items-center gap-1">
+                    <CalendarClock className="size-3 text-fg-subtle" /> {formatDateTime(d.scheduledFor)}
+                  </span>
+                ),
+              },
+              { label: 'Reason given', value: d.reason ?? '—', span: 2 },
+              {
+                label: 'Execution',
+                span: 2,
+                value: (() => {
+                  const pendingWithdrawals = u.withdrawals.filter((w) => w.status === 'pending' || w.status === 'processing' || w.status === 'flagged_for_review').length;
+                  const block = deletionExecuteBlock({ status: d.status, pendingWithdrawals });
+                  return block ? <span className="text-xs text-warning">{block}</span> : <span className="text-xs text-fg-muted">Can be executed early from the deletion queue; the ledger and audit trail are kept.</span>;
+                })(),
+              },
+            ]}
+          />
+        </CardBody>
+      ) : null}
+    </Card>
+  );
+}
+
+function ReferralStatsCard({ user: u, canOpenReferrals }: { user: UserDetail; canOpenReferrals: boolean }) {
+  const r = u.referralStats;
+  return (
+    <Card data-testid="user-referrals-card">
+      <CardHeader
+        title="Referrals"
+        description={u.referralCode ? <>Invite code <span className="font-mono text-fg">{u.referralCode}</span></> : 'No invite code yet.'}
+        actions={
+          canOpenReferrals ? (
+            <Link to={`/referrals?referrerId=${u.id}`} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+              <Gift className="size-3" /> Referrals →
+            </Link>
+          ) : null
+        }
+      />
+      <CardBody>
+        <DescriptionList
+          columns={3}
+          items={[
+            { label: 'Invited', value: <span className="tabular text-lg font-semibold">{formatInt(r.referred)}</span> },
+            { label: 'Paid', value: <span className="tabular text-lg font-semibold text-success">{formatInt(r.paid)}</span> },
+            { label: 'Bonus earned', value: <span className="tabular text-lg font-semibold">{formatCoins(r.bonusCoinsEarned)}</span> },
+          ]}
+        />
+      </CardBody>
+    </Card>
   );
 }
 

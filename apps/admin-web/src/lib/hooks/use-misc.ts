@@ -42,3 +42,15 @@ export function useCopy(timeoutMs = 1500) {
   };
   return { copied, copy };
 }
+
+/** Current time re-rendered every `intervalMs` (for countdowns); pass `enabled=false` to pause the ticker. */
+export function useNow(intervalMs = 1000, enabled = true): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs, enabled]);
+  return now;
+}

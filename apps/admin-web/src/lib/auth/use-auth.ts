@@ -5,6 +5,7 @@ import { api, authStore } from '../api/api';
 import { authApi } from '../api/endpoints';
 import { isApiError } from '../api/errors';
 import type { AuthState } from './auth-store';
+import { impersonationStore } from './impersonation-store';
 import { type AccessKey, can, type Role } from './rbac';
 
 export function useAuthState(): AuthState {
@@ -41,6 +42,7 @@ export function useAuth(): AuthApi {
     async (reason: AuthState['lastLogoutReason'] = 'manual') => {
       const tokens = authStore.tokens.get();
       authStore.tokens.clear();
+      impersonationStore.end();
       authStore.setState({ status: 'anonymous', admin: null, lastLogoutReason: reason });
       queryClient.clear();
       if (tokens?.refreshToken) {

@@ -1,5 +1,5 @@
 import { Command } from 'cmdk';
-import { LogOut, Moon, Search, Sun, SunMoon, UserSearch } from 'lucide-react';
+import { IdCard, LogOut, Moon, Play, Search, Sun, SunMoon, UserSearch } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/lib/auth/use-auth';
@@ -51,14 +51,21 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       open={open}
       onOpenChange={onOpenChange}
       title="Command palette"
+      description="Jump to a page, search a user or change the theme."
       size="md"
+      bare
+      hideHeader
       onOpenAutoFocus={(e) => {
         e.preventDefault();
         inputRef.current?.focus();
       }}
     >
-      <Command label="Command palette" filter={commandFilter} className="-m-5 [&_[cmdk-input]]:outline-none">
-        <div className="flex items-center gap-2 border-b px-4">
+      {/*
+        F8: the input lives OUTSIDE the scroll container. Only <Command.List> scrolls, so the search box stays
+        visible however long the result list gets (previously the whole palette sat in the dialog's scrolling body).
+      */}
+      <Command label="Command palette" filter={commandFilter} className="flex min-h-0 flex-1 flex-col [&_[cmdk-input]]:outline-none">
+        <div className="flex shrink-0 items-center gap-2 border-b px-4" data-testid="palette-input-row">
           <Search className="size-4 shrink-0 text-fg-subtle" aria-hidden />
           <Command.Input
             ref={inputRef}
@@ -70,7 +77,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           />
           <Kbd>Esc</Kbd>
         </div>
-        <Command.List className="max-h-[60vh] overflow-y-auto p-2 [&_[cmdk-item][data-selected=true]]:bg-sunken">
+        <Command.List className="min-h-0 max-h-[min(60vh,28rem)] flex-1 overflow-y-auto p-2 [&_[cmdk-item][data-selected=true]]:bg-sunken" data-testid="palette-list">
           <Command.Empty className="px-2 py-8 text-center text-sm text-fg-subtle">No results.</Command.Empty>
 
           {looksLikePhone && can('users') ? (
@@ -79,6 +86,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <UserSearch className="size-4 text-fg-subtle" />
                 Search users for <span className="font-mono">{search.trim()}</span>
               </Command.Item>
+              {can('kyc') ? (
+                <Command.Item value={`Search KYC queue for ${search.trim()}`} onSelect={() => run(() => navigate(`/kyc?q=${encodeURIComponent(search.trim())}`))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+                  <IdCard className="size-4 text-fg-subtle" />
+                  Search KYC queue for <span className="font-mono">{search.trim()}</span>
+                </Command.Item>
+              ) : null}
             </Command.Group>
           ) : null}
 
@@ -91,7 +104,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                   <Command.Item
                     key={item.to}
                     value={item.label}
-                    keywords={[item.description ?? '', section.title, item.to]}
+                    keywords={[item.description ?? '', section.title, item.to, ...(item.keywords ?? [])]}
                     onSelect={() => run(() => navigate(item.to))}
                     className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg"
                   >
@@ -109,6 +122,21 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               </Command.Group>
             );
           })}
+
+          {can('alertsRunRules') || can('kyc') ? (
+            <Command.Group heading="Actions">
+              {can('alertsRunRules') ? (
+                <Command.Item value="Run alert rules now" keywords={['alerts', 'evaluate', 'rules', 'money day']} onSelect={() => run(() => navigate('/alerts?run=1'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+                  <Play className="size-4 text-fg-subtle" /> Run alert rules now
+                </Command.Item>
+              ) : null}
+              {can('kyc') ? (
+                <Command.Item value="Review next KYC submission" keywords={['kyc', 'identity', 'pending']} onSelect={() => run(() => navigate('/kyc?status=pending'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+                  <IdCard className="size-4 text-fg-subtle" /> Review next KYC submission
+                </Command.Item>
+              ) : null}
+            </Command.Group>
+          ) : null}
 
           <Command.Group heading="Appearance">
             <Command.Item value="Light theme" keywords={['theme', 'appearance']} onSelect={() => run(() => setTheme('light'))} className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm">

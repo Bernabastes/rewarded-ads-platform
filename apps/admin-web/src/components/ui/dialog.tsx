@@ -16,11 +16,17 @@ export interface DialogProps {
   locked?: boolean;
   /** Override Radix's default "focus first tabbable" behaviour (e.g. to focus a search input). */
   onOpenAutoFocus?: (event: Event) => void;
+  /**
+   * Render children without the padded, scrolling body so the child can own its layout (e.g. the command palette
+   * pins its input and scrolls only the list). Hides the header when `title` should stay screen-reader only.
+   */
+  bare?: boolean;
+  hideHeader?: boolean;
 }
 
 const sizes = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-2xl', xl: 'max-w-4xl' };
 
-export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', locked, onOpenAutoFocus }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', locked, onOpenAutoFocus, bare, hideHeader }: DialogProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={locked ? () => undefined : onOpenChange}>
       <DialogPrimitive.Portal>
@@ -29,11 +35,11 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
           onOpenAutoFocus={onOpenAutoFocus}
           className={cn(
             'anim-pop-in fixed top-1/2 left-1/2 z-50 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-surface shadow-pop outline-none',
-            'flex max-h-[calc(100vh-2rem)] flex-col',
+            'flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden',
             sizes[size],
           )}
         >
-          <div className="flex items-start justify-between gap-4 border-b px-5 py-3.5">
+          <div className={cn('flex items-start justify-between gap-4 border-b px-5 py-3.5', hideHeader && 'sr-only')}>
             <div className="min-w-0">
               <DialogPrimitive.Title className="text-base font-semibold text-fg">{title}</DialogPrimitive.Title>
               {description ? (
@@ -42,7 +48,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
                 <DialogPrimitive.Description className="sr-only">{typeof title === 'string' ? title : 'Dialog'}</DialogPrimitive.Description>
               )}
             </div>
-            {!locked ? (
+            {!locked && !hideHeader ? (
               <DialogPrimitive.Close asChild>
                 <Button variant="ghost" size="icon-sm" aria-label="Close">
                   <X className="size-4" />
@@ -50,7 +56,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
               </DialogPrimitive.Close>
             ) : null}
           </div>
-          {children ? <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div> : null}
+          {children ? bare ? <div className="flex min-h-0 flex-1 flex-col">{children}</div> : <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div> : null}
           {footer ? <div className="flex items-center justify-end gap-2 border-t bg-sunken/60 px-5 py-3">{footer}</div> : null}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

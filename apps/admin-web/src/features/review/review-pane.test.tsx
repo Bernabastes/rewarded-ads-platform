@@ -3,18 +3,19 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import type { AdReview } from '@/lib/api/types';
 import { allChecks, type Checks, emptyChecks } from '@/lib/domain/review-rules';
-import { adminReviewer, pendingAd } from '@/test/msw/fixtures';
+import { adminReviewer, correctedAd, failedMediaAd, pendingAd, processingAd } from '@/test/msw/fixtures';
 import { renderWithProviders } from '@/test/utils';
 import { ReviewPane } from './review-pane';
 
-function Harness({ onApprove, onReject, initial = emptyChecks() }: { onApprove: () => void; onReject: () => void; initial?: Checks }) {
+function Harness({ onApprove, onReject, initial = emptyChecks(), ad = pendingAd, onReprocessMedia }: { onApprove: () => void; onReject: () => void; initial?: Checks; ad?: AdReview; onReprocessMedia?: () => void }) {
   const [checks, setChecks] = useState<Checks>(initial);
   const [notes, setNotes] = useState('');
   const [flagged, setFlagged] = useState<Array<(typeof BANNED_TOPICS)[number]['key']>>([]);
   return (
     <ReviewPane
-      ad={pendingAd}
+      ad={ad}
       mode="pending"
       checks={checks}
       onChecksChange={setChecks}
@@ -28,6 +29,7 @@ function Harness({ onApprove, onReject, initial = emptyChecks() }: { onApprove: 
       onApprove={onApprove}
       onReject={onReject}
       canDecide
+      onReprocessMedia={onReprocessMedia}
     />
   );
 }
@@ -73,5 +75,37 @@ describe('ReviewPane banned-topics gating', () => {
     expect(screen.getByText('correct')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /reject/i }));
     expect(onReject).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ReviewPane media pipeline gating (MEDIA_NOT_READY)', () => {
+  it('keeps Approve disabled while the media is processing even with a complete checklist, and offers reprocessing', async () => {
+    const user = userEvent.setup();
+    const onApprove = vi.fn();
+    const onReprocess = vi.fn();
+    renderWithProviders(<Harness onApprove={onApprove} onReject={vi.fn()} initial={allChecks(true)} ad={processingAd} onReprocessMedia={onReprocess} />, { admin: adminReviewer, route: '/review/ad-processing' });
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    expect(screen.getByTestId('media-not-ready')).toHaveTextContent(/still being probed/);
+    expect(screen.getAllByTestId('media-status')[0]).toHaveTextContent('processing');
+    await user.click(screen.getByTestId('reprocess-media'));
+    expect(onReprocess).toHaveBeenCalledTimes(1);
+    expect(onApprove).not.toHaveBeenCalled();
+  });
+
+  it('explains a failed pipeline with the ffprobe error and still allows rejecting', () => {
+    renderWithProviders(<Harness onApprove={vi.fn()} onReject={vi.fn()} initial={allChecks(true)} ad={failedMediaAd} onReprocessMedia={vi.fn()} />, { admin: adminReviewer, route: '/review/ad-failed' });
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    expect(screen.getByTestId('media-not-ready')).toHaveTextContent(/moov atom not found/);
+    expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
+  });
+
+  it('allows approval for duration-corrected media and shows declared → probed plus the probe details', () => {
+    renderWithProviders(<Harness onApprove={vi.fn()} onReject={vi.fn()} initial={allChecks(true)} ad={correctedAd} />, { admin: adminReviewer, route: '/review/ad-corrected' });
+    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+    expect(screen.queryByTestId('media-not-ready')).not.toBeInTheDocument();
+    expect(screen.getByText(/declared 15s → 18s/)).toBeInTheDocument();
+    expect(screen.getAllByText(/1280×720/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/h264/).length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('media-status')[0]).toHaveTextContent('duration corrected');
   });
 });

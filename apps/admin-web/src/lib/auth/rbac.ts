@@ -41,6 +41,17 @@ export const ACCESS = {
 
   audit: ['super_admin', 'finance', 'support'],
   appInstalls: ['super_admin', 'support'],
+
+  // Phase 4A. NOTE: the API gates GET /admin/alerts to support/finance/super_admin (ad_reviewer gets 403), so the
+  // page is hidden from reviewers even though the brief described alerts as "all roles read".
+  kyc: ['super_admin', 'support', 'finance'],
+  alerts: ['super_admin', 'support', 'finance'],
+  alertsAck: ['super_admin', 'support', 'finance'],
+  alertsRunRules: ['super_admin'],
+  referrals: ['super_admin', 'support', 'finance'],
+  deletionRequests: ['super_admin', 'support'],
+  impersonate: ['super_admin', 'support'],
+  mediaReprocess: ['super_admin', 'ad_reviewer'],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type AccessKey = keyof typeof ACCESS;
@@ -64,6 +75,6 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const ROLE_DESCRIPTION: Record<Role, string> = {
   super_admin: 'Full access to every queue and setting.',
   ad_reviewer: 'Reviews creatives, moderates campaigns and ad reports.',
-  support: 'Handles users, advertiser verification, fraud flags and reports.',
-  finance: 'Decides withdrawals and coin adjustments, monitors revenue and fraud.',
+  support: 'Handles users, KYC, advertiser verification, fraud flags, alerts, deletion requests and reports.',
+  finance: 'Decides withdrawals, coin adjustments and KYC; monitors revenue, referrals, alerts and fraud.',
 };

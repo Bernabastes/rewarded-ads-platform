@@ -3,19 +3,36 @@ import {
   Activity,
   BadgeCheck,
   Banknote,
+  BellRing,
   Building2,
   Coins,
   Flag,
+  Gift,
+  IdCard,
   LayoutDashboard,
   Megaphone,
   ScrollText,
   Settings2,
   ShieldAlert,
   Smartphone,
+  UserRoundX,
   Users,
   Video,
 } from 'lucide-react';
 import type { AccessKey } from '@/lib/auth/rbac';
+
+/** Sidebar badge sources: `AdminOverview` counters plus the Phase 4A queues (see `useQueueCounters`). */
+export type NavCounterKey =
+  | 'pendingAdReviews'
+  | 'pendingCampaignReviews'
+  | 'pendingAdvertiserVerifications'
+  | 'withdrawalsAwaitingReview'
+  | 'pendingCoinAdjustments'
+  | 'openFraudFlags'
+  | 'openAdReports'
+  | 'pendingKyc'
+  | 'openAlerts'
+  | 'pendingDeletionRequests';
 
 export interface NavItem {
   label: string;
@@ -25,8 +42,10 @@ export interface NavItem {
   /** Sequence hotkey (pressed after "g"), e.g. "r" → g r. */
   key?: string;
   description?: string;
-  /** Overview counter key used to show a badge in the sidebar. */
-  counter?: 'pendingAdReviews' | 'pendingCampaignReviews' | 'pendingAdvertiserVerifications' | 'withdrawalsAwaitingReview' | 'pendingCoinAdjustments' | 'openFraudFlags' | 'openAdReports';
+  /** Counter key used to show a badge in the sidebar. */
+  counter?: NavCounterKey;
+  /** Extra words the command palette should match on. */
+  keywords?: string[];
 }
 
 export interface NavSection {
@@ -52,12 +71,18 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'People',
     items: [
       { label: 'Users', to: '/users', icon: Users, access: 'users', key: 'u', description: 'Search, suspend, ban' },
+      { label: 'KYC queue', to: '/kyc', icon: IdCard, access: 'kyc', key: 'k', counter: 'pendingKyc', description: 'Identity document review', keywords: ['identity', 'fayda', 'id verification', 'documents'] },
+      { label: 'Referrals', to: '/referrals', icon: Gift, access: 'referrals', key: 'n', description: 'Invites, bonuses, abuse', keywords: ['invite', 'bonus', 'referrer'] },
+      { label: 'Deletion requests', to: '/deletion-requests', icon: UserRoundX, access: 'deletionRequests', key: 'd', counter: 'pendingDeletionRequests', description: 'Account deletion & anonymisation', keywords: ['gdpr', 'data rights', 'anonymise', 'delete account'] },
       { label: 'Advertisers', to: '/advertisers', icon: Building2, access: 'advertisers', key: 'v', counter: 'pendingAdvertiserVerifications', description: 'Verify businesses' },
     ],
   },
   {
     title: 'Risk',
-    items: [{ label: 'Fraud', to: '/fraud', icon: ShieldAlert, access: 'fraud', key: 'f', counter: 'openFraudFlags', description: 'Flags, rings, metrics' }],
+    items: [
+      { label: 'Fraud', to: '/fraud', icon: ShieldAlert, access: 'fraud', key: 'f', counter: 'openFraudFlags', description: 'Flags, rings, metrics' },
+      { label: 'Alerts', to: '/alerts', icon: BellRing, access: 'alerts', key: 't', counter: 'openAlerts', description: 'Money-day alerts & rules', keywords: ['ledger drift', 'payout failure', 'otp spike', 'spend velocity', 'account minting', 'notifier'] },
+    ],
   },
   {
     title: 'Finance',

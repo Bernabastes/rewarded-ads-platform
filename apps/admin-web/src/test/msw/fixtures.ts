@@ -1,13 +1,21 @@
 import { BANNED_TOPICS } from '@rap/shared';
 import type {
+  AdminDeletionRequestItem,
+  AdminKycDetail,
+  AdminKycSummary,
   AdminMe,
   AdminOverview,
+  AdminReferralItem,
+  AdminReferralMetrics,
+  AuditLogItem,
   AuthTokens,
   CoinAdjustmentItem,
+  ImpersonationTokenResponse,
   Paginated,
+  PlatformAlertItem,
   PlatformConfigResponse,
 } from '@rap/shared';
-import type { AdminWithdrawal, AdReview } from '@/lib/api/types';
+import type { AdminWithdrawal, AdReview, AlertsMeta } from '@/lib/api/types';
 
 export const BASE = 'http://localhost:3000/api/v1';
 
@@ -58,6 +66,16 @@ export const adminReviewer: AdminMe = {
   role: 'ad_reviewer',
   roles: ['ad_reviewer'],
   permissions: ['ads.review', 'campaigns.moderate', 'reports.review'],
+};
+
+export const adminSupport: AdminMe = {
+  ...adminSuper,
+  id: 'admin-support',
+  email: 'support@rap.et',
+  fullName: 'Hanna Tesfaye',
+  role: 'support',
+  roles: ['support'],
+  permissions: ['users.moderate', 'advertisers.verify', 'fraud.manage', 'audit.view'],
 };
 
 export const overview: AdminOverview = {
@@ -222,4 +240,221 @@ export const pendingAdjustment: CoinAdjustmentItem = {
   executedAt: null,
   createdAt: '2026-09-24T10:49:57.001Z',
   updatedAt: '2026-09-24T10:49:57.001Z',
+};
+
+/* ------------------------------- Phase 4A ------------------------------- */
+
+export const processingAd: AdReview = {
+  ...pendingAd,
+  id: 'ad-processing',
+  title: 'Addis Pay - launch teaser',
+  mediaStatus: 'processing',
+  mediaProbe: null,
+  durationDeclaredSeconds: 20,
+  durationProbedSeconds: null,
+  thumbnailUrl: null,
+};
+
+export const failedMediaAd: AdReview = {
+  ...pendingAd,
+  id: 'ad-failed',
+  title: 'Broken upload',
+  mediaStatus: 'failed',
+  mediaError: 'ffprobe: moov atom not found',
+  mediaProbe: null,
+  durationProbedSeconds: null,
+};
+
+export const correctedAd: AdReview = {
+  ...pendingAd,
+  id: 'ad-corrected',
+  title: 'Eid promo - 15s (actually 18s)',
+  mediaStatus: 'duration_corrected',
+  durationSeconds: 18,
+  durationDeclaredSeconds: 15,
+  durationProbedSeconds: 18,
+  mediaProbe: { durationSeconds: 18.2, codec: 'h264', width: 1280, height: 720, bitrate: 1_850_000, container: 'mov,mp4,m4a,3gp,3g2,mj2' },
+  mediaProcessedAt: '2026-09-02T14:45:00.000Z',
+};
+
+export const kycPending: AdminKycSummary = {
+  id: 'kyc-1',
+  userId: 'user-kyc-1',
+  idType: 'fayda',
+  idNumberLast4: '4471',
+  fullName: 'Rahel Girma',
+  dateOfBirth: '1994-03-12',
+  status: 'pending',
+  providerName: 'fayda',
+  providerResult: { provider: 'fayda', mock: true, found: true, score: 0.97, match: { fullName: true, dateOfBirth: true } },
+  reviewedAt: null,
+  reason: null,
+  createdAt: '2026-09-27T09:12:00.000Z',
+  updatedAt: '2026-09-27T09:12:00.000Z',
+  user: { id: 'user-kyc-1', phoneNumber: '+251911001233', fullName: 'Rahel Girma', kycTier: 'phone_only', trustScore: 77 },
+  reviewedBy: null,
+};
+
+export const kycMismatch: AdminKycSummary = {
+  ...kycPending,
+  id: 'kyc-2',
+  userId: 'user-kyc-2',
+  idType: 'fayda',
+  idNumberLast4: '0099',
+  fullName: 'Yonas T.',
+  dateOfBirth: '1990-01-01',
+  providerResult: { provider: 'fayda', mock: true, found: true, score: 0.4, match: { fullName: false, dateOfBirth: true } },
+  createdAt: '2026-09-27T10:00:00.000Z',
+  user: { id: 'user-kyc-2', phoneNumber: '+251911001918', fullName: 'Yonas Tadesse', kycTier: 'phone_only', trustScore: 61 },
+};
+
+export const kycDetail: AdminKycDetail = {
+  ...kycPending,
+  documents: {
+    front: { url: 'https://storage.example/kyc/front.png?sig=1', expiresInSeconds: 300 },
+    back: { url: 'https://storage.example/kyc/back.png?sig=1', expiresInSeconds: 300 },
+    selfie: { url: 'https://storage.example/kyc/selfie.png?sig=1', expiresInSeconds: 300 },
+  },
+  profileMatch: { fullName: true, dateOfBirth: true },
+  duplicateIdentityUsers: 0,
+};
+
+export const kycMismatchDetail: AdminKycDetail = {
+  ...kycMismatch,
+  documents: {
+    front: { url: 'https://storage.example/kyc/front2.png?sig=1', expiresInSeconds: 300 },
+    back: null,
+    selfie: { url: 'https://storage.example/kyc/selfie2.png?sig=1', expiresInSeconds: 300 },
+  },
+  profileMatch: { fullName: false, dateOfBirth: true },
+  duplicateIdentityUsers: 1,
+};
+
+export const kycQueue: Paginated<AdminKycSummary> = { data: [kycPending, kycMismatch], meta: { page: 1, limit: 50, total: 2 } };
+
+export const alertCritical: PlatformAlertItem = {
+  id: 'alert-1',
+  type: 'ACCOUNT_MINTING',
+  severity: 'critical',
+  title: '4 accounts created from one device in the last hour',
+  payload: { deviceFingerprint: 'fp-shared-1', accounts: 4, threshold: 3 },
+  dedupeKey: 'ACCOUNT_MINTING:fp-shared-1',
+  deliveries: [{ notifier: 'log', ok: true }],
+  acknowledgedBy: null,
+  acknowledgedAt: null,
+  createdAt: '2026-09-28T06:00:00.000Z',
+};
+
+export const alertWarning: PlatformAlertItem = {
+  ...alertCritical,
+  id: 'alert-2',
+  type: 'OTP_SPIKE',
+  severity: 'warning',
+  title: '25 OTP requests from 10.0.0.9 in the last hour',
+  payload: { ip: '10.0.0.9', requests: 25, threshold: 20 },
+  dedupeKey: 'OTP_SPIKE:10.0.0.9',
+};
+
+export const alertAcked: PlatformAlertItem = {
+  ...alertCritical,
+  id: 'alert-3',
+  type: 'PAYOUT_FAILURE_RATE',
+  severity: 'warning',
+  title: 'Payout failure rate 40% in the last hour',
+  payload: { completed: 3, failed: 2, rate: 0.4 },
+  acknowledgedBy: 'admin-super',
+  acknowledgedAt: '2026-09-28T07:00:00.000Z',
+};
+
+export const alertsMeta: AlertsMeta = { page: 1, limit: 50, total: 2, openCount: 2, notifiers: [{ name: 'log', mock: true }] };
+export const alertsOpen: Paginated<PlatformAlertItem, AlertsMeta> = { data: [alertCritical, alertWarning], meta: alertsMeta };
+
+export const referralMetrics: AdminReferralMetrics = {
+  total: 7,
+  byStatus: { pending: 2, qualified: 1, paid: 3, rejected: 1 },
+  bonusCoinsPaid: 2100,
+  bonusEtbPaid: 21,
+  last7Days: { invited: 4, paid: 2, rejected: 1 },
+  topReferrers: [{ userId: 'user-1', phoneNumber: '+251911000137', fullName: 'Abebe Bikila', paid: 2 }],
+};
+
+export const referralRejected: AdminReferralItem = {
+  id: 'ref-1',
+  status: 'rejected',
+  referee: { id: 'user-2740', displayName: 'Mesfin K.', joinedAt: '2026-09-25T10:00:00.000Z' },
+  referrerBonusCoins: 500,
+  refereeBonusCoins: 200,
+  qualifiedAt: null,
+  paidAt: null,
+  rejectionReason: 'self_referral_device',
+  createdAt: '2026-09-25T10:00:00.000Z',
+  referrer: { id: 'user-2466', phoneNumber: '+251911002466', fullName: 'Kebede A.' },
+  refereePhone: '+251911002740',
+  signupIp: '10.0.0.4',
+  signupDeviceFingerprint: 'fp-shared-1',
+};
+
+export const deletionPending: AdminDeletionRequestItem = {
+  id: 'del-1',
+  userId: 'user-2192',
+  status: 'pending',
+  reason: 'Leaving the platform',
+  requestedAt: '2026-09-27T12:00:00.000Z',
+  scheduledFor: '2026-10-11T12:00:00.000Z',
+  executedAt: null,
+  cancelledAt: null,
+  graceDays: 14,
+  user: { id: 'user-2192', phoneNumber: '+251911002192', fullName: 'Selam D.', status: 'active', coinBalance: 1200 },
+  pendingWithdrawals: 0,
+  executedBy: null,
+  cancelledBy: null,
+  note: null,
+};
+
+export const deletionBlocked: AdminDeletionRequestItem = {
+  ...deletionPending,
+  id: 'del-2',
+  userId: 'user-3000',
+  user: { id: 'user-3000', phoneNumber: '+251911003000', fullName: 'Blocked B.', status: 'active', coinBalance: 300 },
+  pendingWithdrawals: 2,
+};
+
+export const impersonationToken: ImpersonationTokenResponse = {
+  accessToken: 'impersonation-token-1',
+  tokenType: 'Bearer',
+  expiresIn: 600,
+  expiresAt: new Date(Date.now() + 600_000).toISOString(),
+  user: { id: 'user-1', phoneNumber: '+251911000137', fullName: 'Abebe Bikila' },
+  actorAdminId: 'admin-support',
+  readOnly: true,
+};
+
+export const auditAdminRow: AuditLogItem = {
+  id: 'audit-1',
+  actorType: 'admin',
+  actorId: 'admin-finance',
+  actorEmail: 'finance@rap.et',
+  action: 'withdrawal.approved',
+  targetType: 'withdrawal',
+  targetId: 'wd-650',
+  beforeState: { status: 'flagged_for_review' },
+  afterState: { status: 'pending' },
+  metadata: null,
+  ipAddress: '127.0.0.1',
+  createdAt: '2026-09-28T08:00:00.000Z',
+};
+
+export const auditUserRow: AuditLogItem = {
+  id: 'audit-2',
+  actorType: 'user',
+  actorId: 'user-2192',
+  actorEmail: null,
+  action: 'deletion_request.created',
+  targetType: 'deletion_request',
+  targetId: 'del-1',
+  beforeState: null,
+  afterState: { status: 'pending' },
+  metadata: { reason: 'Leaving the platform' },
+  ipAddress: '10.0.0.7',
+  createdAt: '2026-09-27T12:00:00.000Z',
 };

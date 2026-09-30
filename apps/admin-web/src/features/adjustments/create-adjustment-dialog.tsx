@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type AdminUserListItem, coinsToEtb, type CreateCoinAdjustmentDto } from '@rap/shared';
+import { type AdminUserListItem, coinsToEtb, type CreateCoinAdjustmentDto, ErrorCode } from '@rap/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Minus, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -11,6 +11,7 @@ import { applyFieldErrors, describeError, isApiError } from '@/lib/api/errors';
 import { queryKeys } from '@/lib/api/query-keys';
 import { cn } from '@/lib/utils/cn';
 import { formatCoins, formatEtb } from '@/lib/utils/format';
+import { newIdempotencyKey } from '@/lib/utils/ids';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/input';
@@ -37,6 +38,9 @@ export function CreateAdjustmentDialog({ open, onOpenChange, onCreated }: Create
   const config = useQuery({ queryKey: queryKeys.config, queryFn: homeApi.config, staleTime: 5 * 60_000 });
   const coinsPerEtb = config.data?.coinsPerEtb ?? 100;
   const [formError, setFormError] = useState<string | null>(null);
+  // One Idempotency-Key per user intent: minted when the dialog opens, reused on retries of the same payload,
+  // rotated after every server response (a new submit is a new intent).
+  const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -47,11 +51,13 @@ export function CreateAdjustmentDialog({ open, onOpenChange, onCreated }: Create
     if (!open) {
       form.reset();
       setFormError(null);
+    } else {
+      setIdempotencyKey(newIdempotencyKey());
     }
   }, [open, form]);
 
   const create = useMutation({
-    mutationFn: (dto: CreateCoinAdjustmentDto) => adjustmentsApi.create(dto),
+    mutationFn: ({ dto, key }: { dto: CreateCoinAdjustmentDto; key: string }) => adjustmentsApi.create(dto, key),
     onSuccess: (res) => {
       toast.success('Adjustment requested', { description: 'A different finance or super admin must approve it before anything is credited.' });
       void queryClient.invalidateQueries({ queryKey: ['adjustments'] });
@@ -60,6 +66,17 @@ export function CreateAdjustmentDialog({ open, onOpenChange, onCreated }: Create
       onCreated?.(res.id);
     },
     onError: (err) => {
+      if (isApiError(err) && err.code === ErrorCode.IDEMPOTENCY_KEY_REUSED) {
+        // Same key, different payload (or the first attempt is still running): the intent was already submitted.
+        const inProgress = (err.details as { inProgress?: boolean } | undefined)?.inProgress === true;
+        toast.info(inProgress ? 'Still submitting your previous request' : 'This request was already submitted', {
+          description: inProgress ? 'The first attempt is still being processed; the list refreshes automatically.' : 'The list has been refreshed. Start a new request if you meant a different adjustment.',
+        });
+        void queryClient.invalidateQueries({ queryKey: ['adjustments'] });
+        setIdempotencyKey(newIdempotencyKey());
+        onOpenChange(false);
+        return;
+      }
       if (isApiError(err) && err.code === 'VALIDATION_ERROR') {
         const applied = applyFieldErrors(err, (name, e) => form.setError(name as keyof FormValues, e), ['userId', 'amount', 'reason', 'reference']);
         if (applied.includes('userId')) form.setError('user', { type: 'server', message: 'Invalid user.' });
@@ -71,6 +88,11 @@ export function CreateAdjustmentDialog({ open, onOpenChange, onCreated }: Create
         return;
       }
       setFormError(describeError(err));
+    },
+    onSettled: (_res, err) => {
+      // Error responses are not memoised server-side, but a changed payload with the old key would 409: rotate on
+      // validation-type failures too so the next submit is a fresh intent.
+      if (err && isApiError(err) && err.code !== ErrorCode.IDEMPOTENCY_KEY_REUSED && !err.isNetwork) setIdempotencyKey(newIdempotencyKey());
     },
   });
 
@@ -84,10 +106,13 @@ export function CreateAdjustmentDialog({ open, onOpenChange, onCreated }: Create
   const onSubmit = form.handleSubmit((values) => {
     setFormError(null);
     create.mutate({
-      userId: values.user.id,
-      amount: values.direction === 'deduct' ? -values.amount : values.amount,
-      reason: values.reason,
-      reference: values.reference || undefined,
+      dto: {
+        userId: values.user.id,
+        amount: values.direction === 'deduct' ? -values.amount : values.amount,
+        reason: values.reason,
+        reference: values.reference || undefined,
+      },
+      key: idempotencyKey,
     });
   });
 

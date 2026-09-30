@@ -59,4 +59,23 @@ describe('RBAC matrix (mirror of the API @Roles decorators)', () => {
     }
     expect(rolesFor('withdrawals')).toEqual(['super_admin', 'finance']);
   });
+
+  it('Phase 4A routes: KYC / alerts / referrals for support+finance, deletion + impersonation for support, run-rules super only', () => {
+    for (const key of ['kyc', 'alerts', 'alertsAck', 'referrals'] as const) {
+      expect(can('support', key)).toBe(true);
+      expect(can('finance', key)).toBe(true);
+      expect(can('ad_reviewer', key)).toBe(false);
+    }
+    expect(can('support', 'deletionRequests')).toBe(true);
+    expect(can('support', 'impersonate')).toBe(true);
+    expect(can('finance', 'deletionRequests')).toBe(false);
+    expect(can('finance', 'impersonate')).toBe(false);
+    expect(can('ad_reviewer', 'deletionRequests')).toBe(false);
+    expect(rolesFor('alertsRunRules')).toEqual(['super_admin']);
+    expect(can('support', 'alertsRunRules')).toBe(false);
+    expect(can('finance', 'alertsRunRules')).toBe(false);
+    // media reprocessing follows the ad-review matrix
+    expect(can('ad_reviewer', 'mediaReprocess')).toBe(true);
+    expect(can('support', 'mediaReprocess')).toBe(false);
+  });
 });
