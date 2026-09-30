@@ -94,6 +94,25 @@
       "WITHDRAWAL_PENDING_EXISTS": "You already have a withdrawal in progress. Please wait for it to finish.",
       "INVALID_PAYOUT_DESTINATION": "Please check the destination account or phone number.",
       "PAYOUT_METHOD_UNAVAILABLE": "This payout method is temporarily unavailable.",
+      "CONSENT_REQUIRED": "Please accept the updated terms and privacy notice to continue.",
+      "CONSENT_VERSION_OUTDATED": "These documents were just updated. Please review the latest version.",
+      "DESTINATION_NOT_VERIFIED": "Please verify the destination account again.",
+      "DESTINATION_OTP_REQUIRED": "Please confirm the new destination with the code we sent you.",
+      "DESTINATION_NOT_FOUND": "The payout partner could not find an account with this number.",
+      "KYC_REQUIRED": "Please verify your identity to withdraw more this month.",
+      "KYC_SUBMISSION_PENDING": "Your identity documents are already under review.",
+      "KYC_ALREADY_VERIFIED": "Your identity is already verified.",
+      "KYC_NOT_PENDING": "This verification request is no longer pending.",
+      "IDEMPOTENCY_KEY_REUSED": "This request was already sent. Please check your withdrawal history.",
+      "FREQUENCY_CAP_REACHED": "You have reached today's limit for this advertiser.",
+      "REFERRAL_CODE_INVALID": "That referral code is not valid.",
+      "REFERRAL_SELF_NOT_ALLOWED": "You cannot use your own referral code.",
+      "REFERRAL_ALREADY_APPLIED": "A referral code was already applied to this account.",
+      "DELETION_REQUEST_PENDING": "A deletion request is already pending for this account.",
+      "DELETION_BLOCKED_PENDING_WITHDRAWALS": "Your account cannot be deleted while a withdrawal is in progress. Please wait for it to finish.",
+      "DELETION_REQUEST_NOT_PENDING": "There is no pending deletion request.",
+      "DATA_EXPORT_IN_PROGRESS": "Your data export is already being prepared.",
+      "UPLOAD_TYPE_NOT_ALLOWED": "This file type is not allowed.",
       "NETWORK_ERROR": "We could not reach the server. Check your connection and try again."
     }
   },
@@ -126,7 +145,14 @@
       "helper": "Ethiopian mobile numbers only (09… or 07…).",
       "invalid": "Please enter a valid Ethiopian mobile number.",
       "cta": "Send code",
-      "terms": "By continuing you agree that {{brand}} may send you a verification SMS."
+      "rateLimitedCta": "Try again in {{seconds}}s",
+      "rateLimited": "A code was sent to this number a moment ago. You can request another one in {{seconds}} seconds.",
+      "terms": "By continuing you agree that {{brand}} may send you a verification SMS.",
+      "haveReferral": "Have a referral code?",
+      "referralLabel": "Referral code",
+      "referralPlaceholder": "e.g. 779HLB",
+      "referralHelper": "Optional. Only for new accounts - you both earn a bonus after your first ad.",
+      "referralInvalidFormat": "Referral codes are 6 letters or digits."
     },
     "otp": {
       "title": "Enter the code",
@@ -137,7 +163,14 @@
       "verify": "Verify",
       "wrongNumber": "Wrong number?",
       "attemptsRemaining": "{{count}} attempts left",
-      "expiresIn": "Code expires in {{minutes}} minutes"
+      "expiresIn": "Code expires in {{minutes}} minutes",
+      "referralApplied": "Referral code {{code}} will be applied",
+      "referralRetryHint": "Enter the code again to sign in without it.",
+      "referralErrors": {
+        "REFERRAL_CODE_INVALID": "That referral code is not valid.",
+        "REFERRAL_SELF_NOT_ALLOWED": "You cannot use your own referral code.",
+        "REFERRAL_ALREADY_APPLIED": "A referral code was already applied to this account."
+      }
     },
     "profile": {
       "title": "Tell us about you",
@@ -146,15 +179,61 @@
       "fullNamePlaceholder": "e.g. Abebe Kebede",
       "fullNameInvalid": "Please enter your full name (at least 2 characters).",
       "dob": "Date of birth",
-      "dobHelper": "Gregorian calendar (DD / MM / YYYY)",
+      "dobHelper": {
+        "gregorian": "Gregorian calendar (DD / MM / YYYY)",
+        "ethiopian": "Ethiopian calendar (day / month / year, e.g. 5 Pagume 1985)"
+      },
+      "calendar": {
+        "ethiopian": "Ethiopian",
+        "gregorian": "Gregorian",
+        "switchTo": "Use the {{calendar}} calendar"
+      },
       "day": "Day",
       "month": "Month",
       "year": "Year",
+      "pickMonth": "Choose a month",
+      "pagumeShort": "5–6 days",
+      "pagumeHint": "Pagume has {{days}} days this year.",
+      "previewGregorian": "Gregorian: {{date}}",
+      "previewEthiopian": "Ethiopian: {{date}}",
       "dobInvalid": "Please enter a valid date.",
       "agePreview": "You are {{age}} years old",
       "ageTooYoung": "You must be at least 18 years old to use {{brand}}.",
       "cta": "Finish"
     }
+  },
+  "consent": {
+    "title": "Before you continue",
+    "subtitle": "Please read and accept the {{brand}} terms of service and privacy notice. Rewards and withdrawals are only available after you accept.",
+    "acceptOne": "I have read and accept the {{title}}",
+    "cta": "Accept and continue",
+    "accepted": "Thank you - your acceptance has been recorded.",
+    "declineSignOut": "I do not agree - sign out",
+    "versionOutdated": "These documents were updated while you were reading. Please review the new version.",
+    "nothingToAccept": "You are up to date",
+    "nothingToAcceptBody": "You have already accepted the current terms and privacy notice.",
+    "footnote": "We record the version you accept and the date. You can re-read both documents at any time under Profile › Legal."
+  },
+  "legal": {
+    "title": "Legal",
+    "kinds": {
+      "terms": "Terms of service",
+      "privacy": "Privacy notice"
+    },
+    "version": "Version {{version}}",
+    "published": "published {{date}}",
+    "acceptedVersion": "Accepted v{{version}}",
+    "acceptedOn": "You accepted this version on {{date}}.",
+    "notAccepted": "Not accepted yet",
+    "readMore": "Read more",
+    "showLess": "Show less",
+    "openFull": "Open the full document",
+    "noInlineText": "The full text is available at the link below.",
+    "updateAvailable": "Updated documents need your acceptance",
+    "updateAvailableBody": "A new version of our terms or privacy notice was published. Rewards and withdrawals are paused until you accept it.",
+    "reviewAndAccept": "Review and accept",
+    "updateBadge": "Update",
+    "footnote": "Versions are numbered so you always know what you agreed to. Publishing a new version asks everyone to accept again."
   },
   "blocked": {
     "ageRestricted": {
@@ -198,6 +277,9 @@
     "noAdsBody": "New ads arrive throughout the day. Check back soon - or try an offer in the meantime.",
     "dailyDoneTitle": "You are done for today!",
     "dailyDoneBody": "You watched all {{limit}} ads for today. Your coins are in your wallet. Come back tomorrow for more.",
+    "frequencyCapTitle": "You have seen today's ads from these advertisers",
+    "frequencyCapBody_one": "Each advertiser limits how often one person sees their ads per day. {{count}} ad is waiting for you tomorrow - try an offer in the meantime.",
+    "frequencyCapBody_other": "Each advertiser limits how often one person sees their ads per day. {{count}} ads are waiting for you tomorrow - try an offer in the meantime.",
     "offlineTitle": "You are offline",
     "offlineBody": "We could not load your feed. Check your connection and try again.",
     "errorTitle": "We could not load the feed",
@@ -259,6 +341,7 @@
         "FRAUD_REJECTED": "Our safety checks could not verify this view.",
         "CAMPAIGN_BUDGET_EXHAUSTED": "This campaign ran out of budget just before you finished. Sorry about that!",
         "DAILY_LIMIT_REACHED": "You have reached today's limit.",
+        "FREQUENCY_CAP_REACHED": "You have already reached today's limit for this advertiser, so this view could not be rewarded. Their ads will be back tomorrow.",
         "default": "The view could not be verified."
       }
     },
@@ -294,7 +377,19 @@
       "referral": "Referral bonus"
     },
     "conversionTitle": "How coins work",
-    "integrityOk": "Verified against your full ledger"
+    "integrityOk": "Verified against your full ledger",
+    "kyc": {
+      "monthlyTitle": "Monthly withdrawal allowance",
+      "monthlyProgress": "{{used}} of {{limit}} used in the last 30 days",
+      "wouldExceed": "This request would bring you to {{projected}}, above the {{limit}} limit for phone-only accounts.",
+      "verifyCta": "Verify identity",
+      "verifiedBody": "Your identity is verified - no monthly limit applies.",
+      "cardA11y": "Identity verification and monthly allowance",
+      "requiredTitle": "Identity verification needed",
+      "requiredBody": "Accounts verified by phone only can receive up to {{limit}} in any 30-day period. This request would bring you to {{projected}}. Verify your identity once to lift the limit - it takes a few minutes.",
+      "projected": "Total with this request",
+      "limit": "Limit without verification"
+    }
   },
   "withdraw": {
     "title": "Withdraw",
@@ -333,8 +428,39 @@
     "summaryCoins": "Coins",
     "summaryMethod": "Method",
     "summaryDestination": "Destination",
+    "summaryAccountName": "Account holder",
     "submit": "Request withdrawal",
     "submitting": "Submitting…",
+    "verify": {
+      "knownTitle": "Your verified destinations",
+      "knownBody": "Destinations you have been paid to before need no new check.",
+      "knownChipA11y": "Use verified destination {{name}}",
+      "knownTypeHint": "Type the full number for {{masked}} - it is already verified, so no code will be needed.",
+      "newHelper": "New destinations are checked with the payout partner and confirmed with a code sent to your phone.",
+      "check": "Check account",
+      "checking": "Checking with the payout partner…",
+      "notFound": "{{method}} could not find an account with this number. Please check it and try again.",
+      "expired": "The account check expired. Please check the destination again.",
+      "confirmTitle": "Is this the right account?",
+      "payTo": "Pay {{name}} on {{method}}?",
+      "validFor": "Valid for {{time}}",
+      "lookupExpired": "This check has expired - please check the account again.",
+      "confirmYes": "Yes, send me a code",
+      "confirmNo": "No, change it",
+      "mock": "MOCK",
+      "otpTitle": "Confirm the new destination",
+      "otpBody": "For your safety we sent a 6-digit code to your own number {{phone}}. Enter it to confirm this destination.",
+      "verified": "Destination verified",
+      "via": {
+        "known_chip": "Verified earlier - no new check needed.",
+        "known_server": "The payout partner recognised this account from your previous withdrawals.",
+        "no_otp": "Confirmed by the payout partner.",
+        "otp": "Confirmed by the payout partner and with the code from your phone."
+      },
+      "change": "Change destination",
+      "whyBody": "We check every new account name with the payout partner and ask for a code from your phone, so your money can only go where you intend. A check stays valid for {{minutes}} minutes.",
+      "paidTo": "Account holder: {{name}}"
+    },
     "status": {
       "pending": "Queued",
       "processing": "Sending",
@@ -435,9 +561,15 @@
     },
     "sections": {
       "preferences": "Preferences",
+      "account": "Account",
       "support": "Support",
       "about": "About"
     },
+    "dob": "Date of birth",
+    "verifyIdentity": "Verify identity",
+    "inviteFriends": "Invite friends",
+    "legal": "Terms and privacy",
+    "privacy": "Privacy and data",
     "language": "Language",
     "theme": "Appearance",
     "themeOptions": {
@@ -500,6 +632,190 @@
     "emptyBody": "Reward confirmations, withdrawal updates and new offers will appear here.",
     "unread": "New",
     "pushRegistered": "Push notifications enabled"
+  },
+  "kyc": {
+    "title": "Verify identity",
+    "tier": {
+      "phone_only": "Phone verified",
+      "id_verified": "ID verified"
+    },
+    "verifiedTitle": "Your identity is verified",
+    "verifiedBody": "Thank you. No monthly withdrawal limit applies to your account.",
+    "phoneOnlyTitle": "Verified by phone only",
+    "phoneOnlyBody": "Phone-only accounts can receive up to {{limit}} in any 30-day period. Verify your identity once to lift the limit.",
+    "submissionTitle": "Your submission",
+    "status": {
+      "pending": "Under review",
+      "approved": "Approved",
+      "rejected": "Not approved"
+    },
+    "statusBody": {
+      "pending": "A member of the {{brand}} team is reviewing your documents. This normally takes up to one business day. We will notify you.",
+      "approved": "Your documents were approved and your account is ID verified.",
+      "rejected": "We could not verify your identity with these documents. Please read the reason below and submit again."
+    },
+    "rejectionReason": "Reason",
+    "idEndingIn": "ID ending in {{last4}}",
+    "submittedOn": "Submitted {{date}}",
+    "reviewedOn": "reviewed {{date}}",
+    "needTitle": "What you will need",
+    "need": {
+      "idDoc": "Your Fayda (national digital ID), national ID card or passport",
+      "selfie": "A clear selfie so we can match you to the document",
+      "time": "About three minutes - a person reviews every submission"
+    },
+    "start": "Start verification",
+    "resubmit": "Submit again",
+    "privacyNote": "Documents are stored encrypted in a private area and are only visible to the reviewer. We keep only the last 4 digits of your ID number.",
+    "submitTitle": "Identity documents",
+    "submitIntro": "Enter the details exactly as they appear on your document, then add clear photos. Blurry or cropped photos are the most common reason for rejection.",
+    "idType": "Document type",
+    "idTypes": {
+      "fayda": "Fayda (digital ID)",
+      "national_id": "National ID card",
+      "passport": "Passport"
+    },
+    "idTypeHints": {
+      "fayda": "12-digit FIN or FAN number",
+      "national_id": "Kebele / city ID number",
+      "passport": "Ethiopian or foreign passport"
+    },
+    "idNumber": "ID number",
+    "idNumberPlaceholder": {
+      "fayda": "e.g. 1234 5678 9012",
+      "national_id": "As printed on the card",
+      "passport": "e.g. EP1234567"
+    },
+    "idNumberHelper": "We store only a secure fingerprint and the last 4 digits.",
+    "fullName": "Full name as on the document",
+    "fullNameHelper": "Must match your document. This does not change your profile name.",
+    "documentsTitle": "Photos",
+    "uploads": {
+      "document_front": {
+        "title": "Document - front",
+        "hint": "All four corners visible, no glare"
+      },
+      "document_back": {
+        "title": "Document - back",
+        "hint": "The side with the barcode or address"
+      },
+      "selfie": {
+        "title": "Selfie",
+        "hint": "Face the camera in good light, no hat or sunglasses"
+      },
+      "status": {
+        "empty": "Not added yet",
+        "uploading": "Uploading…",
+        "uploaded": "Uploaded",
+        "error": "Upload failed"
+      },
+      "takePhoto": "Take photo",
+      "retake": "Retake",
+      "choose": "Choose file",
+      "replace": "Replace",
+      "limits": "JPEG, PNG, WebP or PDF up to {{maxMb}} MB each. Photos are uploaded securely as soon as you pick them.",
+      "problems": {
+        "too_large": "This file is larger than {{maxMb}} MB. Please choose a smaller one.",
+        "type_not_allowed": "Please choose a JPEG, PNG, WebP or PDF file.",
+        "camera_permission": "Camera access was denied. Allow it in your device settings or choose a file instead.",
+        "library_permission": "Photo access was denied. Allow it in your device settings to choose a file."
+      }
+    },
+    "errors": {
+      "idNumber": "Please enter the ID number (6–40 letters or digits).",
+      "dobAge": "You must be at least 18 years old.",
+      "documents": "Please add every required photo."
+    },
+    "submit": "Submit for review",
+    "submittedToast": "Documents submitted - we will notify you once reviewed."
+  },
+  "referrals": {
+    "title": "Invite friends",
+    "homeTitle": "Invite a friend, earn {{coins}} coins",
+    "homeBody": "Share your code. You are rewarded after their first ad.",
+    "homeTally": "{{invited}} invited · {{paid}} rewarded",
+    "homeA11y": "Invite friends and earn {{coins}} coins per friend",
+    "yourCode": "Your referral code",
+    "codeA11y": "Referral code {{code}}",
+    "codeBody": "You get {{coins}} coins and your friend gets {{friendCoins}} coins after their first rewarded ad.",
+    "share": "Share",
+    "shareTitle": "Join me on {{brand}}",
+    "copy": "Copy code",
+    "copied": "Code copied",
+    "copiedShareText": "Invitation text copied - paste it anywhere.",
+    "howTitle": "How it works",
+    "how": {
+      "step1": "Send your code or link to a friend who is new to {{brand}}.",
+      "step2": "They enter the code when they sign up with their phone number.",
+      "step3": "After their first rewarded ad you receive {{coins}} coins and they receive {{friendCoins}} coins. Up to {{maxPerDay}} rewarded invites per day; one account per person and per device."
+    },
+    "totals": {
+      "invited": "Invited",
+      "pending": "Waiting",
+      "paid": "Rewarded",
+      "coinsEarned": "Coins earned"
+    },
+    "referredBy": "You joined with a friend's code - your {{coins}} coin bonus arrives after your first rewarded ad.",
+    "listTitle": "Your invites",
+    "emptyTitle": "No invites yet",
+    "emptyBody": "Friends who sign up with your code appear here with the status of your bonus.",
+    "joined": "Joined {{date}}",
+    "status": {
+      "pending": "Waiting for first ad",
+      "qualified": "Bonus on hold",
+      "paid": "Rewarded",
+      "rejected": "Not eligible"
+    },
+    "detail": {
+      "pending": "Your bonus is paid as soon as your friend finishes their first rewarded ad.",
+      "qualified": "Your friend qualified, but the bonus is on hold - usually because the daily invite limit was reached. It is not lost.",
+      "paid": "+{{coins}} coins added to your wallet."
+    },
+    "rejection": {
+      "self_referral_device": "This account uses the same device as yours, so it does not count.",
+      "self_referral_ip": "This account signed up from the same connection as yours, so it does not count.",
+      "referrer_daily_cap": "You had already reached the daily limit of rewarded invites.",
+      "referrer_inactive": "Your account was not active when your friend qualified.",
+      "default": "This invite did not meet the programme rules."
+    }
+  },
+  "privacy": {
+    "title": "Privacy and data",
+    "intro": "You own your data. {{brand}} lets you download everything we hold about you and delete your account whenever you wish.",
+    "export": {
+      "title": "Download my data",
+      "body": "We prepare an archive of your profile, rewards, withdrawals and notifications. It is usually ready within a minute and stays available for 7 days.",
+      "request": "Prepare my archive",
+      "requestAgain": "Prepare a new archive",
+      "requested": "We are preparing your archive.",
+      "preparing": "Preparing your archive - this page updates automatically.",
+      "preparingShort": "Preparing…",
+      "download": "Download archive",
+      "requestedOn": "Requested {{date}}",
+      "expires": "available until {{date}}",
+      "failed": "The archive could not be created. Please try again.",
+      "status": {
+        "pending": "Queued",
+        "processing": "Preparing",
+        "ready": "Ready",
+        "failed": "Failed"
+      }
+    },
+    "delete": {
+      "title": "Delete my account",
+      "body": "Your account is scheduled for deletion after a {{days}}-day grace period, during which you can change your mind. Any unwithdrawn coins are forfeited; payment records are kept as the law requires but no longer identify you.",
+      "cta": "Delete my account",
+      "confirmTitle": "Delete your account?",
+      "confirmBody": "We will schedule the deletion in {{days}} days. You can cancel from this screen until then. Withdraw your remaining coins first - they cannot be recovered afterwards.",
+      "reasonLabel": "Reason (optional)",
+      "reasonPlaceholder": "Tell us why you are leaving",
+      "confirmCta": "Schedule deletion",
+      "requested": "Deletion scheduled. You can cancel it any time before the date shown.",
+      "pendingBadge": "Deletion scheduled",
+      "pendingBody": "Your account will be deleted on {{date}} ({{days}}-day grace period). Until then everything keeps working and you can cancel below.",
+      "cancel": "Keep my account",
+      "cancelled": "Deletion cancelled - welcome back."
+    }
   },
   "a11y": {
     "back": "Go back",

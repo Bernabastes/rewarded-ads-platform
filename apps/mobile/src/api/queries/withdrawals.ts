@@ -1,9 +1,11 @@
-import type { WithdrawalItem } from '@rap/shared';
+import type { CreateWithdrawalDto, WithdrawalItem } from '@rap/shared';
 import { WithdrawalStatus } from '@rap/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { randomUUID } from 'expo-crypto';
 
 import { withdrawalsApi } from '@/api/endpoints/withdrawals';
 import { invalidateMoney, queryKeys } from '@/api/queryClient';
+import { submitWithdrawal, type SubmitWithdrawalResult } from '@/features/withdrawals/submitWithdrawal';
 
 import { PAGE_SIZE, usePaginatedQuery } from './users';
 
@@ -39,13 +41,36 @@ export function useWithdrawal(id: string | undefined) {
   });
 }
 
+export interface CreateWithdrawalVariables {
+  dto: CreateWithdrawalDto;
+  /** Per-intent `Idempotency-Key` (see `createIntentKeys`); reused on retries of the same payload. */
+  idempotencyKey: string;
+  intentStartedAt?: number;
+}
+
+/**
+ * `POST /withdrawals` through the idempotent submitter: a network retry with the same key replays the
+ * original response, and a `409 IDEMPOTENCY_KEY_REUSED { inProgress: true }` polls the list instead of
+ * posting twice.
+ */
 export function useCreateWithdrawal() {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: withdrawalsApi.create,
-    onSuccess: (item) => {
+  return useMutation<SubmitWithdrawalResult, unknown, CreateWithdrawalVariables>({
+    mutationFn: ({ dto, idempotencyKey, intentStartedAt }) =>
+      submitWithdrawal(
+        {
+          create: (body, key) => withdrawalsApi.create(body, key),
+          listRecent: async () => (await withdrawalsApi.list({ page: 1, limit: 10 })).data,
+          newKey: () => randomUUID(),
+        },
+        dto,
+        idempotencyKey,
+        intentStartedAt,
+      ),
+    onSuccess: ({ item }) => {
       client.setQueryData(queryKeys.withdrawal(item.id), item);
       void client.invalidateQueries({ queryKey: queryKeys.withdrawals });
+      void client.invalidateQueries({ queryKey: queryKeys.withdrawalConfig });
       void invalidateMoney(client);
     },
   });

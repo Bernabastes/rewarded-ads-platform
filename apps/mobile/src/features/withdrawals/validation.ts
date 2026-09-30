@@ -1,4 +1,4 @@
-import type { PayoutMethod, WithdrawalConfig, WithdrawalMethodInfo } from '@rap/shared';
+import type { KycTier, PayoutMethod, WithdrawalConfig, WithdrawalMethodInfo } from '@rap/shared';
 import { coinsToEtb, etbToCoins, normalizeEthiopianPhone, roundEtb } from '@rap/shared';
 
 export type AmountValidation =
@@ -50,6 +50,36 @@ export function normalizeDestination(kind: WithdrawalMethodInfo['destinationKind
 
 export function methodRequiresName(method: PayoutMethod): boolean {
   return method === 'bank';
+}
+
+export interface KycProjection {
+  tier: KycTier;
+  thresholdEtb: number;
+  monthlyEtb: number;
+  projectedEtb: number;
+  /** true when a `phone_only` user's rolling-30-day payouts + this request would exceed the KYC threshold. */
+  exceeds: boolean;
+  /** 0..1 share of the monthly allowance already used (capped at 1). */
+  progress: number;
+}
+
+/** Client-side mirror of the API's KYC gate so the wallet can warn before `POST /withdrawals` answers 422 KYC_REQUIRED. */
+export function kycProjection(
+  config: Pick<WithdrawalConfig, 'kycTier' | 'kycRequiredAboveMonthlyEtb' | 'monthlyPayoutTotalEtb'>,
+  amountEtb: number | null,
+): KycProjection {
+  const monthlyEtb = config.monthlyPayoutTotalEtb ?? 0;
+  const thresholdEtb = config.kycRequiredAboveMonthlyEtb ?? 0;
+  const projectedEtb = roundEtb(monthlyEtb + (amountEtb ?? 0));
+  const exceeds = config.kycTier === 'phone_only' && thresholdEtb > 0 && projectedEtb > thresholdEtb;
+  return {
+    tier: config.kycTier,
+    thresholdEtb,
+    monthlyEtb,
+    projectedEtb,
+    exceeds,
+    progress: thresholdEtb > 0 ? Math.min(1, monthlyEtb / thresholdEtb) : 0,
+  };
 }
 
 /** Quick-amount chips: minimum, a couple of round steps and "all", filtered to what the balance allows. */

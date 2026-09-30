@@ -274,5 +274,83 @@ describe('ApiClient', () => {
     expect(tokens.current).toBeNull();
     expect(calls[0].url).toBe(`${BASE}${API_BASE_PATH}${API_ROUTES.auth.logout}`);
     expect(JSON.parse(String(calls[0].init.body))).toEqual({ refreshToken: 'refresh-bye' });
+    // F2: the access token travels as Bearer so the server can denylist it immediately.
+    expect(authHeader(calls[0])).toBe('Bearer access-bye');
+  });
+
+  it('signs out when a freshly refreshed token is still rejected (denylisted access token)', async () => {
+    const tokens = memoryTokenStore(makeTokens('old'));
+    const onAuthFailure = jest.fn();
+    const { fetchFn, calls } = scriptedFetch((call) => {
+      if (call.url.endsWith(API_ROUTES.auth.refresh)) return jsonResponse(201, makeTokens('new'));
+      return jsonResponse(401, { statusCode: 401, code: ErrorCode.INVALID_TOKEN, message: 'denylisted' });
+    });
+    const client = new ApiClient({ baseUrl: BASE, tokenStore: tokens, fetchFn, onAuthFailure });
+
+    const error = await rejection(client.get(API_ROUTES.users.me));
+
+    expect(error.code).toBe(ErrorCode.INVALID_TOKEN);
+    // Exactly one refresh, exactly one retry - no loop.
+    expect(calls.filter((c) => c.url.endsWith(API_ROUTES.auth.refresh))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.endsWith(API_ROUTES.users.me))).toHaveLength(2);
+    expect(tokens.current).toBeNull();
+    expect(onAuthFailure).toHaveBeenCalledWith(ErrorCode.INVALID_TOKEN);
+  });
+
+  it('sends extra headers such as Idempotency-Key and keeps them on the post-refresh retry', async () => {
+    const tokens = memoryTokenStore(makeTokens('old'));
+    const { fetchFn, calls } = scriptedFetch((call) => {
+      if (call.url.endsWith(API_ROUTES.auth.refresh)) return jsonResponse(201, makeTokens('new'));
+      if (authHeader(call) === 'Bearer access-old') {
+        return jsonResponse(401, { statusCode: 401, code: ErrorCode.TOKEN_EXPIRED, message: 'expired' });
+      }
+      return jsonResponse(201, { id: 'w-1' });
+    });
+    const client = new ApiClient({ baseUrl: BASE, tokenStore: tokens, fetchFn });
+
+    await client.post(API_ROUTES.withdrawals.create, { amountEtb: 50 }, { headers: { 'Idempotency-Key': 'intent-1' } });
+
+    const posts = calls.filter((c) => c.url.endsWith(API_ROUTES.withdrawals.create));
+    expect(posts).toHaveLength(2);
+    for (const post of posts) {
+      expect((post.init.headers as Record<string, string>)['Idempotency-Key']).toBe('intent-1');
+      expect((post.init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    }
+  });
+
+  it('does not refresh or retry on a business 401 such as a wrong destination OTP', async () => {
+    const tokens = memoryTokenStore(makeTokens('fine'));
+    const onAuthFailure = jest.fn();
+    const { fetchFn, calls } = scriptedFetch(() =>
+      jsonResponse(401, { statusCode: 401, code: ErrorCode.OTP_INVALID, message: 'wrong code', details: { attemptsRemaining: 2 } }),
+    );
+    const client = new ApiClient({ baseUrl: BASE, tokenStore: tokens, fetchFn, onAuthFailure });
+
+    const error = await rejection(client.post(API_ROUTES.withdrawals.destinationOtpVerify, { code: '000000' }));
+
+    expect(error.code).toBe(ErrorCode.OTP_INVALID);
+    expect(error.attemptsRemaining).toBe(2);
+    // One request only: a wrong OTP must never be re-sent (it would burn another attempt) or refresh the session.
+    expect(calls).toHaveLength(1);
+    expect(tokens.current?.accessToken).toBe('access-fine');
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it('reports the kinds behind a 403 CONSENT_REQUIRED', async () => {
+    const tokens = memoryTokenStore(makeTokens('1'));
+    const onConsentRequired = jest.fn();
+    const { fetchFn } = scriptedFetch(() =>
+      jsonResponse(403, {
+        statusCode: 403,
+        code: ErrorCode.CONSENT_REQUIRED,
+        message: 'accept first',
+        details: { requiresConsent: ['terms', 'privacy'] },
+      }),
+    );
+    const client = new ApiClient({ baseUrl: BASE, tokenStore: tokens, fetchFn, onConsentRequired });
+
+    await expect(client.get(API_ROUTES.ads.feed)).rejects.toMatchObject({ code: ErrorCode.CONSENT_REQUIRED });
+    expect(onConsentRequired).toHaveBeenCalledWith(['terms', 'privacy']);
+    expect(tokens.current).not.toBeNull();
   });
 });

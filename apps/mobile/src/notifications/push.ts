@@ -99,6 +99,13 @@ export function resolveNotificationTarget(type: string | undefined, data: Record
       return { pathname: '/(tabs)/offers' };
     case 'account_status':
       return { pathname: '/(tabs)/profile' };
+    case 'kyc_status':
+      return { pathname: '/kyc' };
+    case 'referral':
+      return { pathname: '/referrals' };
+    case 'data_export':
+    case 'account_deletion':
+      return { pathname: '/privacy' };
     default:
       return { pathname: '/notifications' };
   }

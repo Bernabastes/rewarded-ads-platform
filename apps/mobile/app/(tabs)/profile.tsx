@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Linking, StyleSheet, View } from 'react-native';
 
 import { useMe } from '@/api/queries/users';
-import { useAuthStore } from '@/auth/authStore';
+import { selectNeedsConsent, useAuthStore } from '@/auth/authStore';
 import { signOutEverywhere } from '@/auth/session';
 import { Badge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -13,6 +13,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
 import { BRAND_NAME, SUPPORT } from '@/config';
+import { formatEthiopianForUi } from '@/features/auth/DateOfBirthInput';
 import { formatPhoneForDisplay } from '@/features/auth/phone';
 import { SettingsGroup, SettingsRow } from '@/features/profile/SettingsRow';
 import { LANGUAGE_NAMES } from '@/i18n';
@@ -27,6 +28,7 @@ export default function ProfileScreen() {
   const language = useLanguage();
   const { colors, spacing, radii } = useTheme();
   const user = useAuthStore((s) => s.user);
+  const needsConsent = useAuthStore(selectNeedsConsent);
   const themeMode = usePrefsStore((s) => s.themeMode);
   const [confirmLogout, setConfirmLogout] = useState(false);
   useMe();
@@ -70,9 +72,41 @@ export default function ProfileScreen() {
 
         <SettingsGroup title={t('profile.sections.preferences')}>
           <SettingsRow icon="edit" label={t('profile.editName')} value={user?.fullName ?? undefined} onPress={() => router.push('/settings/edit-name')} testID="profile-edit-name" />
+          {user?.dateOfBirth ? (
+            <SettingsRow
+              icon="calendar"
+              label={t('profile.dob')}
+              value={
+                user.dateOfBirthEthiopian
+                  ? `${formatEthiopianForUi(user.dateOfBirthEthiopian, language)} · ${formatDate(`${user.dateOfBirth}T00:00:00Z`, language)}`
+                  : formatDate(`${user.dateOfBirth}T00:00:00Z`, language)
+              }
+              testID="profile-dob"
+            />
+          ) : null}
           <SettingsRow icon="globe" label={t('profile.language')} value={LANGUAGE_NAMES[language]} onPress={() => router.push('/settings/language')} testID="profile-language" />
           <SettingsRow icon={themeMode === 'dark' ? 'moon' : 'sun'} label={t('profile.theme')} value={t(`profile.themeOptions.${themeMode}`)} onPress={() => router.push('/settings/appearance')} testID="profile-theme" />
           <SettingsRow icon="bell" label={t('profile.notifications')} onPress={() => router.push('/settings/notifications')} testID="profile-notifications" />
+        </SettingsGroup>
+
+        <SettingsGroup title={t('profile.sections.account')}>
+          <SettingsRow
+            icon="shield"
+            label={t('profile.verifyIdentity')}
+            value={user ? t(`kyc.tier.${user.kycTier}`) : undefined}
+            onPress={() => router.push('/kyc')}
+            right={user?.kycTier === 'id_verified' ? <Badge label={t('kyc.tier.id_verified')} tone="success" icon="circleCheck" /> : undefined}
+            testID="profile-kyc"
+          />
+          <SettingsRow icon="gift" label={t('profile.inviteFriends')} value={user?.referralCode ?? undefined} onPress={() => router.push('/referrals')} testID="profile-referrals" />
+          <SettingsRow
+            icon="clipboard"
+            label={t('profile.legal')}
+            onPress={() => router.push('/legal')}
+            right={needsConsent ? <Badge label={t('legal.updateBadge')} tone="warning" icon="alert" /> : undefined}
+            testID="profile-legal"
+          />
+          <SettingsRow icon="lock" label={t('profile.privacy')} onPress={() => router.push('/privacy')} testID="profile-privacy" />
         </SettingsGroup>
 
         <SettingsGroup title={t('profile.sections.support')}>

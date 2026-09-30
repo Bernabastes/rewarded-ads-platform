@@ -41,6 +41,12 @@ export const queryKeys = {
   withdrawals: ['withdrawals'] as const,
   withdrawal: (id: string) => ['withdrawal', id] as const,
   notifications: ['notifications'] as const,
+  legal: (locale: string) => ['legal', locale] as const,
+  kyc: ['kyc'] as const,
+  referrals: ['referrals'] as const,
+  dataExports: ['dataExports'] as const,
+  dataExport: (id: string) => ['dataExport', id] as const,
+  deletionRequest: ['deletionRequest'] as const,
 };
 
 /** Everything that changes when coins move. Balance is the only source of truth, so refetch it. */

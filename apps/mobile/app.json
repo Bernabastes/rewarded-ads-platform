@@ -42,6 +42,13 @@
       ["expo-video", { "supportsBackgroundPlayback": false, "supportsPictureInPicture": false }],
       ["expo-notifications", { "color": "#1F6A4C" }],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Gize needs access to your photos to attach your identity document and selfie for verification.",
+          "cameraPermission": "Gize uses the camera to photograph your identity document and take a selfie for verification."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",

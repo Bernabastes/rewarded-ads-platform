@@ -1,4 +1,4 @@
-import { calculateAge, PLATFORM_DEFAULTS } from '@rap/shared';
+import { PLATFORM_DEFAULTS } from '@rap/shared';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,7 +14,8 @@ import { Input } from '@/components/ui/Input';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
 import { BRAND_NAME } from '@/config';
-import { DateOfBirthInput, partsToIsoDate, type DobParts } from '@/features/auth/DateOfBirthInput';
+import { DateOfBirthInput } from '@/features/auth/DateOfBirthInput';
+import { defaultCalendarFor, dobPayload, EMPTY_DOB, resolveDob, type CalendarKind, type DobParts } from '@/features/auth/dob';
 import { usePrefsStore } from '@/stores/prefsStore';
 import { useTheme } from '@/theme/ThemeProvider';
 import { errorMessage } from '@/utils/errorMessage';
@@ -28,14 +29,16 @@ export default function CompleteProfileScreen() {
   const existingName = useAuthStore((s) => s.user?.fullName ?? '');
 
   const [fullName, setFullName] = useState(existingName);
-  const [dob, setDob] = useState<DobParts>({ day: '', month: '', year: '' });
+  // Amharic speakers get the Ethiopian calendar first; everyone else Gregorian. Both stay one tap away.
+  const [calendar, setCalendar] = useState<CalendarKind>(() => defaultCalendarFor(language));
+  const [dob, setDob] = useState<DobParts>(EMPTY_DOB);
   const [nameError, setNameError] = useState<string | null>(null);
   const [dobError, setDobError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const isoDate = useMemo(() => partsToIsoDate(dob), [dob]);
-  const age = useMemo(() => (isoDate ? calculateAge(new Date(`${isoDate}T00:00:00Z`)) : null), [isoDate]);
+  const resolved = useMemo(() => resolveDob(calendar, dob), [calendar, dob]);
+  const age = resolved?.age ?? null;
   const tooYoung = age !== null && age < PLATFORM_DEFAULTS.MIN_AGE;
   const nameValid = fullName.trim().length >= 2;
 
@@ -45,17 +48,18 @@ export default function CompleteProfileScreen() {
       setNameError(t('onboarding.profile.fullNameInvalid'));
       valid = false;
     }
-    if (!isoDate) {
+    if (!resolved) {
       setDobError(t('onboarding.profile.dobInvalid'));
       valid = false;
     }
-    if (!valid) return;
+    if (!valid || !resolved) return;
     setSubmitting(true);
     setFormError(null);
     try {
+      // Exactly one DOB representation goes on the wire; the server converts / validates Ethiopian dates itself.
       const user = await authApi.completeProfile({
         fullName: fullName.trim(),
-        dateOfBirth: isoDate as string,
+        ...dobPayload(calendar, resolved),
         languagePreference: language,
       });
       await applyUserUpdate(user);
@@ -68,7 +72,7 @@ export default function CompleteProfileScreen() {
           return;
         }
         const fieldName = err.fieldMessage('fullName');
-        const fieldDob = err.fieldMessage('dateOfBirth');
+        const fieldDob = err.fieldMessage('dateOfBirth') ?? err.fieldMessage('dateOfBirthEthiopian');
         if (fieldName) setNameError(t('onboarding.profile.fullNameInvalid'));
         if (fieldDob) setDobError(t('onboarding.profile.dobInvalid'));
         if (fieldName || fieldDob) return;
@@ -94,7 +98,7 @@ export default function CompleteProfileScreen() {
           title={t('onboarding.profile.cta')}
           onPress={submit}
           loading={submitting}
-          disabled={!nameValid || !isoDate}
+          disabled={!nameValid || !resolved}
           size="lg"
           testID="profile-submit"
         />
@@ -118,11 +122,14 @@ export default function CompleteProfileScreen() {
           testID="profile-name"
         />
         <DateOfBirthInput
+          calendar={calendar}
+          onCalendarChange={setCalendar}
           value={dob}
           onChange={(value) => {
             setDob(value);
             if (dobError) setDobError(null);
           }}
+          resolved={resolved}
           errorText={dobError}
           onComplete={submit}
         />
