@@ -2541,7 +2541,7 @@
     },
     "/api/v1/withdrawals/config": {
       "get": {
-        "description": "Includes the caller's `kycTier`, rolling 30-day `monthlyPayoutTotalEtb`, the `kycRequiredAboveMonthlyEtb` threshold and `knownDestinations` (already used, no lookup/OTP needed).",
+        "description": "Includes the caller's `kycTier`, rolling 30-day `monthlyPayoutTotalEtb`, the `kycRequiredAboveMonthlyEtb` threshold (KYC is required once payouts + the new request reach it - at or above) and `knownDestinations` (already used, no lookup/OTP needed).",
         "operationId": "config",
         "parameters": [],
         "responses": {
@@ -2678,7 +2678,7 @@
     },
     "/api/v1/withdrawals": {
       "post": {
-        "description": "Converts ETB to coins and holds them in the same transaction. First-ever withdrawals, amounts >= the large threshold and low-trust accounts are held for manual review (`flagged_for_review`); otherwise the payout is queued immediately (`pending`). NEW destinations need a fresh lookup + OTP re-check; phone_only users are capped by KYC_REQUIRED_ABOVE_MONTHLY_ETB per rolling 30 days. The platform never holds funds: payouts execute through telebirr/Chapa.",
+        "description": "Converts ETB to coins and holds them in the same transaction. First-ever withdrawals, amounts >= the large threshold and low-trust accounts are held for manual review (`flagged_for_review`); otherwise the payout is queued immediately (`pending`). NEW destinations need a fresh lookup + OTP re-check; phone_only users must stay strictly below KYC_REQUIRED_ABOVE_MONTHLY_ETB per rolling 30 days (a projected total at or above it => 422 KYC_REQUIRED). The platform never holds funds: payouts execute through telebirr/Chapa.",
         "operationId": "request",
         "parameters": [],
         "requestBody": {
