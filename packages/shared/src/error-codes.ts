@@ -108,7 +108,7 @@ export const ErrorCode = {
   DESTINATION_NOT_FOUND: 'DESTINATION_NOT_FOUND',
 
   // KYC (Phase 4A)
-  /** Rolling 30-day payouts would exceed KYC_REQUIRED_ABOVE_MONTHLY_ETB and the user is `phone_only`. */
+  /** Rolling 30-day payouts + the new request would reach (>=) KYC_REQUIRED_ABOVE_MONTHLY_ETB and the user is `phone_only`. */
   KYC_REQUIRED: 'KYC_REQUIRED',
   KYC_SUBMISSION_PENDING: 'KYC_SUBMISSION_PENDING',
   KYC_ALREADY_VERIFIED: 'KYC_ALREADY_VERIFIED',

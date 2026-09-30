@@ -20,7 +20,11 @@ export interface WithdrawalConfig {
   methods: WithdrawalMethodInfo[];
   /** English explanation for the wallet screen; localise client-side. */
   conversionNote: string;
-  /** Rolling 30-day payout total above which `phone_only` users must complete KYC (422 KYC_REQUIRED). */
+  /**
+   * Rolling 30-day payout total (completed + in-flight + the new request) at or above which `phone_only` users must
+   * complete KYC (422 KYC_REQUIRED). The boundary is inclusive: a projected total equal to this value already requires
+   * KYC. Field name kept for compatibility.
+   */
   kycRequiredAboveMonthlyEtb: number;
   /** The requesting user's KYC tier. */
   kycTier: KycTier;

@@ -381,12 +381,12 @@
     "kyc": {
       "monthlyTitle": "Monthly withdrawal allowance",
       "monthlyProgress": "{{used}} of {{limit}} used in the last 30 days",
-      "wouldExceed": "This request would bring you to {{projected}}, above the {{limit}} limit for phone-only accounts.",
+      "wouldExceed": "This request would bring you to {{projected}}, reaching the {{limit}} limit for phone-only accounts.",
       "verifyCta": "Verify identity",
       "verifiedBody": "Your identity is verified - no monthly limit applies.",
       "cardA11y": "Identity verification and monthly allowance",
       "requiredTitle": "Identity verification needed",
-      "requiredBody": "Accounts verified by phone only can receive up to {{limit}} in any 30-day period. This request would bring you to {{projected}}. Verify your identity once to lift the limit - it takes a few minutes.",
+      "requiredBody": "Accounts verified by phone only can receive less than {{limit}} in any 30-day period. This request would bring you to {{projected}}. Verify your identity once to lift the limit - it takes a few minutes.",
       "projected": "Total with this request",
       "limit": "Limit without verification"
     }
@@ -642,7 +642,7 @@
     "verifiedTitle": "Your identity is verified",
     "verifiedBody": "Thank you. No monthly withdrawal limit applies to your account.",
     "phoneOnlyTitle": "Verified by phone only",
-    "phoneOnlyBody": "Phone-only accounts can receive up to {{limit}} in any 30-day period. Verify your identity once to lift the limit.",
+    "phoneOnlyBody": "Phone-only accounts can receive less than {{limit}} in any 30-day period. Verify your identity once to lift the limit.",
     "submissionTitle": "Your submission",
     "status": {
       "pending": "Under review",

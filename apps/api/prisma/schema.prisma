@@ -326,7 +326,7 @@ model User {
   notificationPrefs       Json                  @default("{\"rewards\":true,\"withdrawals\":true,\"offers\":true}") @map("notification_prefs")
   lastLoginAt             DateTime?             @map("last_login_at")
   lastIp                  String?               @map("last_ip")
-  /// KYC tier; `id_verified` once a KYC submission is approved. Gates payouts above KYC_REQUIRED_ABOVE_MONTHLY_ETB.
+  /// KYC tier; `id_verified` once a KYC submission is approved. Gates payouts at or above KYC_REQUIRED_ABOVE_MONTHLY_ETB (inclusive).
   kycTier                 KycTier               @default(phone_only) @map("kyc_tier")
   /// 6-char shareable referral code (unique; generated on first login / on demand).
   referralCode            String?               @unique @map("referral_code")

@@ -384,7 +384,9 @@ that a partner "account not found" is authoritative (no failover).
 
 **3. KYC tiers.** `users.kyc_tier ∈ phone_only | id_verified`. Rule (`KycService.evaluateThreshold`, pure): for
 `phone_only` users, completed + in-flight (`pending`, `processing`, `flagged_for_review`) payouts requested in the
-rolling 30 days plus the new request must stay ≤ `KYC_REQUIRED_ABOVE_MONTHLY_ETB` (1 000), else `422 KYC_REQUIRED`.
+rolling 30 days plus the new request must stay **strictly below** `KYC_REQUIRED_ABOVE_MONTHLY_ETB` (1 000); a projected
+total **at or above** the threshold → `422 KYC_REQUIRED`. The boundary is inclusive by product decision (Phase 4D, QA
+finding P4-F1: exactly 1 000 ETB requires KYC); the env variable keeps its historical name for compatibility.
 Documents are uploaded with presigned PUTs into the **private** prefix (`private/kyc/<user>/…`), never served publicly;
 admins receive 5-minute presigned GET links. Only `sha256(idType:idNumber)` + the last 4 digits are stored; a matching
 hash on another account opens a `KYC_DUPLICATE_IDENTITY` (high) flag. `IdVerificationProvider` (`MockFaydaProvider`

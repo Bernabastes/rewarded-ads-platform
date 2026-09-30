@@ -128,9 +128,11 @@ describe('createIntentKeys', () => {
 describe('kycProjection', () => {
   const config = { kycTier: 'phone_only' as const, kycRequiredAboveMonthlyEtb: 1000, monthlyPayoutTotalEtb: 900 };
 
-  it('flags a phone-only request that would cross the rolling monthly limit', () => {
+  it('flags a phone-only request that would reach or cross the rolling monthly limit (inclusive boundary, mirrors the API)', () => {
     expect(kycProjection(config, 150)).toMatchObject({ projectedEtb: 1050, exceeds: true, progress: 0.9 });
-    expect(kycProjection(config, 100)).toMatchObject({ projectedEtb: 1000, exceeds: false });
+    expect(kycProjection(config, 100)).toMatchObject({ projectedEtb: 1000, exceeds: true });
+    expect(kycProjection(config, 99.99)).toMatchObject({ projectedEtb: 999.99, exceeds: false });
+    expect(kycProjection({ ...config, monthlyPayoutTotalEtb: 0 }, 1000).exceeds).toBe(true);
     expect(kycProjection(config, null).exceeds).toBe(false);
   });
 

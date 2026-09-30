@@ -153,7 +153,7 @@ export function ConfigPage() {
             {c ? (
               <ConfigTable
                 rows={[
-                  { label: 'KYC required above (30 days)', value: formatEtb(c.kycRequiredAboveMonthlyEtb), fallback: formatEtb(PLATFORM_DEFAULTS.KYC_REQUIRED_ABOVE_MONTHLY_ETB), note: 'Phone-only users: completed + in-flight payouts per rolling 30 days' },
+                  { label: 'KYC required at or above (30 days)', value: formatEtb(c.kycRequiredAboveMonthlyEtb), fallback: formatEtb(PLATFORM_DEFAULTS.KYC_REQUIRED_ABOVE_MONTHLY_ETB), note: 'Phone-only users: completed + in-flight payouts + the new request per rolling 30 days (inclusive boundary)' },
                   { label: 'Destination lookup validity', value: `${c.destinationResolveTtlMinutes} min`, fallback: `${PLATFORM_DEFAULTS.DESTINATION_RESOLVE_TTL_MINUTES} min`, note: 'New payout destinations need resolve + OTP within this window' },
                   { label: 'Payout attempts', value: formatInt(c.payoutMaxAttempts), fallback: formatInt(PLATFORM_DEFAULTS.PAYOUT_MAX_ATTEMPTS), note: 'Retries before a withdrawal stays failed' },
                   { label: 'Minimum top-up', value: formatEtb(c.minTopupEtb), fallback: formatEtb(PLATFORM_DEFAULTS.MIN_TOPUP_ETB) },

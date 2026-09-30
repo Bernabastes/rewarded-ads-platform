@@ -32,7 +32,7 @@ export class WithdrawalsController {
   @ApiOperation({
     summary: 'Withdrawal thresholds, conversion rate, payout methods, KYC tier and known destinations',
     description:
-      'Includes the caller\'s `kycTier`, rolling 30-day `monthlyPayoutTotalEtb`, the `kycRequiredAboveMonthlyEtb` threshold and `knownDestinations` (already used, no lookup/OTP needed).',
+      'Includes the caller\'s `kycTier`, rolling 30-day `monthlyPayoutTotalEtb`, the `kycRequiredAboveMonthlyEtb` threshold (KYC is required once payouts + the new request reach it - at or above) and `knownDestinations` (already used, no lookup/OTP needed).',
   })
   config(@CurrentAuth() auth: AuthContext) {
     return this.withdrawals.getConfigForUser(auth.subjectId);
@@ -108,7 +108,7 @@ export class WithdrawalsController {
   @ApiOperation({
     summary: 'Request a withdrawal (supports Idempotency-Key)',
     description:
-      'Converts ETB to coins and holds them in the same transaction. First-ever withdrawals, amounts >= the large threshold and low-trust accounts are held for manual review (`flagged_for_review`); otherwise the payout is queued immediately (`pending`). NEW destinations need a fresh lookup + OTP re-check; phone_only users are capped by KYC_REQUIRED_ABOVE_MONTHLY_ETB per rolling 30 days. The platform never holds funds: payouts execute through telebirr/Chapa.',
+      'Converts ETB to coins and holds them in the same transaction. First-ever withdrawals, amounts >= the large threshold and low-trust accounts are held for manual review (`flagged_for_review`); otherwise the payout is queued immediately (`pending`). NEW destinations need a fresh lookup + OTP re-check; phone_only users must stay strictly below KYC_REQUIRED_ABOVE_MONTHLY_ETB per rolling 30 days (a projected total at or above it => 422 KYC_REQUIRED). The platform never holds funds: payouts execute through telebirr/Chapa.',
   })
   @ApiResponse({ status: 400, description: 'BELOW_MIN_WITHDRAWAL | INVALID_PAYOUT_DESTINATION' })
   @ApiResponse({ status: 403, description: 'CONSENT_REQUIRED' })

@@ -22,10 +22,17 @@ describe('KycService', () => {
     );
   });
 
-  describe('threshold rule (rolling 30 days, incl. the new request)', () => {
-    it('allows phone_only users up to the threshold', () => {
-      expect(service.evaluateThreshold({ kycTier: 'phone_only', monthlyTotalEtb: 400, newAmountEtb: 600 })).toBeNull();
-      expect(service.evaluateThreshold({ kycTier: 'phone_only', monthlyTotalEtb: 0, newAmountEtb: 1000 })).toBeNull();
+  describe('threshold rule (rolling 30 days, incl. the new request; boundary is inclusive)', () => {
+    it('allows phone_only users while the projected total stays strictly below the threshold', () => {
+      expect(service.evaluateThreshold({ kycTier: 'phone_only', monthlyTotalEtb: 400, newAmountEtb: 500 })).toBeNull();
+      expect(service.evaluateThreshold({ kycTier: 'phone_only', monthlyTotalEtb: 0, newAmountEtb: D('999.99') })).toBeNull();
+      expect(service.evaluateThreshold({ kycTier: 'phone_only', monthlyTotalEtb: D('949.99'), newAmountEtb: 50 })).toBeNull();
+    });
+
+    it('requires KYC when the projected total is exactly the threshold (>= 1000 ETB), even with zero prior payouts', () => {
+      const v = service.evaluateThreshold({ kycTier: 'phone_only', monthlyTotalEtb: 0, newAmountEtb: 1000 });
+      expect(v).toMatchObject({ kycTier: 'phone_only', monthlyTotalEtb: 0, requestedEtb: 1000, thresholdEtb: 1000, projectedEtb: 1000 });
+      expect(service.evaluateThreshold({ kycTier: 'phone_only', monthlyTotalEtb: 400, newAmountEtb: 600 })).not.toBeNull();
     });
 
     it('blocks phone_only users once completed + in-flight + new exceeds the threshold', () => {
@@ -33,8 +40,9 @@ describe('KycService', () => {
       expect(v).toMatchObject({ kycTier: 'phone_only', monthlyTotalEtb: 950.5, requestedEtb: 60, thresholdEtb: 1000, projectedEtb: 1010.5 });
     });
 
-    it('never blocks id_verified users', () => {
+    it('never blocks id_verified users, including exactly at the threshold', () => {
       expect(service.evaluateThreshold({ kycTier: 'id_verified', monthlyTotalEtb: 50_000, newAmountEtb: 5_000 })).toBeNull();
+      expect(service.evaluateThreshold({ kycTier: 'id_verified', monthlyTotalEtb: 0, newAmountEtb: 1000 })).toBeNull();
     });
 
     it('assertWithinTier sums completed + pending/processing/flagged withdrawals of the last 30 days and throws 422 KYC_REQUIRED', async () => {
@@ -42,6 +50,7 @@ describe('KycService', () => {
       await expect(service.assertWithinTier(uuid(1), 'phone_only', D('50'))).rejects.toMatchObject({
         code: ErrorCode.KYC_REQUIRED,
         status: 422,
+        message: 'Payouts of 1000 ETB or more per 30 days require identity verification',
         details: expect.objectContaining({ projectedEtb: 1030 }),
       });
       const where = prisma.withdrawal.aggregate.mock.calls[0][0].where;
@@ -50,9 +59,19 @@ describe('KycService', () => {
       expect(where.requestedAt.gte).toBeInstanceOf(Date);
     });
 
+    it('assertWithinTier throws at exactly the threshold with no prior payouts', async () => {
+      prisma.withdrawal.aggregate.mockResolvedValue({ _sum: { amountEtb: null } });
+      await expect(service.assertWithinTier(uuid(1), 'phone_only', D('1000'))).rejects.toMatchObject({
+        code: ErrorCode.KYC_REQUIRED,
+        details: expect.objectContaining({ monthlyTotalEtb: 0, projectedEtb: 1000 }),
+      });
+    });
+
     it('assertWithinTier passes and returns the monthly total when under the threshold', async () => {
       prisma.withdrawal.aggregate.mockResolvedValue({ _sum: { amountEtb: D('200') } });
       await expect(service.assertWithinTier(uuid(1), 'phone_only', D('50'))).resolves.toEqual(D('200'));
+      prisma.withdrawal.aggregate.mockResolvedValue({ _sum: { amountEtb: D('949.99') } });
+      await expect(service.assertWithinTier(uuid(1), 'phone_only', D('50'))).resolves.toEqual(D('949.99'));
     });
   });
 

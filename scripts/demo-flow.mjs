@@ -388,7 +388,7 @@ async function main() {
   const wdConfig = await call('GET', '/withdrawals/config', { token: userToken });
   assert(
     wdConfig.body.kycTier === 'phone_only' && wdConfig.body.kycRequiredAboveMonthlyEtb > 0,
-    `withdrawal config: kycTier=${wdConfig.body.kycTier}, KYC above ${wdConfig.body.kycRequiredAboveMonthlyEtb} ETB / 30 days, ${wdConfig.body.knownDestinations.length} known destinations`,
+    `withdrawal config: kycTier=${wdConfig.body.kycTier}, KYC at/above ${wdConfig.body.kycRequiredAboveMonthlyEtb} ETB / 30 days, ${wdConfig.body.knownDestinations.length} known destinations`,
   );
   const blockedWd = await call('POST', '/withdrawals', {
     token: userToken,

@@ -56,7 +56,9 @@ export class KycService {
   }
 
   /**
-   * Pure rule: phone_only users may not exceed KYC_REQUIRED_ABOVE_MONTHLY_ETB (rolling 30 days incl. the new request).
+   * Pure rule: phone_only users must stay strictly below KYC_REQUIRED_ABOVE_MONTHLY_ETB (rolling 30 days incl. the new
+   * request). The boundary is INCLUSIVE: a projected total equal to the threshold already requires KYC (owner decision,
+   * Phase 4D). The env variable keeps its historical name for compatibility.
    * Returns null when allowed, else the error details.
    */
   evaluateThreshold(input: {
@@ -68,7 +70,7 @@ export class KycService {
     if (input.kycTier === 'id_verified') return null;
     const threshold = input.thresholdEtb ?? this.config.platform.kycRequiredAboveMonthlyEtb;
     const total = new Prisma.Decimal(input.monthlyTotalEtb).plus(input.newAmountEtb);
-    if (total.lessThanOrEqualTo(threshold)) return null;
+    if (total.lessThan(threshold)) return null;
     return {
       kycTier: input.kycTier,
       monthlyTotalEtb: new Prisma.Decimal(input.monthlyTotalEtb).toNumber(),
@@ -85,7 +87,7 @@ export class KycService {
       this.security.warn('kyc.required', { userId, ...violation });
       throw AppException.unprocessable(
         ErrorCode.KYC_REQUIRED,
-        `Payouts above ${violation.thresholdEtb} ETB per 30 days require identity verification`,
+        `Payouts of ${violation.thresholdEtb} ETB or more per 30 days require identity verification`,
         violation,
       );
     }

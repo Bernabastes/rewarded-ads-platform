@@ -57,7 +57,10 @@ export interface KycProjection {
   thresholdEtb: number;
   monthlyEtb: number;
   projectedEtb: number;
-  /** true when a `phone_only` user's rolling-30-day payouts + this request would exceed the KYC threshold. */
+  /**
+   * true when a `phone_only` user's rolling-30-day payouts + this request would reach the KYC threshold. The boundary is
+   * inclusive (mirrors the API): a projected total equal to the limit already requires KYC.
+   */
   exceeds: boolean;
   /** 0..1 share of the monthly allowance already used (capped at 1). */
   progress: number;
@@ -71,7 +74,7 @@ export function kycProjection(
   const monthlyEtb = config.monthlyPayoutTotalEtb ?? 0;
   const thresholdEtb = config.kycRequiredAboveMonthlyEtb ?? 0;
   const projectedEtb = roundEtb(monthlyEtb + (amountEtb ?? 0));
-  const exceeds = config.kycTier === 'phone_only' && thresholdEtb > 0 && projectedEtb > thresholdEtb;
+  const exceeds = config.kycTier === 'phone_only' && thresholdEtb > 0 && projectedEtb >= thresholdEtb;
   return {
     tier: config.kycTier,
     thresholdEtb,

@@ -113,6 +113,7 @@ export interface MyKycResponse {
   submission: KycSubmissionItem | null;
   /** Whether a new submission may be created (no pending one, tier not already id_verified). */
   canSubmit: boolean;
+  /** Same value as `WithdrawalConfig.kycRequiredAboveMonthlyEtb`; KYC is required at or above it (inclusive). */
   requiredAboveMonthlyEtb: number;
   monthlyPayoutTotalEtb: number;
   uploadLimits: { maxBytes: number; mimeTypes: readonly string[] };

@@ -178,7 +178,9 @@ Player rules for the mobile app:
 
 Gates evaluated by `POST /withdrawals`, in order: minimum → destination format → method available → daily request
 limit → single in-flight → balance → **KYC tier** (`phone_only` users: completed + in-flight payouts of the rolling 30
-days + this request must stay ≤ `kycRequiredAboveMonthlyEtb`, else `422 KYC_REQUIRED` with `details.projectedEtb`) →
+days + this request must stay **strictly below** `kycRequiredAboveMonthlyEtb`; a projected total **at or above** it
+(≥ 1 000 ETB by default — inclusive boundary, Phase 4D product decision) → `422 KYC_REQUIRED` with
+`details.projectedEtb`) →
 **destination verification** (a destination never used for a successful request needs a `resolve` AND an OTP verify
 within the last `destinationResolveTtlMinutes`, else `422 DESTINATION_NOT_VERIFIED` / `DESTINATION_OTP_REQUIRED`).
 
