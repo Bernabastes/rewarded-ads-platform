@@ -56,4 +56,11 @@ describe('resolveNotificationTarget', () => {
     expect(resolveNotificationTarget('new_offer', null).pathname).toBe('/(tabs)/offers');
     expect(resolveNotificationTarget('system', null).pathname).toBe('/notifications');
   });
+
+  it('deep links the Phase 4 notification types to their screens', () => {
+    expect(resolveNotificationTarget('kyc_status', { submissionId: 'k1' }).pathname).toBe('/kyc');
+    expect(resolveNotificationTarget('referral', null).pathname).toBe('/referrals');
+    expect(resolveNotificationTarget('data_export', { exportId: 'e1' }).pathname).toBe('/privacy');
+    expect(resolveNotificationTarget('account_deletion', null).pathname).toBe('/privacy');
+  });
 });
