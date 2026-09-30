@@ -36,8 +36,14 @@ export interface CreateWithdrawalDto {
   /** ETB with up to 2 decimals, >= minWithdrawalEtb. Converted to coins at coinsPerEtb. */
   amountEtb: number;
   payoutMethod: PayoutMethod;
-  /** Phone number (telebirr / CBE Birr) or bank account number. */
-  payoutDestination: string;
+  /** Phone number (telebirr / CBE Birr) or bank account number. Optional when `payoutDestinationId` is given. */
+  payoutDestination?: string;
+  /**
+   * Id of a KNOWN destination (`WithdrawalConfig.knownDestinations[].id`). The server resolves the full number, so
+   * clients never store or resend it; no lookup/OTP is needed. `400 INVALID_PAYOUT_DESTINATION` for foreign/wrong-
+   * method ids, `422 DESTINATION_NOT_VERIFIED` when the destination was never used successfully.
+   */
+  payoutDestinationId?: Uuid;
   /** Account holder name (required for bank). */
   destinationName?: string;
   /** Bank code when payoutMethod is "bank" (Chapa bank id). */

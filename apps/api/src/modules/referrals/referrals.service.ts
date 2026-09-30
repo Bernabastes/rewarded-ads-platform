@@ -395,7 +395,12 @@ export class ReferralsService {
         coinsEarned: rows.reduce((sum, r) => sum + r.referrerBonusCoins, 0),
       },
       referredBy: referredBy
-        ? { status: referredBy.status, bonusCoins: referredBy.refereeBonusCoins, qualifiedAt: referredBy.qualifiedAt }
+        ? {
+            status: referredBy.status,
+            // while pending, quote the configured referee bonus the user will receive on their first valid ad
+            bonusCoins: referredBy.status === 'pending' ? p.refereeBonusCoins : referredBy.refereeBonusCoins,
+            qualifiedAt: referredBy.qualifiedAt,
+          }
         : null,
       referrals: rows.map((r) => this.toItem(r)),
     };

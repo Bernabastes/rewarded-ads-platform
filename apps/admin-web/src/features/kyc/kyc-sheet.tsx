@@ -142,9 +142,9 @@ export function KycSheet({ id, initial, onClose, onDecided, canDecide, zoom, onZ
                 <FlaskConical className="size-3" /> MOCK registry
               </Badge>
             ) : null}
-            {d && d.duplicateIdentityUsers > 0 ? (
+            {d && d.duplicateIdentityUsers.length > 0 ? (
               <Badge tone="danger" className="gap-1">
-                <Users className="size-3" /> {d.duplicateIdentityUsers} duplicate identit{d.duplicateIdentityUsers === 1 ? 'y' : 'ies'}
+                <Users className="size-3" /> {d.duplicateIdentityUsers.length} duplicate identit{d.duplicateIdentityUsers.length === 1 ? 'y' : 'ies'}
               </Badge>
             ) : null}
           </div>
@@ -198,21 +198,24 @@ export function KycSheet({ id, initial, onClose, onDecided, canDecide, zoom, onZ
                     { label: 'Trust score', value: <span className={cn('tabular font-medium', head.user.trustScore < 40 ? 'text-danger' : head.user.trustScore < 60 ? 'text-warning' : 'text-success')}>{head.user.trustScore}</span> },
                   ]}
                 />
-                {d && d.duplicateIdentityUsers > 0 ? (
+                {d && d.duplicateIdentityUsers.length > 0 ? (
                   <div className="mt-3 rounded-md border border-danger/40 bg-danger/8 px-3 py-2 text-xs">
                     <div className="flex items-start gap-2">
                       <Users className="mt-0.5 size-3.5 shrink-0 text-danger" />
                       <div>
-                        <span className="font-medium">Same id number on {d.duplicateIdentityUsers} other account{d.duplicateIdentityUsers === 1 ? '' : 's'}.</span> The API only returns the count;
-                        the other submissions share these last 4 digits:{' '}
-                        <Link to={`/kyc?status=approved&q=${head.idNumberLast4}`} className="font-medium text-primary hover:underline">
-                          approved
-                        </Link>{' '}
-                        ·{' '}
-                        <Link to={`/kyc?status=pending&q=${head.idNumberLast4}`} className="font-medium text-primary hover:underline">
-                          pending
-                        </Link>
-                        .
+                        <span className="font-medium">
+                          Same id number on {d.duplicateIdentityUsers.length} other account{d.duplicateIdentityUsers.length === 1 ? '' : 's'}:
+                        </span>
+                        <ul className="mt-1 space-y-0.5">
+                          {d.duplicateIdentityUsers.map((u) => (
+                            <li key={u.id} className="flex items-center gap-2">
+                              <Link to={`/users/${u.id}`} className="font-mono font-medium text-primary hover:underline">
+                                {u.phoneNumber}
+                              </Link>
+                              <Badge tone={u.kycStatus === 'approved' ? 'success' : u.kycStatus === 'pending' ? 'warning' : 'neutral'}>{humanize(u.kycStatus)}</Badge>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     </div>
                   </div>

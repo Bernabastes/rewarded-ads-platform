@@ -37,14 +37,15 @@ export class AdminAlertsQueryDto extends PaginationQueryDto {
 @ApiBearerAuth()
 @Controller('admin/alerts')
 @Subjects('admin')
-@Roles('super_admin', 'finance', 'support')
 export class AdminAlertsController {
   constructor(private readonly alerts: AlertService) {}
 
   @Get()
+  @Roles('super_admin', 'finance', 'support', 'ad_reviewer')
   @ApiOperation({
     summary: 'Money-day alerts (ledger drift, payout failure rate, account minting, spend velocity, OTP spikes)',
-    description: '`meta.openCount` = unacknowledged alerts; `meta.notifiers` lists the configured delivery channels.',
+    description:
+      '`meta.openCount` = unacknowledged alerts; `meta.notifiers` lists the configured delivery channels. Readable by every admin role (reviewers see spend-velocity alerts on the campaigns they review); acknowledging is support/finance/super_admin.',
   })
   list(@Query() query: AdminAlertsQueryDto) {
     return this.alerts.list(query);
@@ -60,6 +61,7 @@ export class AdminAlertsController {
 
   @Post(':id/ack')
   @HttpCode(200)
+  @Roles('super_admin', 'finance', 'support')
   @ApiOperation({ summary: 'Acknowledge an alert (audited)' })
   ack(@Param('id', ParseUUIDPipe) id: string, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
     return this.alerts.acknowledge(id, { adminId: auth.subjectId, ip });

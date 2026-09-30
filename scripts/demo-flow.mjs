@@ -495,6 +495,23 @@ async function main() {
   );
   const known = await call('GET', '/withdrawals/destinations', { token: userToken });
   assert(known.body.some((d) => d.known), 'destination is now known (no lookup/OTP needed next time)');
+  // Phase 4C: a second request can reference the known destination by id (no number, no lookup, no OTP)
+  const knownId = known.body.find((d) => d.known).id;
+  const byId = await call('POST', '/withdrawals', {
+    token: userToken,
+    body: { amountEtb: 50, payoutMethod: 'telebirr', payoutDestinationId: knownId },
+    allowError: true,
+  });
+  assert(
+    byId.status === 422 && byId.body.code === 'INSUFFICIENT_BALANCE',
+    `withdrawal by payoutDestinationId passes the destination gates and stops only at the balance (${byId.body.code}: ${byId.body.details?.coinBalance} coins)`,
+  );
+  const foreignId = await call('POST', '/withdrawals', {
+    token: userToken,
+    body: { amountEtb: 50, payoutMethod: 'bank', payoutDestinationId: knownId },
+    allowError: true,
+  });
+  assert(foreignId.body.code === 'INVALID_PAYOUT_DESTINATION', 'a known id used with another method is refused (INVALID_PAYOUT_DESTINATION)');
 
   title('Support impersonation is read-only and audited');
   const imp = await call('POST', `/admin/users/${verify.body.user.id}/impersonate`, {

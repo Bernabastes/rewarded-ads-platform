@@ -90,11 +90,14 @@
           "201": {
             "description": ""
           },
-          "401": {
-            "description": "OTP_INVALID | OTP_EXPIRED"
+          "400": {
+            "description": "OTP_INVALID | OTP_EXPIRED | REFERRAL_CODE_INVALID (business errors are 400; only token problems are 401)"
           },
           "403": {
             "description": "ACCOUNT_SUSPENDED | ACCOUNT_BANNED | AGE_RESTRICTED"
+          },
+          "429": {
+            "description": "OTP_TOO_MANY_ATTEMPTS"
           }
         },
         "summary": "Verify an OTP and receive tokens (creates the user on first login)",
@@ -564,7 +567,7 @@
     },
     "/api/v1/admin/alerts": {
       "get": {
-        "description": "`meta.openCount` = unacknowledged alerts; `meta.notifiers` lists the configured delivery channels.",
+        "description": "`meta.openCount` = unacknowledged alerts; `meta.notifiers` lists the configured delivery channels. Readable by every admin role (reviewers see spend-velocity alerts on the campaigns they review); acknowledging is support/finance/super_admin.",
         "operationId": "list",
         "parameters": [
           {
@@ -2655,8 +2658,11 @@
           "200": {
             "description": ""
           },
-          "401": {
+          "400": {
             "description": "OTP_INVALID | OTP_EXPIRED"
+          },
+          "429": {
+            "description": "OTP_TOO_MANY_ATTEMPTS"
           }
         },
         "security": [
@@ -2911,7 +2917,7 @@
             "bearer": []
           }
         ],
-        "summary": "My latest deletion request (null when none)",
+        "summary": "My latest deletion request: { request: DeletionRequestItem | null }",
         "tags": [
           "users"
         ]
@@ -3010,7 +3016,7 @@
             "bearer": []
           }
         ],
-        "summary": "Execute a deletion now (anonymise PII; keep financial records). Audited.",
+        "summary": "Execute a deletion now (anonymise PII; keep financial records). Audited. Returns the list-row shape (AdminDeletionRequestItem).",
         "tags": [
           "admin"
         ]
@@ -3049,7 +3055,7 @@
             "bearer": []
           }
         ],
-        "summary": "Cancel a pending deletion request on the user's behalf (e.g. support ticket). Audited.",
+        "summary": "Cancel a pending deletion request on the user's behalf (e.g. support ticket). Audited. Returns the list-row shape (AdminDeletionRequestItem).",
         "tags": [
           "admin"
         ]
@@ -3151,6 +3157,21 @@
                 "pending",
                 "approved",
                 "rejected"
+              ]
+            }
+          },
+          {
+            "name": "mediaStatus",
+            "required": false,
+            "in": "query",
+            "description": "Filter by media pipeline state (e.g. `failed` to find creatives needing a reprocess).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "processing",
+                "ready",
+                "duration_corrected",
+                "failed"
               ]
             }
           }
@@ -4889,6 +4910,17 @@
             }
           },
           {
+            "name": "actor",
+            "required": false,
+            "in": "query",
+            "description": "Admin email, advertiser email or user phone; resolved server-side to the actor id (no rows when unknown).",
+            "schema": {
+              "maxLength": 160,
+              "example": "finance@rap.et",
+              "type": "string"
+            }
+          },
+          {
             "name": "actorType",
             "required": false,
             "in": "query",
@@ -6062,9 +6094,14 @@
           },
           "payoutDestination": {
             "type": "string",
-            "description": "Phone number for telebirr / CBE Birr, account number for bank.",
+            "description": "Phone number for telebirr / CBE Birr, account number for bank. Optional when `payoutDestinationId` is given.",
             "maxLength": 64,
             "example": "0911223344"
+          },
+          "payoutDestinationId": {
+            "type": "string",
+            "description": "Id of a KNOWN destination (`GET /withdrawals/config` -> knownDestinations[].id). The server resolves the full\ndestination, so clients never need to store or resend the number; no lookup/OTP is required.",
+            "format": "uuid"
           },
           "destinationName": {
             "type": "string",
@@ -6081,8 +6118,7 @@
         },
         "required": [
           "amountEtb",
-          "payoutMethod",
-          "payoutDestination"
+          "payoutMethod"
         ]
       },
       "CreateDeletionRequestDto": {

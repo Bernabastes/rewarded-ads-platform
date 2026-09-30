@@ -446,6 +446,27 @@ F4: the demo flow uploads a real seed MP4 and waits for the pipeline. F10: seed 
 completions for every campaign (the completed AddisPay campaign refunds its unspent reservation only once the real
 spend is known).
 
+## 12d. Phase 4B/4C – frontends integrated, contract gaps closed
+
+The three Phase 4B frontend branches (advertiser `505c1c7`, admin `7315585`, mobile `9140d8e`) were merged without
+conflicts. Gaps they reported were closed in the API (all backwards compatible):
+
+- `POST /withdrawals { payoutDestinationId }` – a known destination is referenced by id and resolved server-side, so
+  the mobile app no longer stores full payout numbers on the device (it keeps a display-only memory).
+- OTP business errors are `400` everywhere (`/auth/otp/verify` and destination OTP); `401` is reserved for token
+  problems; `INVALID_CREDENTIALS` on the login endpoints stays `401` by convention.
+- `referredBy.bonusCoins` quotes the configured referee bonus while `pending`; `GET /users/me/delete-request` always
+  returns `{ request }`; `KycPresignResponse.kind` typed.
+- `409 IDEMPOTENCY_KEY_REUSED` carries `resourceId` once the first request finished (while it is still running the id
+  is unknown – the window is sub-second, clients simply retry the same request).
+- Admin: deletion execute/cancel return the list-row shape; `AuditLogItem.actorLabel` + `GET /admin/audit-log?actor=`
+  resolved server-side (unknown actor ⇒ empty page, `meta.actorResolved: false`); `AdminOverview` carries the Phase 4
+  queue counters (one request for every sidebar badge); `AdminKycDetail.duplicateIdentityUsers` lists the accounts;
+  `?mediaStatus=` on the review queue; `GET /admin/alerts` readable by every admin role (ack: support/finance/super;
+  run-rules: super) and admin `permissions[]` extended accordingly.
+- Deferred on purpose: the admin audit page still resolves the actor client-side before calling the API (its
+  MSW-tested flow asserts `actorId=`); switching it to `actor=` is a UI-only follow-up now that the server supports it.
+
 ## 13. Assumptions
 
 1. **Prepaid advertiser model**: the full campaign budget is reserved from the wallet at submit time; unspent budget is

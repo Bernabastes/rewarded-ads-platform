@@ -81,7 +81,8 @@ export class WithdrawalsController {
   @HttpCode(200)
   @RequireVerifiedAdult()
   @ApiOperation({ summary: 'Confirm the destination_change OTP for a specific destination' })
-  @ApiResponse({ status: 401, description: 'OTP_INVALID | OTP_EXPIRED' })
+  @ApiResponse({ status: 400, description: 'OTP_INVALID | OTP_EXPIRED' })
+  @ApiResponse({ status: 429, description: 'OTP_TOO_MANY_ATTEMPTS' })
   verifyDestinationOtp(@CurrentAuth() auth: AuthContext, @Body() dto: VerifyDestinationOtpDto, @ClientIp() ip: string) {
     const destination = this.withdrawals.validateDestination({
       payoutMethod: dto.payoutMethod,

@@ -19,6 +19,7 @@ import { NotificationService } from '../notifications/notifications.module';
 import { serializeValue } from '../../common/interceptors/serialize.interceptor';
 
 const IN_FLIGHT_WITHDRAWALS = ['pending', 'processing', 'flagged_for_review'] as const;
+const adminUserSelect = { id: true, phoneNumber: true, fullName: true, status: true, coinBalance: true } as const;
 
 /**
  * Data-subject rights (Feature 10b):
@@ -234,7 +235,8 @@ export class DataRightsService {
       where: { userId },
       orderBy: { requestedAt: 'desc' },
     });
-    return req ? this.toDeletionItem(req) : null;
+    // Always a JSON object (never an empty 200 body): `{ request: null }` when the user has no request.
+    return { request: req ? this.toDeletionItem(req) : null };
   }
 
   async cancelOwnDeletion(userId: string, ip: string) {
@@ -386,7 +388,7 @@ export class DataRightsService {
     const [rows, total] = await Promise.all([
       this.prisma.accountDeletionRequest.findMany({
         where,
-        include: { user: { select: { id: true, phoneNumber: true, fullName: true, status: true, coinBalance: true } } },
+        include: { user: { select: adminUserSelect } },
         orderBy: { scheduledFor: 'asc' },
         skip: p.skip,
         take: p.take,
@@ -401,17 +403,36 @@ export class DataRightsService {
         })
       : [];
     return paginated(
-      rows.map((r) => ({
-        ...this.toDeletionItem(r),
-        user: r.user,
-        pendingWithdrawals: pendingCounts.find((c) => c.userId === r.userId)?._count._all ?? 0,
-        executedBy: r.executedBy,
-        cancelledBy: r.cancelledBy,
-        note: r.note,
-      })),
+      rows.map((r) => this.toAdminItem(r, pendingCounts.find((c) => c.userId === r.userId)?._count._all ?? 0)),
       total,
       p,
     );
+  }
+
+  /** Admin execute/cancel return the same shape as a list row (user + pendingWithdrawals + admin fields). */
+  async adminItem(id: string) {
+    const row = await this.prisma.accountDeletionRequest.findUniqueOrThrow({
+      where: { id },
+      include: { user: { select: adminUserSelect } },
+    });
+    const pending = await this.prisma.withdrawal.count({
+      where: { userId: row.userId, status: { in: [...IN_FLIGHT_WITHDRAWALS] } },
+    });
+    return this.toAdminItem(row, pending);
+  }
+
+  private toAdminItem(
+    r: Prisma.AccountDeletionRequestGetPayload<{ include: { user: { select: typeof adminUserSelect } } }>,
+    pendingWithdrawals: number,
+  ) {
+    return {
+      ...this.toDeletionItem(r),
+      user: r.user,
+      pendingWithdrawals,
+      executedBy: r.executedBy,
+      cancelledBy: r.cancelledBy,
+      note: r.note,
+    };
   }
 
   toDeletionItem(r: {

@@ -113,7 +113,10 @@ export default function WithdrawScreen() {
     const dto = {
       amountEtb: validation.amountEtb,
       payoutMethod: method.method,
-      payoutDestination: verified.payoutDestination,
+      // Phase 4C: a known destination is sent by id (the server resolves the number); otherwise the full number.
+      ...(verified.payoutDestinationId
+        ? { payoutDestinationId: verified.payoutDestinationId }
+        : { payoutDestination: verified.payoutDestination }),
       destinationName: destinationName.trim() || undefined,
       bankCode: method.method === 'bank' && bankCode.trim() ? bankCode.trim() : undefined,
     };
@@ -121,12 +124,14 @@ export default function WithdrawScreen() {
     try {
       const result = await create.mutateAsync({ dto, idempotencyKey: intent.key, intentStartedAt: intent.startedAt });
       intentKeys.current.reset();
-      await rememberDestination({
-        payoutMethod: method.method,
-        destination: verified.payoutDestination,
-        accountName: verified.accountName ?? result.item.destinationAccountName ?? null,
-        bankCode: dto.bankCode ?? null,
-      });
+      if (!verified.payoutDestinationId) {
+        await rememberDestination({
+          payoutMethod: method.method,
+          destination: verified.payoutDestination,
+          accountName: verified.accountName ?? result.item.destinationAccountName ?? null,
+          bankCode: dto.bankCode ?? null,
+        });
+      }
       router.replace({ pathname: '/wallet/withdrawals/[id]', params: { id: result.item.id, created: '1' } });
     } catch (error) {
       if (isApiError(error)) {

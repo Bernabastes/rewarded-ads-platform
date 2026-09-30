@@ -44,7 +44,8 @@ export class AuthController {
     description:
       'Returns `isNewUser` and the profile; when `user.profileComplete` is false call /auth/users/complete-profile.',
   })
-  @ApiResponse({ status: 401, description: 'OTP_INVALID | OTP_EXPIRED' })
+  @ApiResponse({ status: 400, description: 'OTP_INVALID | OTP_EXPIRED | REFERRAL_CODE_INVALID (business errors are 400; only token problems are 401)' })
+  @ApiResponse({ status: 429, description: 'OTP_TOO_MANY_ATTEMPTS' })
   @ApiResponse({ status: 403, description: 'ACCOUNT_SUSPENDED | ACCOUNT_BANNED | AGE_RESTRICTED' })
   verifyOtp(@Body() dto: OtpVerifyDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
     return this.auth.verifyOtp(dto, { ip, userAgent });

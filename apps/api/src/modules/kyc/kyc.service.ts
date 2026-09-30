@@ -258,10 +258,18 @@ export class KycService {
       this.storage.presignDownload(row.documentFrontKey, ttl),
       row.documentBackKey ? this.storage.presignDownload(row.documentBackKey, ttl) : Promise.resolve(null),
       this.storage.presignDownload(row.selfieKey, ttl),
-      this.prisma.kycSubmission.count({
+      this.prisma.kycSubmission.findMany({
         where: { idNumberHash: row.idNumberHash, userId: { not: row.userId }, status: { in: ['pending', 'approved'] } },
+        select: { status: true, user: { select: { id: true, phoneNumber: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
       }),
     ]);
+    // one entry per other account (latest submission wins)
+    const seen = new Set<string>();
+    const duplicateIdentityUsers = duplicates
+      .filter((d) => (seen.has(d.user.id) ? false : (seen.add(d.user.id), true)))
+      .map((d) => ({ id: d.user.id, phoneNumber: d.user.phoneNumber, kycStatus: d.status }));
     return {
       ...this.toAdminItem(row),
       documents: { front, back, selfie },
@@ -269,7 +277,9 @@ export class KycService {
         fullName: normalizeName(row.fullName) === normalizeName(row.user.fullName ?? ''),
         dateOfBirth: Boolean(row.user.dateOfBirth) && sameDay(row.dateOfBirth, row.user.dateOfBirth!),
       },
-      duplicateIdentityUsers: duplicates,
+      duplicateIdentityUsers,
+      /** Kept for compatibility with clients that consumed the earlier numeric field. */
+      duplicateIdentityCount: duplicateIdentityUsers.length,
     };
   }
 

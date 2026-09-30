@@ -78,7 +78,7 @@ export class UserDataRightsController {
   }
 
   @Get('delete-request')
-  @ApiOperation({ summary: 'My latest deletion request (null when none)' })
+  @ApiOperation({ summary: 'My latest deletion request: { request: DeletionRequestItem | null }' })
   myDeletion(@CurrentAuth() auth: AuthContext) {
     return this.service.myDeletionRequest(auth.subjectId);
   }
@@ -107,26 +107,28 @@ export class AdminDeletionRequestsController {
 
   @Post(':id/execute')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Execute a deletion now (anonymise PII; keep financial records). Audited.' })
-  execute(
+  @ApiOperation({ summary: 'Execute a deletion now (anonymise PII; keep financial records). Audited. Returns the list-row shape (AdminDeletionRequestItem).' })
+  async execute(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AdminDeletionNoteDto,
     @CurrentAuth() auth: AuthContext,
     @ClientIp() ip: string,
   ) {
-    return this.service.execute(id, { actorType: 'admin', actorId: auth.subjectId, ip, note: dto.note });
+    await this.service.execute(id, { actorType: 'admin', actorId: auth.subjectId, ip, note: dto.note });
+    return this.service.adminItem(id);
   }
 
   @Post(':id/cancel')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Cancel a pending deletion request on the user\'s behalf (e.g. support ticket). Audited.' })
-  cancel(
+  @ApiOperation({ summary: 'Cancel a pending deletion request on the user\'s behalf (e.g. support ticket). Audited. Returns the list-row shape (AdminDeletionRequestItem).' })
+  async cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AdminDeletionNoteDto,
     @CurrentAuth() auth: AuthContext,
     @ClientIp() ip: string,
   ) {
-    return this.service.cancel(id, { actorType: 'admin', actorId: auth.subjectId, ip, note: dto.note });
+    await this.service.cancel(id, { actorType: 'admin', actorId: auth.subjectId, ip, note: dto.note });
+    return this.service.adminItem(id);
   }
 }
 

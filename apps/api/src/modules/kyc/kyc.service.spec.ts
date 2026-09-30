@@ -162,6 +162,50 @@ describe('KycService', () => {
     });
   });
 
+  describe('adminDetail', () => {
+    it('lists the other accounts that used the same id number (array + compatibility count) and presigns documents', async () => {
+      const row = {
+        id: uuid(7),
+        userId: uuid(1),
+        idNumberHash: 'h',
+        idType: 'fayda',
+        idNumberLast4: '3456',
+        fullName: 'Abebe Bikila',
+        dateOfBirth: new Date('1990-05-14T00:00:00Z'),
+        documentFrontKey: 'private/kyc/a/front.png',
+        documentBackKey: null,
+        selfieKey: 'private/kyc/a/selfie.png',
+        status: 'pending',
+        providerName: 'fayda',
+        providerResult: {},
+        reviewedAt: null,
+        reviewedBy: null,
+        reason: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        user: { id: uuid(1), phoneNumber: '+251911000000', fullName: 'abebe  bikila', kycTier: 'phone_only', trustScore: 60, dateOfBirth: new Date('1990-05-14T00:00:00Z') },
+      };
+      prisma.kycSubmission.findUnique.mockResolvedValue(row);
+      prisma.kycSubmission.findMany.mockResolvedValue([
+        { status: 'approved', user: { id: uuid(20), phoneNumber: '+251911000020' } },
+        { status: 'pending', user: { id: uuid(20), phoneNumber: '+251911000020' } }, // same account twice -> one entry
+        { status: 'pending', user: { id: uuid(21), phoneNumber: '+251911000021' } },
+      ]);
+      const storage = (service as any).storage;
+      storage.presignDownload.mockResolvedValue({ url: 'https://minio/signed', expiresInSeconds: 300 });
+
+      const detail = await service.adminDetail(uuid(7));
+      expect(detail.duplicateIdentityUsers).toEqual([
+        { id: uuid(20), phoneNumber: '+251911000020', kycStatus: 'approved' },
+        { id: uuid(21), phoneNumber: '+251911000021', kycStatus: 'pending' },
+      ]);
+      expect(detail.duplicateIdentityCount).toBe(2);
+      expect(detail.profileMatch).toEqual({ fullName: true, dateOfBirth: true });
+      expect(detail.documents.front.url).toBe('https://minio/signed');
+      expect(detail.documents.back).toBeNull();
+    });
+  });
+
   describe('MockFaydaProvider', () => {
     const p = new MockFaydaProvider();
     it('is deterministic from the id number tail', async () => {

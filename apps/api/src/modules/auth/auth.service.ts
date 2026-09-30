@@ -168,12 +168,12 @@ export class AuthService {
         orderBy: { createdAt: 'desc' },
       });
       if (!otp)
-        throw AppException.unauthorized(
+        throw AppException.badRequest(
           ErrorCode.OTP_INVALID,
           'No pending verification code for this number',
         );
       if (otp.expiresAt < now)
-        throw AppException.unauthorized(ErrorCode.OTP_EXPIRED, 'Verification code expired');
+        throw AppException.badRequest(ErrorCode.OTP_EXPIRED, 'Verification code expired');
       if (otp.attempts >= e.OTP_MAX_ATTEMPTS) {
         this.security.warn('otp.too_many_attempts', { phone, ip: meta.ip });
         throw AppException.rateLimited(
@@ -183,7 +183,7 @@ export class AuthService {
       }
       if (otp.codeHash !== sha256(`${phone}:${input.code}`)) {
         await this.prisma.otpCode.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
-        throw AppException.unauthorized(ErrorCode.OTP_INVALID, 'Incorrect verification code', {
+        throw AppException.badRequest(ErrorCode.OTP_INVALID, 'Incorrect verification code', {
           attemptsRemaining: e.OTP_MAX_ATTEMPTS - otp.attempts - 1,
         });
       }

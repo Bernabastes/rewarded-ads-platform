@@ -295,6 +295,24 @@ describe('API e2e smoke (user money flow)', () => {
       .expect(201);
     expect(approved.body.status).toBe('pending');
 
+    // Phase 4C: the destination is now KNOWN and can be referenced by id (no number, no lookup, no OTP);
+    // with a withdrawal already in flight the request stops at the in-flight rule, proving the id resolved.
+    const knownList = await http.get('/api/v1/withdrawals/destinations').set(adult).expect(200);
+    const knownId = knownList.body.find((d: { known: boolean }) => d.known)?.id as string;
+    expect(knownId).toBeTruthy();
+    await http
+      .post('/api/v1/withdrawals')
+      .set(adult)
+      .send({ amountEtb: 50, payoutMethod: 'telebirr', payoutDestinationId: knownId })
+      .expect(409)
+      .expect((r) => expect(r.body.code).toBe('WITHDRAWAL_PENDING_EXISTS'));
+    await http
+      .post('/api/v1/withdrawals')
+      .set(adult)
+      .send({ amountEtb: 50, payoutMethod: 'bank', payoutDestinationId: knownId })
+      .expect(400)
+      .expect((r) => expect(r.body.code).toBe('INVALID_PAYOUT_DESTINATION'));
+
     // RBAC: reviewer cannot touch withdrawals
     const reviewer = await http
       .post('/api/v1/auth/admin/login')

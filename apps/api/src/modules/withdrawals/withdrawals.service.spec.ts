@@ -175,6 +175,30 @@ describe('WithdrawalsService', () => {
     expect(result.destinationAccountName).toBe('Abebe Tesfaye');
   });
 
+  it('accepts payoutDestinationId for a KNOWN destination: no number, no lookup/OTP checks (Phase 4C)', async () => {
+    destinations.findKnownById = jest.fn().mockResolvedValue({
+      id: uuid(41),
+      destination: '+251911223344',
+      accountName: 'Abebe Tesfaye',
+      bankCode: null,
+      verifiedAt: new Date(),
+      lastUsedAt: new Date(),
+    });
+    const result = await service.request(
+      USER,
+      { amountEtb: 60, payoutMethod: 'telebirr', payoutDestinationId: uuid(41) },
+      'ip',
+    );
+    expect(destinations.findKnownById).toHaveBeenCalledWith(USER, uuid(41), 'telebirr');
+    expect(destinations.assertVerifiedForRequest).not.toHaveBeenCalled();
+    expect(prisma.withdrawal.create.mock.calls[0][0].data).toMatchObject({
+      payoutDestination: '+251911223344',
+      payoutDestinationId: uuid(41),
+      destinationAccountName: 'Abebe Tesfaye',
+    });
+    expect(result.coinAmount).toBe(6000);
+  });
+
   it('converts ETB to coins, holds them in the same transaction and flags a first-ever withdrawal', async () => {
     const result = await service.request(USER, dto, 'ip');
     expect(result.status).toBe('flagged_for_review');

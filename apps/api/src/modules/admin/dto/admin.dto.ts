@@ -5,6 +5,7 @@ import {
   AdvertiserVerificationStatus,
   CampaignStatus,
   CoinAdjustmentStatus,
+  MediaStatus,
   OfferCompletionStatus,
   ReviewStatus,
   UserStatus,
@@ -80,6 +81,12 @@ export class AdReviewQueueQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(ReviewStatus)
   status?: ReviewStatus;
+
+  /** Filter by media pipeline state (e.g. `failed` to find creatives needing a reprocess). */
+  @ApiPropertyOptional({ enum: MediaStatus })
+  @IsOptional()
+  @IsEnum(MediaStatus)
+  mediaStatus?: MediaStatus;
 }
 
 /* -------------------------------- users -------------------------------- */
@@ -218,6 +225,13 @@ export class AuditLogQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   actorId?: string;
+
+  /** Admin email, advertiser email or user phone; resolved server-side to the actor id (no rows when unknown). */
+  @ApiPropertyOptional({ example: 'finance@rap.et' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  actor?: string;
 
   @ApiPropertyOptional({ enum: ActorType })
   @IsOptional()

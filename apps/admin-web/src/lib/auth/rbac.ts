@@ -42,10 +42,10 @@ export const ACCESS = {
   audit: ['super_admin', 'finance', 'support'],
   appInstalls: ['super_admin', 'support'],
 
-  // Phase 4A. NOTE: the API gates GET /admin/alerts to support/finance/super_admin (ad_reviewer gets 403), so the
-  // page is hidden from reviewers even though the brief described alerts as "all roles read".
+  // Phase 4A/4C. GET /admin/alerts is readable by every admin role (reviewers see spend-velocity alerts on the
+  // campaigns they review); acknowledging stays support/finance/super_admin, run-rules super_admin only.
   kyc: ['super_admin', 'support', 'finance'],
-  alerts: ['super_admin', 'support', 'finance'],
+  alerts: ['super_admin', 'support', 'finance', 'ad_reviewer'],
   alertsAck: ['super_admin', 'support', 'finance'],
   alertsRunRules: ['super_admin'],
   referrals: ['super_admin', 'support', 'finance'],

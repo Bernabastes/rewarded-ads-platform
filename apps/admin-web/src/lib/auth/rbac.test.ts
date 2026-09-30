@@ -64,8 +64,10 @@ describe('RBAC matrix (mirror of the API @Roles decorators)', () => {
     for (const key of ['kyc', 'alerts', 'alertsAck', 'referrals'] as const) {
       expect(can('support', key)).toBe(true);
       expect(can('finance', key)).toBe(true);
-      expect(can('ad_reviewer', key)).toBe(false);
     }
+    for (const key of ['kyc', 'alertsAck', 'referrals'] as const) expect(can('ad_reviewer', key)).toBe(false);
+    // Phase 4C: reviewers may READ alerts (spend velocity on campaigns they review) but not acknowledge them
+    expect(can('ad_reviewer', 'alerts')).toBe(true);
     expect(can('support', 'deletionRequests')).toBe(true);
     expect(can('support', 'impersonate')).toBe(true);
     expect(can('finance', 'deletionRequests')).toBe(false);

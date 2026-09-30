@@ -70,7 +70,34 @@ describe('destination step state machine', () => {
       { type: 'known_selected', item: { payoutMethod: 'telebirr', destination: '+251911000137', accountName: 'Tigist Haile', bankCode: null } },
     ]);
     expect(state.input).toBe('+251911000137');
-    expect(state.phase).toMatchObject({ phase: 'verified', via: 'known_chip', accountName: 'Tigist Haile' });
+    expect(state.phase).toMatchObject({ phase: 'verified', via: 'known_chip', accountName: 'Tigist Haile', payoutDestinationId: null });
+  });
+
+  it('a server-known chip verifies by id (Phase 4C): nothing to type, masked number for display only', () => {
+    const state = run([
+      {
+        type: 'known_id_selected',
+        item: {
+          id: 'dest-1',
+          payoutMethod: 'telebirr',
+          destination: '+2519****0137',
+          bankCode: null,
+          accountName: 'Tigist Haile',
+          verifiedAt: null,
+          otpVerifiedAt: null,
+          lastUsedAt: '2026-09-20T10:00:00.000Z',
+          useCount: 2,
+          known: true,
+        },
+      },
+    ]);
+    expect(state.phase).toMatchObject({
+      phase: 'verified',
+      via: 'known_chip',
+      payoutDestinationId: 'dest-1',
+      payoutDestination: '+2519****0137',
+      accountName: 'Tigist Haile',
+    });
   });
 
   it('surfaces DESTINATION_NOT_FOUND inline and returns to entry', () => {

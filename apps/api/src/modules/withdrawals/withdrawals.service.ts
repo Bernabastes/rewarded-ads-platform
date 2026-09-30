@@ -107,7 +107,19 @@ export class WithdrawalsService {
       );
     }
     const coinAmount = amountEtb.mul(p.coinsPerEtb).round().toNumber();
-    const destination = this.validateDestination(dto);
+    // A known destination id stands in for the full number (clients never need to store/resend it).
+    const known = dto.payoutDestinationId
+      ? await this.destinations.findKnownById(userId, dto.payoutDestinationId, dto.payoutMethod)
+      : null;
+    const destination = known
+      ? known.destination
+      : this.validateDestination({
+          payoutMethod: dto.payoutMethod,
+          payoutDestination: dto.payoutDestination ?? '',
+          destinationName: dto.destinationName,
+          bankCode: dto.bankCode,
+        });
+    const bankCode = dto.bankCode ?? known?.bankCode ?? undefined;
     if (!this.registry.isMethodAvailable(dto.payoutMethod)) {
       throw new AppException(
         ErrorCode.PAYOUT_METHOD_UNAVAILABLE,
@@ -154,11 +166,13 @@ export class WithdrawalsService {
     // KYC tier rule (rolling 30 days incl. this request) -> 422 KYC_REQUIRED
     await this.kyc.assertWithinTier(userId, user.kycTier, amountEtb);
     // Destination verification: known destinations pass; NEW ones need a fresh partner lookup + OTP re-check.
-    const verifiedDestination = await this.destinations.assertVerifiedForRequest(userId, {
-      payoutMethod: dto.payoutMethod,
-      destination,
-      bankCode: dto.bankCode,
-    });
+    const verifiedDestination =
+      known ??
+      (await this.destinations.assertVerifiedForRequest(userId, {
+        payoutMethod: dto.payoutMethod,
+        destination,
+        bankCode,
+      }));
 
     const reviewReasons = this.reviewReasons({
       isFirst: completedCount === 0,
@@ -177,7 +191,7 @@ export class WithdrawalsService {
           payoutMethod: dto.payoutMethod,
           payoutDestination: destination,
           destinationName: dto.destinationName?.trim() ?? verifiedDestination.accountName ?? undefined,
-          bankCode: dto.bankCode ?? verifiedDestination.bankCode ?? undefined,
+          bankCode: bankCode ?? verifiedDestination.bankCode ?? undefined,
           destinationAccountName: verifiedDestination.accountName,
           destinationVerifiedAt: verifiedDestination.verifiedAt,
           payoutDestinationId: verifiedDestination.id,

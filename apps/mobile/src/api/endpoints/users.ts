@@ -11,6 +11,7 @@ import type {
   KycSubmissionItem,
   LedgerEntry,
   LegalDocumentKind,
+  MyDeletionRequestResponse,
   MyKycResponse,
   MyReferralsResponse,
   NotificationItem,
@@ -105,10 +106,10 @@ export const usersApi = {
   requestDeletion(dto: CreateDeletionRequestDto = {}) {
     return api.post<DeletionRequestItem>(API_ROUTES.users.deleteRequest, dto);
   },
-  /** Latest deletion request; the API answers 200 with an empty body when there is none. */
+  /** Latest deletion request; the API answers `{ request: DeletionRequestItem | null }`. */
   async deletionRequest(): Promise<DeletionRequestItem | null> {
-    const item = await api.get<DeletionRequestItem | undefined>(API_ROUTES.users.deleteRequest);
-    return item ?? null;
+    const res = await api.get<MyDeletionRequestResponse>(API_ROUTES.users.deleteRequest);
+    return res?.request ?? null;
   },
   cancelDeletion() {
     return api.delete<DeletionRequestItem | undefined>(API_ROUTES.users.deleteRequest);

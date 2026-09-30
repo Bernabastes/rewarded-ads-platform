@@ -62,6 +62,17 @@ export interface KycPresignDto {
   sizeBytes: number;
 }
 
+/** Presigned PUT for a KYC document. `publicUrl` is intentionally empty (private prefix); echo `kind` back. */
+export interface KycPresignResponse {
+  method: 'PUT';
+  uploadUrl: string;
+  headers: Record<string, string>;
+  storageKey: string;
+  publicUrl: '';
+  expiresInSeconds: number;
+  kind: KycUploadKind;
+}
+
 /** `POST /users/me/kyc` */
 export interface CreateKycSubmissionDto {
   idType: KycIdType;
@@ -128,8 +139,10 @@ export interface AdminKycDetail extends AdminKycSummary {
   };
   /** Does the submitted name / DOB match the profile? */
   profileMatch: { fullName: boolean; dateOfBirth: boolean };
-  /** Other users who submitted the same id number hash (duplicate identity check). */
-  duplicateIdentityUsers: number;
+  /** Other accounts that submitted the same id number (pending or approved), latest submission per account. */
+  duplicateIdentityUsers: Array<{ id: Uuid; phoneNumber: string; kycStatus: KycStatus }>;
+  /** `duplicateIdentityUsers.length` (compatibility with clients built against the earlier numeric field). */
+  duplicateIdentityCount: number;
 }
 
 export interface KycDecisionDto {
@@ -250,6 +263,11 @@ export interface DeletionRequestItem {
   graceDays: number;
 }
 
+/** `GET /users/me/delete-request` – always a JSON object; `request` is null when the user never asked. */
+export interface MyDeletionRequestResponse {
+  request: DeletionRequestItem | null;
+}
+
 export interface AdminDeletionRequestItem extends DeletionRequestItem {
   user: { id: Uuid; phoneNumber: string; fullName: string | null; status: UserStatus; coinBalance: number };
   /** Withdrawals still in flight (execution is blocked while > 0). */
@@ -270,4 +288,39 @@ export interface IdempotencyConflictDetails {
   key: string;
   /** true when the original request with this key is still running. */
   inProgress: boolean;
+  /**
+   * When `inProgress` is true and the original request already created its resource (withdrawal / payment /
+   * adjustment id), poll that resource instead of re-posting. Null when the id is not known yet.
+   */
+  resourceId?: Uuid | null;
+}
+
+/* ------------------------------ alerts meta / consents / password ------------------------------ */
+
+/** `meta` extras of `GET /admin/alerts`. */
+export interface AdminAlertsMeta {
+  openCount: number;
+  notifiers: Array<{ name: string; mock: boolean }>;
+}
+
+/** `GET/POST /advertisers/me/consents` */
+export interface AdvertiserConsentState {
+  consents: Array<{
+    kind: LegalDocumentKind;
+    acceptedVersion: string | null;
+    currentVersion: string | null;
+    acceptedAt: IsoDateTime | null;
+    outdated: boolean;
+  }>;
+  requiresConsent: LegalDocumentKind[];
+  acceptedTermsVersion: string | null;
+  currentTermsVersion: string | null;
+  requiresTermsAcceptance: boolean;
+}
+
+/** `POST /auth/advertiser/change-password` */
+export interface ChangePasswordResponse {
+  changed: true;
+  /** Every refresh token was revoked; the client must log in again. */
+  sessionsRevoked: true;
 }

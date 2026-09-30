@@ -36,14 +36,14 @@ describe('KYC review rules', () => {
   it('collects reviewer warnings without hard-blocking the decision', () => {
     const warnings = kycReviewWarnings({
       profileMatch: { fullName: false, dateOfBirth: true },
-      duplicateIdentityUsers: 1,
+      duplicateIdentityUsers: [{ id: 'user-9', phoneNumber: '+251911000009', kycStatus: 'approved' }],
       providerResult: { provider: 'fayda', mock: true, found: true, score: 0.4, match: { fullName: false, dateOfBirth: true } },
     });
     expect(warnings).toHaveLength(3);
     expect(warnings[0]).toMatch(/name differs/);
-    expect(warnings[1]).toMatch(/1 other account submitted/);
+    expect(warnings[1]).toMatch(/1 other account submitted the same id number \(\+251911000009\)/);
     expect(warnings[2]).toMatch(/weak match/);
-    expect(kycReviewWarnings({ profileMatch: { fullName: true, dateOfBirth: true }, duplicateIdentityUsers: 0, providerResult: null })).toEqual([]);
+    expect(kycReviewWarnings({ profileMatch: { fullName: true, dateOfBirth: true }, duplicateIdentityUsers: [], providerResult: null })).toEqual([]);
     expect(kycDecisionBlock('pending', true)).toBeNull();
     expect(kycDecisionBlock('approved', true)).toMatch(/already been approved/);
     expect(kycDecisionBlock('pending', false)).toMatch(/role cannot decide/);

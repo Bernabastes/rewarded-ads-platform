@@ -5,6 +5,7 @@ import type {
   CoinAdjustmentStatus,
   FraudResolution,
   FraudSeverity,
+  MediaStatus,
   OfferCompletionStatus,
   ReviewStatus,
   UserStatus,
@@ -13,7 +14,15 @@ import type {
 import type { BannedTopicKey } from '../constants';
 import type { AdminProfile, UserProfile } from './auth';
 import type { AdSummary, BannedTopicsChecklist, CampaignAnalytics, CampaignSummary } from './campaigns';
-import type { DailyPoint, DateRangeQuery, IsoDateTime, Paginated, PaginationQuery, Uuid } from './common';
+import type {
+  DailyPoint,
+  DateRangeQuery,
+  IsoDateTime,
+  Paginated,
+  PaginationMeta,
+  PaginationQuery,
+  Uuid,
+} from './common';
 import type { AdvertiserLedgerEntry, PaymentItem } from './billing';
 import type { LedgerEntry } from './users';
 import type { AdminKycSummary, DeletionRequestItem } from './phase4';
@@ -36,6 +45,12 @@ export interface AdminOverview {
   todayValidCompletions: number;
   todayFlaggedCompletions: number;
   todayPlatformRevenueEtb: number;
+  /** Phase 4 queues (single request instead of one per page). */
+  pendingKyc: number;
+  openAlerts: number;
+  pendingDeletionRequests: number;
+  adsMediaProcessing: number;
+  adsMediaFailed: number;
 }
 
 export interface PlatformConfigResponse {
@@ -102,6 +117,8 @@ export interface AdReviewItem extends AdSummary {
 
 export interface AdReviewQueueQuery extends PaginationQuery {
   status?: ReviewStatus;
+  /** Filter by media pipeline state (e.g. `failed` to find creatives that need a reprocess). */
+  mediaStatus?: MediaStatus;
 }
 
 export interface ApproveAdDto {
@@ -428,7 +445,10 @@ export interface AuditLogItem {
   id: Uuid;
   actorType: ActorType;
   actorId: Uuid | null;
+  /** Admin email (admins only; kept for compatibility). Prefer `actorLabel`. */
   actorEmail?: string | null;
+  /** Human label resolved server-side: admin email, user phone, advertiser email, "system" (or the raw id). */
+  actorLabel: string | null;
   action: string;
   targetType: string;
   targetId: Uuid | null;
@@ -441,11 +461,21 @@ export interface AuditLogItem {
 
 export interface AuditLogQuery extends PaginationQuery, DateRangeQuery {
   actorId?: Uuid;
+  /**
+   * Admin email, advertiser email, user phone (any Ethiopian format) or uuid, resolved server-side. When it
+   * matches nobody the page is empty and `meta.actorResolved === false` (the filter is never dropped).
+   */
+  actor?: string;
   actorType?: ActorType;
   action?: string;
   targetType?: string;
   targetId?: Uuid;
   q?: string;
+}
+
+export interface AuditLogMeta extends PaginationMeta {
+  /** Present when `actor=` was used: false means the actor could not be resolved. */
+  actorResolved?: boolean;
 }
 
 /* ---------- ad reports / offers ---------- */

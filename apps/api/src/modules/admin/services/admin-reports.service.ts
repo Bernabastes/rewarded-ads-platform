@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { type ActorType, Prisma } from '@prisma/client';
-import { ErrorCode } from '@rap/shared';
+import { ErrorCode, normalizeEthiopianPhone } from '@rap/shared';
 import { AppException } from '../../../common/errors/app.exception';
 import { pageArgs, paginated } from '../../../common/pagination';
 import { eachUtcDay, parseDateRange, startOfUtcDay, utcDayKey } from '../../../common/utils';
@@ -65,6 +65,13 @@ export class AdminReportsService {
         _sum: { costEtb: true, rewardEtb: true },
       }),
     ]);
+    const [pendingKyc, openAlerts, pendingDeletionRequests, adsProcessing, adsFailed] = await Promise.all([
+      this.prisma.kycSubmission.count({ where: { status: 'pending' } }),
+      this.prisma.platformAlert.count({ where: { acknowledgedAt: null } }),
+      this.prisma.accountDeletionRequest.count({ where: { status: 'pending' } }),
+      this.prisma.ad.count({ where: { mediaStatus: 'processing' } }),
+      this.prisma.ad.count({ where: { mediaStatus: 'failed' } }),
+    ]);
     return {
       pendingAdReviews: pendingAds,
       pendingCampaignReviews: pendingCampaigns,
@@ -82,6 +89,12 @@ export class AdminReportsService {
       todayPlatformRevenueEtb: new Prisma.Decimal(todayRevenue._sum.costEtb ?? 0).minus(
         todayRevenue._sum.rewardEtb ?? 0,
       ),
+      // Phase 4 queues
+      pendingKyc,
+      openAlerts,
+      pendingDeletionRequests,
+      adsMediaProcessing: adsProcessing,
+      adsMediaFailed: adsFailed,
     };
   }
 
@@ -311,6 +324,8 @@ export class AdminReportsService {
     page?: number;
     limit?: number;
     actorId?: string;
+    /** Admin email, user phone (any Ethiopian format) or advertiser email; resolved server-side to actorId. */
+    actor?: string;
     actorType?: ActorType;
     action?: string;
     targetType?: string;
@@ -320,8 +335,15 @@ export class AdminReportsService {
     to?: string;
   }) {
     const p = pageArgs(query);
+    let actorId: string | undefined = query.actorId;
+    if (!actorId && query.actor?.trim()) {
+      const resolved = await this.resolveActor(query.actor.trim());
+      // unknown actor => no rows (never silently drop the filter)
+      if (!resolved) return paginated([], 0, p, { actorResolved: false });
+      actorId = resolved;
+    }
     const where: Prisma.AuditLogWhereInput = {
-      actorId: query.actorId,
+      actorId,
       actorType: query.actorType,
       targetType: query.targetType,
       targetId: query.targetId,
@@ -347,21 +369,53 @@ export class AdminReportsService {
       this.prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip: p.skip, take: p.take }),
       this.prisma.auditLog.count({ where }),
     ]);
-    const adminIds = [
-      ...new Set(rows.filter((r) => r.actorType === 'admin' && r.actorId).map((r) => r.actorId!)),
-    ];
-    const admins = adminIds.length
-      ? await this.prisma.adminUser.findMany({
-          where: { id: { in: adminIds } },
-          select: { id: true, email: true },
-        })
-      : [];
-    const emailById = new Map(admins.map((a) => [a.id, a.email]));
+    const labels = await this.actorLabels(rows);
     return paginated(
-      rows.map((r) => ({ ...r, actorEmail: r.actorId ? (emailById.get(r.actorId) ?? null) : null })),
+      rows.map((r) => ({
+        ...r,
+        actorEmail: r.actorType === 'admin' && r.actorId ? (labels.get(r.actorId) ?? null) : null,
+        actorLabel: r.actorId ? (labels.get(r.actorId) ?? r.actorId) : r.actorType === 'system' ? 'system' : null,
+      })),
       total,
       p,
+      { actorResolved: Boolean(actorId) || undefined },
     );
+  }
+
+  /** Admin email / advertiser email / user phone -> id. Returns null when nothing matches. */
+  async resolveActor(input: string): Promise<string | null> {
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)) return input;
+    if (input.includes('@')) {
+      const email = input.toLowerCase();
+      const admin = await this.prisma.adminUser.findUnique({ where: { email }, select: { id: true } });
+      if (admin) return admin.id;
+      const advertiser = await this.prisma.advertiser.findUnique({ where: { contactEmail: email }, select: { id: true } });
+      return advertiser?.id ?? null;
+    }
+    const phone = normalizeEthiopianPhone(input);
+    if (phone) {
+      const user = await this.prisma.user.findUnique({ where: { phoneNumber: phone }, select: { id: true } });
+      return user?.id ?? null;
+    }
+    return null;
+  }
+
+  /** Human labels for the actors of a page of rows: admin email, advertiser email, user phone. */
+  private async actorLabels(rows: Array<{ actorType: ActorType; actorId: string | null }>) {
+    const idsOf = (type: ActorType) => [...new Set(rows.filter((r) => r.actorType === type && r.actorId).map((r) => r.actorId!))];
+    const [adminIds, userIds, advertiserIds] = [idsOf('admin'), idsOf('user'), idsOf('advertiser')];
+    const [admins, users, advertisers] = await Promise.all([
+      adminIds.length ? this.prisma.adminUser.findMany({ where: { id: { in: adminIds } }, select: { id: true, email: true } }) : [],
+      userIds.length ? this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, phoneNumber: true } }) : [],
+      advertiserIds.length
+        ? this.prisma.advertiser.findMany({ where: { id: { in: advertiserIds } }, select: { id: true, contactEmail: true } })
+        : [],
+    ]);
+    const labels = new Map<string, string>();
+    for (const a of admins) labels.set(a.id, a.email);
+    for (const u of users) labels.set(u.id, u.phoneNumber);
+    for (const a of advertisers) labels.set(a.id, a.contactEmail);
+    return labels;
   }
 
   /* ------------------------------ fraud actions ------------------------------ */

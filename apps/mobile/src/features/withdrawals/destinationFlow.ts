@@ -1,4 +1,4 @@
-import type { PayoutMethod, ResolveDestinationResponse } from '@rap/shared';
+import type { PayoutDestinationItem, PayoutMethod, ResolveDestinationResponse } from '@rap/shared';
 
 /** A destination the user already paid out to from this device (full number, never masked). */
 export interface RememberedDestination {
@@ -32,7 +32,10 @@ export type DestinationPhase =
   | {
       phase: 'verified';
       via: 'known_chip' | 'known_server' | 'otp' | 'no_otp';
+      /** Full destination when the client has it (typed / remembered); masked when chosen by server id. */
       payoutDestination: string;
+      /** Server id of a KNOWN destination: sent instead of the number (no lookup / OTP; nothing stored on-device). */
+      payoutDestinationId: string | null;
       accountName: string | null;
       resolution: ResolveDestinationResponse | null;
     };
@@ -54,6 +57,8 @@ export const initialDestinationState: DestinationFlowState = { input: '', phase:
 export type DestinationEvent =
   | { type: 'input_changed'; value: string }
   | { type: 'known_selected'; item: RememberedDestination }
+  /** A `knownDestinations` chip (server id) was tapped: the API resolves the number, nothing is stored on-device. */
+  | { type: 'known_id_selected'; item: PayoutDestinationItem }
   | { type: 'reset' }
   | { type: 'resolve_started' }
   | { type: 'resolve_succeeded'; resolution: ResolveDestinationResponse }
@@ -86,6 +91,20 @@ export function destinationReducer(state: DestinationFlowState, event: Destinati
           phase: 'verified',
           via: 'known_chip',
           payoutDestination: event.item.destination,
+          payoutDestinationId: null,
+          accountName: event.item.accountName,
+          resolution: null,
+        },
+      };
+    case 'known_id_selected':
+      return {
+        input: '',
+        error: null,
+        phase: {
+          phase: 'verified',
+          via: 'known_chip',
+          payoutDestination: event.item.destination, // masked - display only
+          payoutDestinationId: event.item.id,
           accountName: event.item.accountName,
           resolution: null,
         },
@@ -104,6 +123,7 @@ export function destinationReducer(state: DestinationFlowState, event: Destinati
             phase: 'verified',
             via: resolution.known ? 'known_server' : 'no_otp',
             payoutDestination: resolution.normalizedDestination,
+            payoutDestinationId: null,
             accountName: resolution.accountName,
             resolution,
           },
@@ -145,6 +165,7 @@ export function destinationReducer(state: DestinationFlowState, event: Destinati
           phase: 'verified',
           via: 'otp',
           payoutDestination: resolution.normalizedDestination,
+          payoutDestinationId: null,
           accountName: resolution.accountName,
           resolution,
         },

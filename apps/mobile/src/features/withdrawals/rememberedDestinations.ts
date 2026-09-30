@@ -8,10 +8,10 @@ const STORAGE_KEY = 'gize.wallet.destinations.v1';
 const MAX_REMEMBERED = 10;
 
 /**
- * The API only returns MASKED known destinations (`+2519****0137`) and `POST /withdrawals` needs the
- * full number, so the device keeps the destinations it successfully submitted. A `knownDestinations`
- * chip becomes a one-tap choice when the device remembers its full number; otherwise the chip asks
- * the user to type the number (the partner lookup then answers `known: true` and no OTP is needed).
+ * Known destinations from the API are MASKED (`+2519****0137`) and carry a server `id`; since Phase 4C a known chip
+ * is sent as `payoutDestinationId` and the server resolves the number, so nothing needs to be stored on-device.
+ * The device still remembers the destinations it submitted so the summary can show the full number (display
+ * only) and so older API versions keep working.
  */
 export async function loadRememberedDestinations(storage: KeyValueStorage = kvStorage): Promise<RememberedDestination[]> {
   try {

@@ -29,8 +29,9 @@ Architecture, decisions and assumptions live in [`docs/ARCHITECTURE.md`](docs/AR
              ┌─────────────────────────────────────────────────────────────────┐
              │  NestJS API  :3000  (Swagger /api/docs)                          │
              │  auth · users · ads · offers · campaigns · billing ·             │
-             │  withdrawals · admin · fraud  +  BullMQ workers                  │
-             │  (payouts, notifications, ledger reconciliation)                 │
+             │  withdrawals · kyc · legal · referrals · alerts · media ·        │
+             │  data-rights · admin · fraud  +  BullMQ workers (payouts,        │
+             │  notifications, reconciliation, alert rules, media, data-rights) │
              └───────┬──────────────────┬──────────────────────┬──────────────┘
                      ▼                  ▼                      ▼
              PostgreSQL 16       Redis 7 (rate limits,     MinIO / S3 (creatives,
@@ -38,21 +39,23 @@ Architecture, decisions and assumptions live in [`docs/ARCHITECTURE.md`](docs/AR
              only ledgers        queues)                   public read)
                      │
      external partners behind interfaces (mocked without credentials):
-     telebirr & Chapa payouts · Chapa checkout (advertiser top-ups) · SMS OTP · Firebase Cloud Messaging
+     telebirr & Chapa payouts + account lookup · Chapa checkout (advertiser top-ups) · SMS OTP ·
+     Firebase Cloud Messaging · Fayda id verification · Telegram / webhook alert delivery
 ```
 
 ## Workspaces
 
 | Path                  | Package               | What it is                                                                                                                                                                       | README                                                         |
 | --------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `apps/api`            | `@rap/api`            | NestJS 12 · Prisma 6 · PostgreSQL 16 · Redis 7 · BullMQ 6. Single transactional coin ledger, server-side ad verification, fraud engine, dual-approval workflows, audit log       | [apps/api/README.md](apps/api/README.md)                       |
-| `apps/mobile`         | `@rap/mobile`         | Expo SDK 57 / React Native user app: Amharic-first (am/en/om/ti), onboarding + OTP, feed, server-timed player, wallet, withdrawals, offers, notifications                        | [apps/mobile/README.md](apps/mobile/README.md)                 |
-| `apps/advertiser-web` | `@rap/advertiser-web` | React 19 + Vite + Tailwind v4 portal: campaign wizard with presigned uploads, raw-vs-fraud-filtered analytics, wallet top-ups, invoices                                          | [apps/advertiser-web/README.md](apps/advertiser-web/README.md) |
-| `apps/admin-web`      | `@rap/admin-web`      | React 19 + Vite + Tailwind v4 internal console: RBAC, review queue with banned-topics checklist, fraud dashboard, dual-approval withdrawals and coin adjustments, revenue, audit | [apps/admin-web/README.md](apps/admin-web/README.md)           |
+| `apps/api`            | `@rap/api`            | NestJS 12 · Prisma 6 · PostgreSQL 16 · Redis 7 · BullMQ 6. Single transactional coin ledger, server-side ad verification, fraud engine, dual-approval workflows, audit log; Phase 4: idempotency keys, destination verification, KYC tiers, consent, alerts, frequency caps, media pipeline, referrals, Ethiopian calendar, data rights, impersonation | [apps/api/README.md](apps/api/README.md)                       |
+| `apps/mobile`         | `@rap/mobile`         | Expo SDK 57 / React Native user app: Amharic-first (am/en/om/ti), onboarding + OTP, feed, server-timed player, wallet, withdrawals (destination confirm + OTP, known chips), offers, notifications; Phase 4: consent screen, Ethiopian DOB picker, KYC upload, referrals, privacy (export / delete) | [apps/mobile/README.md](apps/mobile/README.md)                 |
+| `apps/advertiser-web` | `@rap/advertiser-web` | React 19 + Vite + Tailwind v4 portal: campaign wizard with presigned uploads + frequency cap, media processing status, raw-vs-fraud-filtered analytics, wallet top-ups (idempotent), invoices, terms acceptance | [apps/advertiser-web/README.md](apps/advertiser-web/README.md) |
+| `apps/admin-web`      | `@rap/admin-web`      | React 19 + Vite + Tailwind v4 internal console: RBAC, review queue (banned-topics checklist, media status), fraud dashboard, dual-approval withdrawals and coin adjustments, revenue, audit; Phase 4: KYC queue, alerts, referrals, deletion requests, read-only impersonation | [apps/admin-web/README.md](apps/admin-web/README.md)           |
 | `packages/shared`     | `@rap/shared`         | The contract: enums, `ErrorCode`, `PLATFORM_DEFAULTS`, money helpers, `API_ROUTES`, request/response types (CJS + ESM)                                                           | [packages/shared/README.md](packages/shared/README.md)         |
 
 Infrastructure lives at the root: `docker-compose.yml`, `.env.example`, `scripts/` (`demo.ps1`, `demo-flow.mjs`,
-`smoke.ps1`, `run-workspace.mjs`), `docker/nginx-spa.conf`.
+`smoke.ps1`, `backup.*`, `restore.*`, `install-media-tools.mjs`, `run-workspace.mjs`), `docker/nginx-spa.conf`;
+operations in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ## One-command start (whole stack in containers)
 
@@ -93,8 +96,8 @@ pnpm dev:mobile                               # Expo web on :8081 (EXPO_PUBLIC_A
 | `pnpm media:tools`                                          | Install desktop ffmpeg/ffprobe for the media pipeline when running the API outside Docker     |
 | `pwsh scripts/backup.ps1` / `scripts/restore.ps1`           | Database dump + bucket mirror, and the restore drill (see `docs/RUNBOOK.md`)                  |
 
-Test counts (all green): API 206 Jest unit tests + 3 e2e · mobile 78 Jest · advertiser portal 55 Vitest · admin
-dashboard 63 Vitest · shared 12.
+Test counts (all green): API 217 Jest unit tests + 3 e2e · mobile 144 Jest · advertiser portal 105 Vitest · admin
+dashboard 98 Vitest · shared 12.
 
 ## Demo credentials (seeded)
 
@@ -113,6 +116,19 @@ the OTP boxes in development builds; `OTP_DEV_FIXED_CODE=123456` also works for 
 production). Any new Ethiopian number creates a fresh user. Seeded fraud cases: `+251911002466/2603/2740` share a
 device (open flags), `+251911003151` is banned, `+251911002877` / `+251911003014` are suspended, `+251900000017` is
 age-rejected.
+
+Phase 4 demo data (seeded):
+
+| Feature              | Where to look / who to log in as                                                                                                                                                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legal / consent      | Terms + privacy **v1.0** in `en` and `am`; every seeded account already consented – a **new** phone number gets the consent screen before the feed                                                                                             |
+| KYC                  | Admin → KYC queue: pending `+251911001233` (Fayda), `+251911001644` (national id), `+251911001918` (Fayda, mock registry name mismatch); approved / `id_verified`: `+251911000137`, `+251911000411`, `+251911000685`; rejected `+251911002192` |
+| Referrals            | `+251911000137` (code `779HLB`) has 2 paid referrals, `+251911000411` (`88CJ7D`) 1; pending (`+251911000548`, `+251911000822`), withheld – daily cap (`+251911000959`), rejected – shared device (`+251911002466` → `+251911002740`)           |
+| Alerts               | Admin → Alerts: `PAYOUT_FAILURE_RATE` (acknowledged), `ACCOUNT_MINTING` critical, `SPEND_VELOCITY`, `OTP_SPIKE` open; "Run rules now" as `super@rap.et`                                                                                        |
+| Deletion requests    | Admin → Deletion requests: `+251911002192` pending (grace period running)                                                                                                                                                                      |
+| Payout destinations  | Users with withdrawal history (e.g. `+251911000137` telebirr, `+251911000411` bank) have **known** destinations (one-tap chip); any other number is new → partner lookup + OTP; in MOCK mode a number ending in `0000` is "not found"          |
+| Media pipeline       | Upload any MP4 in the portal wizard: probe → duration correction → 720p transcode → poster (`processing` badge until done; review refuses approval before)                                                                                     |
+| Impersonation        | Admin → Users → any user → "Impersonate" (support / super_admin, reason required) → read-only banner                                                                                                                                             |
 
 ## The demo journey
 
@@ -198,7 +214,10 @@ Product
 
 Everything is documented in [`.env.example`](.env.example) (one root `.env` drives docker compose, the API, Prisma,
 the seed and the scripts). Frontends read `VITE_API_URL` (web) and `EXPO_PUBLIC_API_URL` (mobile), default
-`http://localhost:3000`.
+`http://localhost:3000`. Phase 4 groups: `KYC_*` / `ID_VERIFICATION_PROVIDER` / `FAYDA_*`, `DESTINATION_RESOLVE_TTL_MINUTES`,
+`ALERT_*` (Telegram / webhook delivery + rule thresholds), `DEFAULT_FREQUENCY_CAP` / `ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY`,
+`MEDIA_*` (ffmpeg paths, time-box, target height), `REFERRAL_*` / `REFEREE_BONUS_COINS`, `ACCOUNT_DELETION_GRACE_DAYS` /
+`DATA_*`, `IMPERSONATION_TTL_SECONDS`, `IDEMPOTENCY_TTL_HOURS`.
 
 ## Key engineering guarantees
 

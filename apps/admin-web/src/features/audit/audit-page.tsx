@@ -110,15 +110,22 @@ export function AuditPage() {
         cell: ({ row }) => {
           const r = row.original;
           const phone = r.actorType === 'user' && r.actorId ? phones.get(r.actorId) : undefined;
+          // Phase 4C: the API resolves the actor label server-side (admin email / user phone / advertiser email).
+          const label = r.actorLabel && r.actorLabel !== r.actorId ? r.actorLabel : r.actorEmail ?? phone;
           return (
             <div className="min-w-0 text-xs">
               <div className="truncate">
-                {r.actorEmail ?? (r.actorType === 'system' ? 'system' : r.actorId ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    {phone ? <span className="font-mono" data-testid="actor-phone">{phone}</span> : null}
-                    <span className={cn('font-mono', phone && 'text-fg-subtle')}>{r.actorId.slice(0, 8)}…</span>
+                {label ? (
+                  <span className={cn(r.actorType === 'user' && 'font-mono')} data-testid={r.actorType === 'user' ? 'actor-phone' : undefined}>
+                    {label}
                   </span>
-                ) : '—')}
+                ) : r.actorType === 'system' ? (
+                  'system'
+                ) : r.actorId ? (
+                  <span className="font-mono">{r.actorId.slice(0, 8)}…</span>
+                ) : (
+                  '—'
+                )}
               </div>
               <div className="text-2xs text-fg-subtle">{humanize(r.actorType)}</div>
             </div>

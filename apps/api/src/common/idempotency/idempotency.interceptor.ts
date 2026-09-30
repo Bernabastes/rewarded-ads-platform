@@ -146,14 +146,16 @@ export class IdempotencyInterceptor implements NestInterceptor {
           throw AppException.conflict(
             ErrorCode.IDEMPOTENCY_KEY_REUSED,
             `${IDEMPOTENCY_KEY_HEADER} was already used with a different request payload`,
-            { key, inProgress: false },
+            { key, inProgress: existing.statusCode === 0, resourceId: resourceIdOf(existing.responseBody) },
           );
         }
         if (existing.statusCode === 0) {
+          // The first request is still executing (sub-second window): its resource id is not known yet, so
+          // clients should retry the SAME request shortly - the finished response is then replayed.
           throw AppException.conflict(
             ErrorCode.IDEMPOTENCY_KEY_REUSED,
-            'A request with this Idempotency-Key is still being processed',
-            { key, inProgress: true },
+            'A request with this Idempotency-Key is still being processed; retry the same request shortly',
+            { key, inProgress: true, resourceId: null },
           );
         }
         return { kind: 'replay', statusCode: existing.statusCode, body: existing.responseBody };
@@ -187,4 +189,14 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const result = await this.prisma.idempotencyKey.deleteMany({ where: { expiresAt: { lt: now } } });
     return result.count;
   }
+}
+
+/** The created resource's id from a stored response body (withdrawal / payment / adjustment / completion). */
+export function resourceIdOf(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  for (const key of ['id', 'paymentId', 'withdrawalId', 'completionId']) {
+    if (typeof b[key] === 'string' && b[key]) return b[key] as string;
+  }
+  return null;
 }

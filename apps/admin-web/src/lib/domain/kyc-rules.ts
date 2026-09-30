@@ -60,7 +60,12 @@ export function kycReviewWarnings(detail: Pick<AdminKycDetail, 'profileMatch' | 
   const out: string[] = [];
   if (!detail.profileMatch.fullName) out.push('Submitted name differs from the profile name.');
   if (!detail.profileMatch.dateOfBirth) out.push('Submitted date of birth differs from the profile.');
-  if (detail.duplicateIdentityUsers > 0) out.push(`${detail.duplicateIdentityUsers} other account${detail.duplicateIdentityUsers === 1 ? '' : 's'} submitted the same id number.`);
+  const duplicates = detail.duplicateIdentityUsers.length;
+  if (duplicates > 0) {
+    out.push(
+      `${duplicates} other account${duplicates === 1 ? '' : 's'} submitted the same id number (${detail.duplicateIdentityUsers.map((u) => u.phoneNumber).join(', ')}).`,
+    );
+  }
   const verdict = preCheckVerdict(parseProviderResult(detail.providerResult));
   if (verdict === 'weak') out.push('Registry pre-check reports a weak match.');
   if (verdict === 'not_found') out.push('Registry pre-check could not find this id number.');

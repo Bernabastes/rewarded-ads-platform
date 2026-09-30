@@ -142,11 +142,9 @@ export function DestinationStep({
                 accessibilityLabel={t('withdraw.verify.knownChipA11y', { name: server.accountName ?? server.destination })}
                 onPress={() => {
                   setKnownHint(null);
+                  // Phase 4C: a known chip is one tap - the server resolves the number from `payoutDestinationId`.
                   if (full) dispatch({ type: 'known_selected', item: full });
-                  else {
-                    dispatch({ type: 'input_changed', value: '' });
-                    setKnownHint(t('withdraw.verify.knownTypeHint', { masked: server.destination }));
-                  }
+                  else dispatch({ type: 'known_id_selected', item: server });
                 }}
               />
             ))}

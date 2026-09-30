@@ -63,6 +63,36 @@ export class DestinationsService {
     });
   }
 
+  /**
+   * Resolves a KNOWN destination by id for `POST /withdrawals { payoutDestinationId }`. Must belong to the user,
+   * match the requested method and have been used for a successful request before (otherwise the client must go
+   * through resolve + OTP with the full number).
+   */
+  async findKnownById(userId: string, id: string, payoutMethod: PayoutMethod): Promise<PayoutDestination> {
+    const row = await this.prisma.payoutDestination.findFirst({ where: { id, userId } });
+    if (!row) {
+      throw AppException.badRequest(ErrorCode.INVALID_PAYOUT_DESTINATION, 'Unknown payout destination id', {
+        payoutDestinationId: id,
+      });
+    }
+    if (row.payoutMethod !== payoutMethod) {
+      throw AppException.badRequest(
+        ErrorCode.INVALID_PAYOUT_DESTINATION,
+        `This destination belongs to the ${row.payoutMethod} method`,
+        { payoutDestinationId: id, payoutMethod: row.payoutMethod },
+      );
+    }
+    if (!row.lastUsedAt) {
+      this.security.warn('destination.not_verified', { userId, method: payoutMethod, reason: 'id_not_known' });
+      throw AppException.unprocessable(
+        ErrorCode.DESTINATION_NOT_VERIFIED,
+        'This destination has not been used yet; verify it with the full number first',
+        { payoutDestinationId: id },
+      );
+    }
+    return row;
+  }
+
   /** Partner account lookup; upserts the destination with `verifiedAt = now`. */
   async resolve(userId: string, input: DestinationInput, ip?: string) {
     if (!this.registry.isMethodAvailable(input.payoutMethod)) {
@@ -185,14 +215,14 @@ export class DestinationsService {
         where: { phoneNumber: user.phoneNumber, purpose: 'destination_change', consumedAt: null },
         orderBy: { createdAt: 'desc' },
       });
-      if (!otp) throw AppException.unauthorized(ErrorCode.OTP_INVALID, 'No pending verification code');
-      if (otp.expiresAt < now) throw AppException.unauthorized(ErrorCode.OTP_EXPIRED, 'Verification code expired');
+      if (!otp) throw AppException.badRequest(ErrorCode.OTP_INVALID, 'No pending verification code');
+      if (otp.expiresAt < now) throw AppException.badRequest(ErrorCode.OTP_EXPIRED, 'Verification code expired');
       if (otp.attempts >= e.OTP_MAX_ATTEMPTS) {
         throw AppException.rateLimited(ErrorCode.OTP_TOO_MANY_ATTEMPTS, 'Too many incorrect attempts; request a new code');
       }
       if (otp.codeHash !== sha256(`${user.phoneNumber}:destination_change:${code}`)) {
         await this.prisma.otpCode.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
-        throw AppException.unauthorized(ErrorCode.OTP_INVALID, 'Incorrect verification code', {
+        throw AppException.badRequest(ErrorCode.OTP_INVALID, 'Incorrect verification code', {
           attemptsRemaining: e.OTP_MAX_ATTEMPTS - otp.attempts - 1,
         });
       }

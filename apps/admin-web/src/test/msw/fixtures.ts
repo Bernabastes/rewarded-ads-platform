@@ -93,6 +93,11 @@ export const overview: AdminOverview = {
   todayValidCompletions: 8,
   todayFlaggedCompletions: 4,
   todayPlatformRevenueEtb: 8.5,
+  pendingKyc: 3,
+  openAlerts: 3,
+  pendingDeletionRequests: 1,
+  adsMediaProcessing: 0,
+  adsMediaFailed: 0,
 };
 
 export const config: PlatformConfigResponse = {
@@ -316,7 +321,8 @@ export const kycDetail: AdminKycDetail = {
     selfie: { url: 'https://storage.example/kyc/selfie.png?sig=1', expiresInSeconds: 300 },
   },
   profileMatch: { fullName: true, dateOfBirth: true },
-  duplicateIdentityUsers: 0,
+  duplicateIdentityUsers: [],
+  duplicateIdentityCount: 0,
 };
 
 export const kycMismatchDetail: AdminKycDetail = {
@@ -327,7 +333,8 @@ export const kycMismatchDetail: AdminKycDetail = {
     selfie: { url: 'https://storage.example/kyc/selfie2.png?sig=1', expiresInSeconds: 300 },
   },
   profileMatch: { fullName: false, dateOfBirth: true },
-  duplicateIdentityUsers: 1,
+  duplicateIdentityUsers: [{ id: 'user-9', phoneNumber: '+251911000009', kycStatus: 'approved' }],
+  duplicateIdentityCount: 1,
 };
 
 export const kycQueue: Paginated<AdminKycSummary> = { data: [kycPending, kycMismatch], meta: { page: 1, limit: 50, total: 2 } };
@@ -434,6 +441,7 @@ export const auditAdminRow: AuditLogItem = {
   actorType: 'admin',
   actorId: 'admin-finance',
   actorEmail: 'finance@rap.et',
+  actorLabel: 'finance@rap.et',
   action: 'withdrawal.approved',
   targetType: 'withdrawal',
   targetId: 'wd-650',
@@ -449,6 +457,7 @@ export const auditUserRow: AuditLogItem = {
   actorType: 'user',
   actorId: 'user-2192',
   actorEmail: null,
+  actorLabel: '+251911002192',
   action: 'deletion_request.created',
   targetType: 'deletion_request',
   targetId: 'del-1',

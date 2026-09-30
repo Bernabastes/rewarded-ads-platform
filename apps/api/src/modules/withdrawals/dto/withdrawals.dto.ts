@@ -1,6 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PayoutMethod, WithdrawalStatus } from '@prisma/client';
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { PaginationQueryDto } from '../../../common/pagination';
 
 export class CreateWithdrawalDto {
@@ -15,12 +27,22 @@ export class CreateWithdrawalDto {
   @IsEnum(PayoutMethod)
   payoutMethod: PayoutMethod;
 
-  /** Phone number for telebirr / CBE Birr, account number for bank. */
-  @ApiProperty({ example: '0911223344' })
+  /** Phone number for telebirr / CBE Birr, account number for bank. Optional when `payoutDestinationId` is given. */
+  @ApiPropertyOptional({ example: '0911223344' })
+  @ValidateIf((o: CreateWithdrawalDto) => !o.payoutDestinationId)
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
-  payoutDestination: string;
+  payoutDestination?: string;
+
+  /**
+   * Id of a KNOWN destination (`GET /withdrawals/config` -> knownDestinations[].id). The server resolves the full
+   * destination, so clients never need to store or resend the number; no lookup/OTP is required.
+   */
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  payoutDestinationId?: string;
 
   /** Account holder name (required for bank transfers). */
   @ApiPropertyOptional({ example: 'Abebe Bikila' })

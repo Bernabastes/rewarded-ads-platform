@@ -112,6 +112,69 @@ describe('DestinationsService (withdrawal destination verification)', () => {
     });
   });
 
+  describe('findKnownById (POST /withdrawals { payoutDestinationId })', () => {
+    it('returns a KNOWN destination the user owns for the requested method', async () => {
+      prisma.payoutDestination.findFirst.mockResolvedValue({
+        id: uuid(5),
+        userId: USER,
+        payoutMethod: 'telebirr',
+        destination: '+251911223344',
+        lastUsedAt: minutesAgo(5000),
+        accountName: 'Abebe Tesfaye',
+      });
+      const row = await service.findKnownById(USER, uuid(5), 'telebirr');
+      expect(row.destination).toBe('+251911223344');
+      expect(prisma.payoutDestination.findFirst).toHaveBeenCalledWith({ where: { id: uuid(5), userId: USER } });
+    });
+
+    it("rejects ids that do not belong to the user or belong to another method", async () => {
+      prisma.payoutDestination.findFirst.mockResolvedValueOnce(null);
+      await expect(service.findKnownById(USER, uuid(6), 'telebirr')).rejects.toMatchObject({
+        code: ErrorCode.INVALID_PAYOUT_DESTINATION,
+        status: 400,
+      });
+      prisma.payoutDestination.findFirst.mockResolvedValueOnce({ id: uuid(5), userId: USER, payoutMethod: 'bank', lastUsedAt: new Date() });
+      await expect(service.findKnownById(USER, uuid(5), 'telebirr')).rejects.toMatchObject({
+        code: ErrorCode.INVALID_PAYOUT_DESTINATION,
+      });
+    });
+
+    it('refuses a destination that was resolved but never used (must go through the full-number flow)', async () => {
+      prisma.payoutDestination.findFirst.mockResolvedValue({ id: uuid(5), userId: USER, payoutMethod: 'telebirr', lastUsedAt: null });
+      await expect(service.findKnownById(USER, uuid(5), 'telebirr')).rejects.toMatchObject({
+        code: ErrorCode.DESTINATION_NOT_VERIFIED,
+        status: 422,
+      });
+    });
+  });
+
+  describe('verifyOtp (destination_change)', () => {
+    it('answers 400 (not 401) for a wrong or missing code: business errors are never token errors', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ phoneNumber: '+251911000000' });
+      prisma.otpCode.findFirst.mockResolvedValueOnce(null);
+      await expect(service.verifyOtp(USER, '123456', input, '1.1.1.1')).rejects.toMatchObject({
+        code: ErrorCode.OTP_INVALID,
+        status: 400,
+      });
+      prisma.otpCode.findFirst.mockResolvedValueOnce({
+        id: 'otp-1',
+        codeHash: 'nope',
+        attempts: 0,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await expect(service.verifyOtp(USER, '000000', input, '1.1.1.1')).rejects.toMatchObject({
+        code: ErrorCode.OTP_INVALID,
+        status: 400,
+        details: { attemptsRemaining: 4 },
+      });
+      prisma.otpCode.findFirst.mockResolvedValueOnce({ id: 'otp-2', codeHash: 'x', attempts: 0, expiresAt: new Date(Date.now() - 1) });
+      await expect(service.verifyOtp(USER, '000000', input, '1.1.1.1')).rejects.toMatchObject({
+        code: ErrorCode.OTP_EXPIRED,
+        status: 400,
+      });
+    });
+  });
+
   describe('resolve', () => {
     it('calls the payout partner, stores verifiedAt and reports whether an OTP is still required', async () => {
       const result = await service.resolve(USER, input, '1.1.1.1');

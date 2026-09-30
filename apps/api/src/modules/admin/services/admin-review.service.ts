@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { type AdReportStatus, type CampaignStatus, Prisma, type ReviewStatus } from '@prisma/client';
+import { type AdReportStatus, type CampaignStatus, type MediaStatus, Prisma, type ReviewStatus } from '@prisma/client';
 import { BANNED_TOPICS, ErrorCode } from '@rap/shared';
 import { AppException } from '../../../common/errors/app.exception';
 import { pageArgs, paginated } from '../../../common/pagination';
@@ -46,9 +46,9 @@ export class AdminReviewService {
 
   /* ------------------------------ ads ------------------------------ */
 
-  async reviewQueue(query: { page?: number; limit?: number; status?: ReviewStatus }) {
+  async reviewQueue(query: { page?: number; limit?: number; status?: ReviewStatus; mediaStatus?: MediaStatus }) {
     const p = pageArgs(query);
-    const where: Prisma.AdWhereInput = { reviewStatus: query.status ?? 'pending' };
+    const where: Prisma.AdWhereInput = { reviewStatus: query.status ?? 'pending', mediaStatus: query.mediaStatus };
     const [rows, total] = await Promise.all([
       this.prisma.ad.findMany({
         where,

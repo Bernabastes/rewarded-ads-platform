@@ -3,7 +3,13 @@ import { Reflector } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { firstValueFrom, of, throwError } from 'rxjs';
 import { mockPrisma, mockSecurity, testConfig, uuid } from '../../testing/test-utils';
-import { canonicalJson, IDEMPOTENT_KEY, IdempotencyInterceptor, requestFingerprint } from './idempotency.interceptor';
+import {
+  canonicalJson,
+  IDEMPOTENT_KEY,
+  IdempotencyInterceptor,
+  requestFingerprint,
+  resourceIdOf,
+} from './idempotency.interceptor';
 
 function p2002() {
   return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -136,7 +142,7 @@ describe('IdempotencyInterceptor', () => {
     await expect(run(ctx, { handle: handler })).rejects.toMatchObject({
       code: 'IDEMPOTENCY_KEY_REUSED',
       status: 409,
-      details: { key: 'k-diff', inProgress: false },
+      details: { key: 'k-diff', inProgress: false, resourceId: 'w-1' },
     });
     expect(handler).not.toHaveBeenCalled();
   });
@@ -153,8 +159,16 @@ describe('IdempotencyInterceptor', () => {
     });
     await expect(run(ctx, { handle: () => of('nope') })).rejects.toMatchObject({
       code: 'IDEMPOTENCY_KEY_REUSED',
-      details: { key: 'k-race', inProgress: true },
+      details: { key: 'k-race', inProgress: true, resourceId: null },
     });
+  });
+
+  it('resourceIdOf finds the created resource id in stored bodies', () => {
+    expect(resourceIdOf({ id: 'w-1' })).toBe('w-1');
+    expect(resourceIdOf({ paymentId: 'p-1', txRef: 'x' })).toBe('p-1');
+    expect(resourceIdOf({ completionId: 'c-1' })).toBe('c-1');
+    expect(resourceIdOf({ status: 'ok' })).toBeNull();
+    expect(resourceIdOf(null)).toBeNull();
   });
 
   it('releases the placeholder when the handler fails so the client can retry with the same key', async () => {
