@@ -88,6 +88,14 @@ export default function WithdrawalDetailScreen() {
                 {' · '}
                 {item.payoutDestination}
               </Text>
+              {item.destinationAccountName ? (
+                <View style={[styles.pollRow, { marginTop: 4 }]} testID="withdrawal-account-name">
+                  <Icon name="circleCheck" size={14} color={colors.success} />
+                  <Text variant="bodySmall" weight="medium">
+                    {t('withdraw.verify.paidTo', { name: item.destinationAccountName })}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
           <View style={[styles.rowBetween, { marginTop: spacing.md }]}>

@@ -14,4 +14,7 @@ export const api = new ApiClient({
     const reason = blockedReasonFromCode(code);
     if (reason) useAuthStore.getState().setBlocked(reason);
   },
+  onConsentRequired: (kinds) => {
+    useAuthStore.getState().requireConsent(kinds);
+  },
 });

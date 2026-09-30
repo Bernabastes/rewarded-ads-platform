@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { Stack } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
@@ -20,6 +20,22 @@ import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
+/**
+ * Global consent gate: whenever the API answers 403 CONSENT_REQUIRED (`consentPrompt` bumps) the user is
+ * sent to the consent screen on top of the current stack; accepting pops back to where they were.
+ */
+function useConsentGate(enabled: boolean) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const consentPrompt = useAuthStore((s) => s.consentPrompt);
+  const handled = useRef(0);
+  useEffect(() => {
+    if (!enabled || consentPrompt === 0 || handled.current === consentPrompt) return;
+    handled.current = consentPrompt;
+    if (pathname !== '/consent') router.push('/consent');
+  }, [consentPrompt, enabled, pathname, router]);
+}
+
 function RootNavigator() {
   const { colors, isDark } = useTheme();
   const status = useAuthStore((s) => s.status);
@@ -29,6 +45,7 @@ function RootNavigator() {
 
   const signedIn = status === 'signedIn';
   const canUseApp = signedIn && !blocked && profileComplete;
+  useConsentGate(canUseApp);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -52,6 +69,7 @@ function RootNavigator() {
         </Stack.Protected>
         <Stack.Protected guard={canUseApp}>
           <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+          <Stack.Screen name="consent" options={{ animation: 'fade', gestureEnabled: false }} />
           <Stack.Screen name="ad/[id]" options={{ animation: 'slide_from_bottom', gestureEnabled: false }} />
           <Stack.Screen name="ad/result" options={{ animation: 'fade', gestureEnabled: false }} />
           <Stack.Screen name="offers/survey/[id]" />
@@ -60,6 +78,11 @@ function RootNavigator() {
           <Stack.Screen name="wallet/withdrawals/index" />
           <Stack.Screen name="wallet/withdrawals/[id]" />
           <Stack.Screen name="notifications" />
+          <Stack.Screen name="kyc/index" />
+          <Stack.Screen name="kyc/submit" />
+          <Stack.Screen name="referrals" />
+          <Stack.Screen name="legal/index" />
+          <Stack.Screen name="privacy/index" />
           <Stack.Screen name="settings/language" />
           <Stack.Screen name="settings/appearance" />
           <Stack.Screen name="settings/notifications" />

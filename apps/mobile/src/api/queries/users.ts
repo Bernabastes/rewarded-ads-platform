@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey 
 import { usersApi } from '@/api/endpoints/users';
 import { invalidateMoney, queryKeys } from '@/api/queryClient';
 import { useAuthStore } from '@/auth/authStore';
+import { isExportInProgress, latestExport } from '@/features/privacy/dataExport';
 
 export const PAGE_SIZE = 20;
 
@@ -89,6 +90,48 @@ export function useMarkNotificationRead() {
 
 export function useReportAd() {
   return useMutation({ mutationFn: usersApi.reportAd });
+}
+
+/* ---------- Phase 4A ---------- */
+
+export function useKyc(enabled = true) {
+  return useQuery({ queryKey: queryKeys.kyc, queryFn: usersApi.kyc, enabled, staleTime: 15_000 });
+}
+
+export function useReferrals(enabled = true) {
+  return useQuery({ queryKey: queryKeys.referrals, queryFn: usersApi.referrals, enabled, staleTime: 30_000 });
+}
+
+export function useDeletionRequest(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.deletionRequest,
+    queryFn: usersApi.deletionRequest,
+    enabled,
+    staleTime: 15_000,
+  });
+}
+
+export function useDataExports(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.dataExports,
+    queryFn: usersApi.dataExports,
+    enabled,
+    staleTime: 5_000,
+    // Keep polling while the newest archive is still being prepared.
+    refetchInterval: (query) => (isExportInProgress(latestExport(query.state.data?.data)) ? 2000 : false),
+  });
+}
+
+/** Refreshes the profile after a consent / KYC change so `requiresConsent`, `kycTier` etc. are current. */
+export function useRefreshMe() {
+  const client = useQueryClient();
+  const setUser = useAuthStore((s) => s.setUser);
+  return async () => {
+    const user = await usersApi.me();
+    setUser(user);
+    client.setQueryData(queryKeys.me, user);
+    return user;
+  };
 }
 
 export function useInvalidateMoney() {

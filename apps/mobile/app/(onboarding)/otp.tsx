@@ -1,5 +1,6 @@
+import { ErrorCode } from '@rap/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { OtpInput } from '@/components/ui/OtpInput';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
+import { useCountdown } from '@/components/ui/useCountdown';
 import { IS_DEV } from '@/config';
 import { getDeviceIdentity } from '@/device/fingerprint';
 import { formatPhoneForDisplay } from '@/features/auth/phone';
@@ -21,12 +23,23 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { errorMessage } from '@/utils/errorMessage';
 
 const OTP_LENGTH = 6;
+const REFERRAL_ERROR_CODES = new Set<string>([
+  ErrorCode.REFERRAL_CODE_INVALID,
+  ErrorCode.REFERRAL_SELF_NOT_ALLOWED,
+  ErrorCode.REFERRAL_ALREADY_APPLIED,
+]);
 
 export default function OtpScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const { spacing } = useTheme();
-  const params = useLocalSearchParams<{ phone: string; resendAfter?: string; expiresIn?: string; devCode?: string }>();
+  const params = useLocalSearchParams<{
+    phone: string;
+    resendAfter?: string;
+    expiresIn?: string;
+    devCode?: string;
+    referralCode?: string;
+  }>();
   const phone = params.phone ?? '';
   const language = usePrefsStore((s) => s.language);
   const setBlocked = useAuthStore((s) => s.setBlocked);
@@ -37,14 +50,11 @@ export default function OtpScreen() {
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
-  const [cooldown, setCooldown] = useState(Number(params.resendAfter) || 60);
+  // The referral code is honoured on the FIRST login only; after a referral error we retry without it.
+  const [referralCode, setReferralCode] = useState(params.referralCode || '');
+  const [referralError, setReferralError] = useState<string | null>(null);
+  const cooldown = useCountdown(Number(params.resendAfter) || 60);
   const submittedCode = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setInterval(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(timer);
-  }, [cooldown]);
 
   const verify = useCallback(
     async (value: string) => {
@@ -59,6 +69,7 @@ export default function OtpScreen() {
           code: value,
           deviceId: identity?.deviceId,
           deviceFingerprint: identity?.deviceFingerprint,
+          referralCode: referralCode || undefined,
         });
         // Returning users: the language chosen locally during onboarding wins and is synced to the server.
         if (!result.isNewUser && result.user.languagePreference !== language) {
@@ -79,6 +90,13 @@ export default function OtpScreen() {
             setBlocked(blocked);
             return;
           }
+          if (REFERRAL_ERROR_CODES.has(err.code)) {
+            // The login itself did not happen: drop the code and let the user verify again without it.
+            setReferralError(t(`onboarding.otp.referralErrors.${err.code}`, { defaultValue: errorMessage(err, t) }));
+            setReferralCode('');
+            setCode('');
+            return;
+          }
           setAttemptsLeft(err.attemptsRemaining);
         }
         setError(errorMessage(err, t));
@@ -87,7 +105,7 @@ export default function OtpScreen() {
         setVerifying(false);
       }
     },
-    [language, phone, router, setBlocked, t, verifying],
+    [language, phone, referralCode, router, setBlocked, t, verifying],
   );
 
   const resend = async () => {
@@ -95,13 +113,13 @@ export default function OtpScreen() {
     setError(null);
     try {
       const result = await authApi.requestOtp({ phoneNumber: phone });
-      setCooldown(result.resendAfterSeconds);
+      cooldown.restart(result.resendAfterSeconds);
       setDevCode(result.devCode ?? '');
       setCode('');
       submittedCode.current = null;
       setAttemptsLeft(null);
     } catch (err) {
-      if (isApiError(err) && err.statusCode === 429 && err.retryAfterSeconds) setCooldown(err.retryAfterSeconds);
+      if (isApiError(err) && err.statusCode === 429 && err.retryAfterSeconds) cooldown.restart(err.retryAfterSeconds);
       setError(errorMessage(err, t));
     } finally {
       setResending(false);
@@ -128,10 +146,10 @@ export default function OtpScreen() {
             testID="otp-verify"
           />
           <Button
-            title={cooldown > 0 ? t('onboarding.otp.resendIn', { seconds: cooldown }) : t('onboarding.otp.resend')}
+            title={cooldown.active ? t('onboarding.otp.resendIn', { seconds: cooldown.seconds }) : t('onboarding.otp.resend')}
             onPress={resend}
             variant="ghost"
-            disabled={cooldown > 0}
+            disabled={cooldown.active}
             loading={resending}
             testID="otp-resend"
           />
@@ -145,6 +163,14 @@ export default function OtpScreen() {
           <Text variant="bodySmall" tone="danger" accessibilityLiveRegion="polite" testID="otp-error">
             {error}
             {attemptsLeft !== null ? ` ${t('onboarding.otp.attemptsRemaining', { count: attemptsLeft })}` : ''}
+          </Text>
+        ) : null}
+        {referralCode ? (
+          <Badge label={t('onboarding.otp.referralApplied', { code: referralCode })} tone="primary" icon="gift" size="md" />
+        ) : null}
+        {referralError ? (
+          <Text variant="bodySmall" tone="danger" accessibilityLiveRegion="polite" testID="otp-referral-error">
+            {referralError} {t('onboarding.otp.referralRetryHint')}
           </Text>
         ) : null}
         {IS_DEV && devCode ? (

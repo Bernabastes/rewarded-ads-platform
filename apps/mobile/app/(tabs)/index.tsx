@@ -19,7 +19,9 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Tappable } from '@/components/ui/Tappable';
 import { Text } from '@/components/ui/Text';
 import { FeedCard, FeedCardSkeleton } from '@/features/feed/FeedCard';
+import { feedEmptyKind } from '@/features/feed/feedState';
 import { greetingKey } from '@/features/feed/greeting';
+import { ReferralHomeCard } from '@/features/referrals/ReferralHomeCard';
 import { BalanceCard } from '@/features/wallet/BalanceCard';
 import { useInterruptedWatchSession } from '@/features/watch/useInterruptedWatchSession';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -131,6 +133,8 @@ export default function HomeScreen() {
         <Skeleton height={64} radius={radii.lg} />
       ) : null}
 
+      <ReferralHomeCard onPress={() => router.push('/referrals')} />
+
       <Text variant="h3" weight="semibold" accessibilityRole="header">
         {t('home.adsHeading')}
       </Text>
@@ -172,6 +176,19 @@ export default function HomeScreen() {
           action={{ title: t('home.browseOffers'), onPress: () => router.push('/(tabs)/offers'), variant: 'secondary', icon: 'gift' }}
           compact
           testID="feed-daily-done"
+        />
+      );
+    }
+    if (feedEmptyKind(meta) === 'frequency_capped') {
+      // Every remaining ad today is hidden by a campaign / advertiser frequency cap.
+      return (
+        <EmptyState
+          illustration="dailyDone"
+          title={t('home.frequencyCapTitle')}
+          body={t('home.frequencyCapBody', { count: meta?.hiddenByFrequencyCap ?? 0 })}
+          action={{ title: t('home.browseOffers'), onPress: () => router.push('/(tabs)/offers'), variant: 'secondary', icon: 'gift' }}
+          compact
+          testID="feed-frequency-capped"
         />
       );
     }

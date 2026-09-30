@@ -1,10 +1,11 @@
 import type { PayoutMethod, WithdrawalMethodInfo } from '@rap/shared';
 import { ErrorCode, PAYOUT_METHOD_INFO } from '@rap/shared';
+import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, View } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 
 import { isApiError } from '@/api/errors';
 import { useBalance } from '@/api/queries/users';
@@ -15,18 +16,16 @@ import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Input } from '@/components/ui/Input';
+import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Screen } from '@/components/ui/Screen';
 import { Skeleton, SkeletonGroup } from '@/components/ui/Skeleton';
 import { Tappable } from '@/components/ui/Tappable';
 import { Text } from '@/components/ui/Text';
-import {
-  maxWithdrawableEtb,
-  methodRequiresName,
-  normalizeDestination,
-  quickAmounts,
-  validateAmount,
-  validateDestination,
-} from '@/features/withdrawals/validation';
+import { destinationReducer, initialDestinationState, isVerified, type RememberedDestination } from '@/features/withdrawals/destinationFlow';
+import { DestinationStep } from '@/features/withdrawals/DestinationStep';
+import { loadRememberedDestinations, rememberDestination } from '@/features/withdrawals/rememberedDestinations';
+import { createIntentKeys } from '@/features/withdrawals/submitWithdrawal';
+import { kycProjection, maxWithdrawableEtb, quickAmounts, validateAmount } from '@/features/withdrawals/validation';
 import { useLanguage } from '@/i18n/useLanguage';
 import { useTheme } from '@/theme/ThemeProvider';
 import { errorMessage } from '@/utils/errorMessage';
@@ -35,6 +34,11 @@ import { formatCoins, formatEtb } from '@/utils/format';
 type Step = 'amount' | 'method' | 'destination' | 'confirm';
 const STEPS: Step[] = ['amount', 'method', 'destination', 'confirm'];
 const METHOD_ICONS: Record<PayoutMethod, IconName> = { telebirr: 'phone', cbe_birr: 'phone', bank: 'wallet' };
+
+interface KycGate {
+  projectedEtb: number;
+  thresholdEtb: number;
+}
 
 export default function WithdrawScreen() {
   const { t } = useTranslation();
@@ -49,11 +53,19 @@ export default function WithdrawScreen() {
   const [step, setStep] = useState<Step>('amount');
   const [amountText, setAmountText] = useState('');
   const [method, setMethod] = useState<WithdrawalMethodInfo | null>(null);
-  const [destination, setDestination] = useState('');
+  const [destination, dispatch] = useReducer(destinationReducer, initialDestinationState);
   const [destinationName, setDestinationName] = useState('');
   const [bankCode, setBankCode] = useState('');
+  const [remembered, setRemembered] = useState<RememberedDestination[]>([]);
   const [touched, setTouched] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [kycGate, setKycGate] = useState<KycGate | null>(null);
+  // One Idempotency-Key per submit intent (same payload → same key on retry; new payload → new key).
+  const intentKeys = useRef(createIntentKeys(() => randomUUID()));
+
+  useEffect(() => {
+    void loadRememberedDestinations().then(setRemembered);
+  }, []);
 
   const balanceCoins = balance.data?.coinBalance ?? 0;
   const validation = useMemo(
@@ -62,6 +74,10 @@ export default function WithdrawScreen() {
   );
   const maxEtb = config.data ? maxWithdrawableEtb(balanceCoins, config.data.coinsPerEtb) : 0;
   const stepIndex = STEPS.indexOf(step);
+  const kyc = useMemo(
+    () => (config.data ? kycProjection(config.data, validation?.ok ? validation.amountEtb : null) : null),
+    [config.data, validation],
+  );
 
   const amountError = (() => {
     if (!touched || !validation || validation.ok || !config.data) return null;
@@ -70,9 +86,17 @@ export default function WithdrawScreen() {
     return t('withdraw.insufficient', { amount: formatEtb(validation.maxEtb, t, language) });
   })();
 
-  const destinationKind = method?.destinationKind ?? 'phone';
-  const destinationValid = method ? validateDestination(destinationKind, destination) : false;
-  const nameValid = !method || !methodRequiresName(method.method) || destinationName.trim().length >= 2;
+  const verified = isVerified(destination) ? destination.phase : null;
+
+  const chooseMethod = (m: WithdrawalMethodInfo) => {
+    if (!m.available) return;
+    if (method?.method !== m.method) {
+      dispatch({ type: 'reset' });
+      setDestinationName('');
+      setBankCode('');
+    }
+    setMethod(m);
+  };
 
   const goBack = () => {
     if (stepIndex === 0) {
@@ -84,23 +108,58 @@ export default function WithdrawScreen() {
   };
 
   const submit = async () => {
-    if (!validation?.ok || !method) return;
+    if (!validation?.ok || !method || !verified) return;
     setSubmitError(null);
+    const dto = {
+      amountEtb: validation.amountEtb,
+      payoutMethod: method.method,
+      payoutDestination: verified.payoutDestination,
+      destinationName: destinationName.trim() || undefined,
+      bankCode: method.method === 'bank' && bankCode.trim() ? bankCode.trim() : undefined,
+    };
+    const intent = intentKeys.current.keyFor(dto);
     try {
-      const item = await create.mutateAsync({
-        amountEtb: validation.amountEtb,
+      const result = await create.mutateAsync({ dto, idempotencyKey: intent.key, intentStartedAt: intent.startedAt });
+      intentKeys.current.reset();
+      await rememberDestination({
         payoutMethod: method.method,
-        payoutDestination: normalizeDestination(destinationKind, destination),
-        destinationName: destinationName.trim() || undefined,
-        bankCode: method.method === 'bank' && bankCode.trim() ? bankCode.trim() : undefined,
+        destination: verified.payoutDestination,
+        accountName: verified.accountName ?? result.item.destinationAccountName ?? null,
+        bankCode: dto.bankCode ?? null,
       });
-      router.replace({ pathname: '/wallet/withdrawals/[id]', params: { id: item.id, created: '1' } });
+      router.replace({ pathname: '/wallet/withdrawals/[id]', params: { id: result.item.id, created: '1' } });
     } catch (error) {
-      if (isApiError(error) && error.code === ErrorCode.INVALID_PAYOUT_DESTINATION) {
-        setStep('destination');
-      } else if (isApiError(error) && (error.code === ErrorCode.BELOW_MIN_WITHDRAWAL || error.code === ErrorCode.INSUFFICIENT_BALANCE)) {
-        setStep('amount');
-        setTouched(true);
+      if (isApiError(error)) {
+        switch (error.code) {
+          case ErrorCode.KYC_REQUIRED: {
+            const details = error.details as Partial<KycGate> | undefined;
+            setKycGate({
+              projectedEtb: details?.projectedEtb ?? kyc?.projectedEtb ?? validation.amountEtb,
+              thresholdEtb: details?.thresholdEtb ?? kyc?.thresholdEtb ?? 0,
+            });
+            return;
+          }
+          case ErrorCode.DESTINATION_NOT_VERIFIED:
+          case ErrorCode.DESTINATION_OTP_REQUIRED:
+            dispatch({ type: 'verification_expired' });
+            setStep('destination');
+            return;
+          case ErrorCode.INVALID_PAYOUT_DESTINATION:
+            dispatch({ type: 'reset' });
+            setStep('destination');
+            break;
+          case ErrorCode.BELOW_MIN_WITHDRAWAL:
+          case ErrorCode.INSUFFICIENT_BALANCE:
+            setStep('amount');
+            setTouched(true);
+            break;
+          case ErrorCode.IDEMPOTENCY_KEY_REUSED:
+            // Different payload under an old key: start a fresh intent for the next tap.
+            intentKeys.current.reset();
+            break;
+          default:
+            break;
+        }
       }
       setSubmitError(errorMessage(error, t));
     }
@@ -167,7 +226,7 @@ export default function WithdrawScreen() {
       case 'method':
         return <Button title={t('common.continue')} disabled={!method} onPress={() => setStep('destination')} size="lg" testID="withdraw-method-next" />;
       case 'destination':
-        return <Button title={t('common.continue')} disabled={!destinationValid || !nameValid} onPress={() => setStep('confirm')} size="lg" testID="withdraw-destination-next" />;
+        return <Button title={t('common.continue')} disabled={!verified} onPress={() => setStep('confirm')} size="lg" testID="withdraw-destination-next" />;
       case 'confirm':
         return (
           <Button
@@ -233,6 +292,30 @@ export default function WithdrawScreen() {
               </Text>
             ) : null}
           </Card>
+          {kyc && kyc.tier === 'phone_only' ? (
+            <Card tone={kyc.exceeds ? 'accent' : 'surface'} padding={spacing.md} testID="withdraw-kyc-progress">
+              <View style={styles.noticeRow}>
+                <Icon name="shield" size={18} color={kyc.exceeds ? colors.accentSoftText : colors.primary} />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <Text variant="bodySmall" weight="semibold">
+                    {t('wallet.kyc.monthlyTitle')}
+                  </Text>
+                  <Text variant="caption" tone="secondary">
+                    {t('wallet.kyc.monthlyProgress', { used: formatEtb(kyc.monthlyEtb, t, language), limit: formatEtb(kyc.thresholdEtb, t, language) })}
+                  </Text>
+                  <ProgressBar progress={kyc.progress} color={kyc.exceeds ? colors.accent : undefined} />
+                  {kyc.exceeds ? (
+                    <Text variant="caption" style={{ color: colors.accentSoftText }} testID="withdraw-kyc-warning">
+                      {t('wallet.kyc.wouldExceed', { projected: formatEtb(kyc.projectedEtb, t, language), limit: formatEtb(kyc.thresholdEtb, t, language) })}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              {kyc.exceeds ? (
+                <Button title={t('wallet.kyc.verifyCta')} onPress={() => router.push('/kyc')} size="sm" variant="secondary" icon="shield" style={{ marginTop: spacing.md }} testID="withdraw-kyc-cta" />
+              ) : null}
+            </Card>
+          ) : null}
           {validation?.ok && validation.isLarge ? (
             <Card tone="accent" padding={spacing.md} testID="withdraw-large-notice">
               <View style={styles.noticeRow}>
@@ -257,7 +340,7 @@ export default function WithdrawScreen() {
             return (
               <Tappable
                 key={m.method}
-                onPress={() => m.available && setMethod(m)}
+                onPress={() => chooseMethod(m)}
                 disabled={!m.available}
                 accessibilityRole="radio"
                 accessibilityState={{ selected, disabled: !m.available }}
@@ -293,38 +376,20 @@ export default function WithdrawScreen() {
       ) : null}
 
       {step === 'destination' && method ? (
-        <Animated.View entering={FadeIn} style={{ gap: spacing.lg }}>
-          <Text variant="h3" weight="semibold">
-            {t('withdraw.destinationTitle')}
-          </Text>
-          <Input
-            label={t(`withdraw.destination.${destinationKind}`)}
-            placeholder={method.destinationHint}
-            value={destination}
-            onChangeText={setDestination}
-            keyboardType={destinationKind === 'phone' ? 'phone-pad' : 'number-pad'}
-            inputMode={destinationKind === 'phone' ? 'tel' : 'numeric'}
-            autoFocus
-            errorText={destination.length > 0 && !destinationValid ? t('withdraw.destinationInvalid') : null}
-            testID="withdraw-destination-input"
-          />
-          {methodRequiresName(method.method) ? (
-            <>
-              <Input
-                label={t('withdraw.destinationName')}
-                value={destinationName}
-                onChangeText={setDestinationName}
-                autoCapitalize="words"
-                errorText={destinationName.length > 0 && !nameValid ? t('withdraw.destinationNameRequired') : null}
-                testID="withdraw-destination-name"
-              />
-              <Input label={t('withdraw.bankCode')} placeholder={t('withdraw.bankCodePlaceholder')} value={bankCode} onChangeText={setBankCode} autoCapitalize="characters" testID="withdraw-bank-code" />
-            </>
-          ) : null}
-        </Animated.View>
+        <DestinationStep
+          method={method}
+          config={cfg}
+          state={destination}
+          dispatch={dispatch}
+          remembered={remembered}
+          destinationName={destinationName}
+          onDestinationNameChange={setDestinationName}
+          bankCode={bankCode}
+          onBankCodeChange={setBankCode}
+        />
       ) : null}
 
-      {step === 'confirm' && method && validation?.ok ? (
+      {step === 'confirm' && method && validation?.ok && verified ? (
         <Animated.View entering={FadeIn} style={{ gap: spacing.lg }}>
           <Text variant="h3" weight="semibold">
             {t('withdraw.confirmTitle')}
@@ -333,9 +398,14 @@ export default function WithdrawScreen() {
             <SummaryRow label={t('withdraw.summaryAmount')} value={formatEtb(validation.amountEtb, t, language)} strong />
             <SummaryRow label={t('withdraw.summaryCoins')} value={t('money.coins', { count: validation.coins })} />
             <SummaryRow label={t('withdraw.summaryMethod')} value={method.label} />
-            <SummaryRow label={t('withdraw.summaryDestination')} value={normalizeDestination(destinationKind, destination)} last />
+            {verified.accountName ? <SummaryRow label={t('withdraw.summaryAccountName')} value={verified.accountName} /> : null}
+            <SummaryRow label={t('withdraw.summaryDestination')} value={verified.payoutDestination} last={!destinationName.trim()} />
             {destinationName.trim() ? <SummaryRow label={t('withdraw.destinationName')} value={destinationName.trim()} last /> : null}
           </Card>
+          <View style={styles.chips}>
+            <Badge label={t('withdraw.verify.verified')} tone="success" icon="circleCheck" />
+            {verified.resolution?.mock ? <Badge label={t('withdraw.verify.mock')} tone="warning" /> : null}
+          </View>
           <Text variant="bodySmall" tone="secondary">
             {t('withdraw.confirmBody')}
           </Text>
@@ -356,7 +426,58 @@ export default function WithdrawScreen() {
           {submitError}
         </Text>
       ) : null}
+
+      <KycRequiredSheet
+        gate={kycGate}
+        onClose={() => setKycGate(null)}
+        onVerify={() => {
+          setKycGate(null);
+          router.push('/kyc');
+        }}
+      />
     </Screen>
+  );
+}
+
+/** 422 KYC_REQUIRED: explains the rolling monthly limit for phone-only accounts and opens the KYC flow. */
+function KycRequiredSheet({ gate, onClose, onVerify }: { gate: KycGate | null; onClose(): void; onVerify(): void }) {
+  const { t } = useTranslation();
+  const language = useLanguage();
+  const { colors, radii, spacing, shadows } = useTheme();
+  if (!gate) return null;
+  return (
+    <Modal transparent visible animationType="none" onRequestClose={onClose} statusBarTranslucent>
+      <Animated.View entering={FadeIn.duration(150)} style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} />
+        <Animated.View
+          entering={FadeInUp.duration(220)}
+          style={[styles.sheet, shadows.lg, { backgroundColor: colors.surfaceElevated, borderRadius: radii.xl, padding: spacing.xxl }]}
+          accessibilityViewIsModal
+          testID="withdraw-kyc-sheet"
+        >
+          <View style={[styles.sheetIcon, { backgroundColor: colors.primarySoft, borderRadius: radii.full }]}>
+            <Icon name="shield" size={26} color={colors.primary} />
+          </View>
+          <Text variant="h2" weight="bold" accessibilityRole="header" style={{ marginTop: spacing.md }}>
+            {t('wallet.kyc.requiredTitle')}
+          </Text>
+          <Text variant="body" tone="secondary" style={{ marginTop: spacing.sm }}>
+            {t('wallet.kyc.requiredBody', {
+              projected: formatEtb(gate.projectedEtb, t, language),
+              limit: formatEtb(gate.thresholdEtb, t, language),
+            })}
+          </Text>
+          <Card tone="muted" padding={spacing.md} style={{ marginTop: spacing.lg }}>
+            <SummaryRow label={t('wallet.kyc.projected')} value={formatEtb(gate.projectedEtb, t, language)} />
+            <SummaryRow label={t('wallet.kyc.limit')} value={formatEtb(gate.thresholdEtb, t, language)} last />
+          </Card>
+          <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
+            <Button title={t('wallet.kyc.verifyCta')} onPress={onVerify} icon="shield" testID="withdraw-kyc-sheet-cta" />
+            <Button title={t('common.close')} onPress={onClose} variant="ghost" />
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
   );
 }
 
@@ -383,4 +504,7 @@ const styles = StyleSheet.create({
   methodRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5 },
   methodIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+  backdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  sheet: { width: '100%', maxWidth: 420 },
+  sheetIcon: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
 });
