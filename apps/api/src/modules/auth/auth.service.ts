@@ -409,7 +409,7 @@ export class AuthService {
       await this.loginThrottle.recordFailure('advertiser', account, meta.ip, advertiser?.id);
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
-    await this.loginThrottle.recordSuccess('advertiser', account);
+    await this.loginThrottle.recordSuccess('advertiser', account, meta.ip);
     const [tokens, consent] = await Promise.all([
       this.tokens.issue({ type: 'advertiser', id: advertiser.id }, meta),
       this.legal.advertiserConsentState(advertiser.id),
@@ -432,7 +432,7 @@ export class AuthService {
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
     if (!admin.active) throw AppException.forbidden(ErrorCode.ADMIN_INACTIVE, 'Admin account deactivated');
-    await this.loginThrottle.recordSuccess('admin', account);
+    await this.loginThrottle.recordSuccess('admin', account, meta.ip);
     if (admin.mfaEnabledAt) {
       const mfaToken = await this.jwt.signAsync(
         { typ: 'mfa' },
@@ -483,7 +483,7 @@ export class AuthService {
     await this.mfa.verifyForAdmin(admin, code, meta.ip, 'login');
     const ttl = Math.max(1, (claims.exp ?? 0) - Math.floor(Date.now() / 1000));
     await this.redis.client.set(mfaTokenUsedKey(claims.jti), '1', 'EX', ttl).catch(() => undefined);
-    await this.loginThrottle.recordSuccess('admin', admin.email);
+    await this.loginThrottle.recordSuccess('admin', admin.email, meta.ip);
     return this.issueAdminSession(admin, meta);
   }
 

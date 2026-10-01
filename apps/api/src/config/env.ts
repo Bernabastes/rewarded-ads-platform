@@ -194,6 +194,8 @@ export const envSchema = z
     LOGIN_WINDOW_SECONDS: num(900),
     LOGIN_LOCKOUT_THRESHOLD: num(5),
     LOGIN_LOCKOUT_SECONDS: num(900),
+    /** Phase 5b: an IP that completed a login for an account is exempt from that account's SOFT throttle for this long. */
+    LOGIN_TRUSTED_IP_HOURS: num(24),
     /** Seeding is refused with NODE_ENV=production unless this is explicitly true. */
     ALLOW_SEED_IN_PRODUCTION: bool.default(false),
     /** Account-name lookups (destination verification) per user per UTC day (#11). */

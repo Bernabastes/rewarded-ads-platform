@@ -45,16 +45,32 @@ describe('LoginThrottle (security audit #5)', () => {
 
   it('locks the account after LOGIN_LOCKOUT_THRESHOLD consecutive failures (423 ACCOUNT_LOCKED, audited) and a success resets the streak', async () => {
     expect(await throttle.recordFailure('admin', 'super@rap.et', '1.1.1.1', ADMIN)).toBe(false);
-    await throttle.recordSuccess('admin', 'super@rap.et'); // streak reset
+    await throttle.recordSuccess('admin', 'super@rap.et', '1.1.1.1'); // streak reset
     expect(await throttle.recordFailure('admin', 'super@rap.et', '1.1.1.1', ADMIN)).toBe(false);
     expect(await throttle.recordFailure('admin', 'super@rap.et', '1.1.1.1', ADMIN)).toBe(true);
-    expect(security.warn).toHaveBeenCalledWith('auth.account_locked', expect.objectContaining({ account: 'super@rap.et', failures: 2 }));
+    expect(security.warn).toHaveBeenCalledWith('auth.account_locked', expect.objectContaining({ account: 'super@rap.et', failures: 2, ip: '1.1.1.1' }));
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'admin.login_locked', targetId: ADMIN }));
-    await expect(throttle.assertAllowed('admin', 'super@rap.et', '5.5.5.5')).rejects.toMatchObject({
+    await expect(throttle.assertAllowed('admin', 'super@rap.et', '1.1.1.1')).rejects.toMatchObject({
       code: ErrorCode.ACCOUNT_LOCKED,
       status: 423,
       details: { retryAfterSeconds: expect.any(Number) },
     });
+  });
+
+  it('REGRESSION (#5 note, lockout as DoS): the hard lock is per account + IP - the attacker locks only itself out, the owner still signs in from another IP', async () => {
+    for (let i = 0; i < 2; i++) await throttle.recordFailure('admin', 'finance@rap.et', '66.66.66.66', ADMIN);
+    await expect(throttle.assertAllowed('admin', 'finance@rap.et', '66.66.66.66')).rejects.toMatchObject({ code: ErrorCode.ACCOUNT_LOCKED });
+    await expect(throttle.assertAllowed('admin', 'finance@rap.et', '10.0.0.5')).resolves.toBeUndefined();
+    // the owner's successful login marks their IP as trusted: exempt from the SOFT per-account limit ...
+    await throttle.recordSuccess('admin', 'finance@rap.et', '10.0.0.5');
+    for (let i = 0; i < 2; i++) await throttle.assertAllowed('admin', 'finance@rap.et', `77.77.77.${i}`); // distributed guessing fills the account window (limit 3, one hit used above)
+    await expect(throttle.assertAllowed('admin', 'finance@rap.et', '77.77.77.9')).rejects.toMatchObject({ code: ErrorCode.LOGIN_RATE_LIMITED });
+    await expect(throttle.assertAllowed('admin', 'finance@rap.et', '10.0.0.5')).resolves.toBeUndefined();
+    expect(security.warn).toHaveBeenCalledWith('auth.login_rate_limited', expect.objectContaining({ reason: 'account_exempt_trusted_ip', ip: '10.0.0.5' }));
+    // ... but never from the per-IP limit (4) or from a lock earned from that IP
+    await throttle.assertAllowed('admin', 'finance@rap.et', '10.0.0.5');
+    await throttle.assertAllowed('admin', 'other@rap.et', '10.0.0.5');
+    await expect(throttle.assertAllowed('admin', 'third@rap.et', '10.0.0.5')).rejects.toMatchObject({ code: ErrorCode.LOGIN_RATE_LIMITED });
   });
 
   it('fails open (logs) when Redis is unavailable instead of blocking every login (default outside production)', async () => {

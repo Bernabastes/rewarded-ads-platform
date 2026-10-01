@@ -80,11 +80,13 @@ describe('AuthService admin login (security audit #5)', () => {
     }
     await expect(service.loginAdmin('finance@rap.et', 'nope', meta)).rejects.toMatchObject({ code: ErrorCode.INVALID_CREDENTIALS });
     expect(security.warn).toHaveBeenCalledWith('auth.account_locked', expect.objectContaining({ subjectId: ADMIN }));
-    await expect(service.loginAdmin('finance@rap.et', 'Admin123!', { ip: '8.8.8.8' })).rejects.toMatchObject({
+    await expect(service.loginAdmin('finance@rap.et', 'Admin123!', meta)).rejects.toMatchObject({
       code: ErrorCode.ACCOUNT_LOCKED,
       status: 423,
     });
     expect(tokens.issue).not.toHaveBeenCalled();
+    // Phase 5b: the lock is per account + IP, so the real admin signing in from another address is not denied
+    await expect(service.loginAdmin('finance@rap.et', 'Admin123!', { ip: '8.8.8.8' })).resolves.toMatchObject({ admin: { id: ADMIN } });
   });
 
   it('unknown e-mails are throttled exactly like real accounts (no existence oracle)', async () => {
