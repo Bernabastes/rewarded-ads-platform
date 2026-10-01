@@ -150,7 +150,17 @@
     "/api/v1/auth/advertiser/register": {
       "post": {
         "operationId": "registerAdvertiser",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -178,7 +188,17 @@
     "/api/v1/auth/advertiser/login": {
       "post": {
         "operationId": "loginAdvertiser",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -195,9 +215,15 @@
           },
           "401": {
             "description": "INVALID_CREDENTIALS"
+          },
+          "423": {
+            "description": "ACCOUNT_LOCKED (details.retryAfterSeconds)"
+          },
+          "429": {
+            "description": "LOGIN_RATE_LIMITED"
           }
         },
-        "summary": "Advertiser email + password login",
+        "summary": "Advertiser email + password login (throttled per IP / account; lockout after repeated failures)",
         "tags": [
           "auth"
         ]
@@ -205,8 +231,19 @@
     },
     "/api/v1/auth/admin/login": {
       "post": {
+        "description": "Throttled per IP and per account (429 LOGIN_RATE_LIMITED) with lockout after repeated failures (423 ACCOUNT_LOCKED). When the admin has TOTP enabled the response is `{ mfaRequired: true, mfaToken, expiresIn }` and the session is only issued by POST /auth/admin/login/mfa.",
         "operationId": "loginAdmin",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -219,10 +256,23 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           },
           "401": {
             "description": "INVALID_CREDENTIALS"
+          },
+          "423": {
+            "description": "ACCOUNT_LOCKED (details.retryAfterSeconds)"
+          },
+          "429": {
+            "description": "LOGIN_RATE_LIMITED"
           }
         },
         "summary": "Admin email + password login (role is embedded in the access token)",
@@ -231,10 +281,66 @@
         ]
       }
     },
+    "/api/v1/auth/admin/login/mfa": {
+      "post": {
+        "description": "Wrong codes count toward the account lockout. Returns the same `{ tokens, admin }` payload as a password-only login.",
+        "operationId": "loginAdminMfa",
+        "parameters": [
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminMfaLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          },
+          "400": {
+            "description": "MFA_CODE_INVALID"
+          },
+          "401": {
+            "description": "MFA_TOKEN_INVALID (expired / already used)"
+          },
+          "423": {
+            "description": "ACCOUNT_LOCKED"
+          }
+        },
+        "summary": "Admin login step 2: TOTP code + the single-use mfaToken from step 1",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/refresh": {
       "post": {
+        "description": "Body mode: `{ refreshToken }`. Cookie mode (`X-Auth-Mode: cookie`): the token is read from the httpOnly `rap_refresh` cookie, the rotated one is set as a new cookie and omitted from the body.",
         "operationId": "refresh",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -275,6 +381,15 @@
             "name": "authorization",
             "required": true,
             "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2582,7 +2697,7 @@
     },
     "/api/v1/withdrawals/destinations/resolve": {
       "post": {
-        "description": "Calls the payout partner (telebirr / Chapa; MOCK returns a deterministic name). Valid for `destinationResolveTtlMinutes`. The response says whether an OTP re-check is still required (`otpRequired`). Send back `normalizedDestination` as `payoutDestination`.",
+        "description": "Known destinations (and ones whose OTP re-check is fresh) are looked up at the payout partner (telebirr / Chapa; MOCK returns a deterministic name) and `accountName` is returned. Security audit #11: for a NEW destination NO partner call is made - the response is `{ accountName: null, otpRequired: true, lookupPerformed: false }`; request + verify the destination OTP, and the verify response reveals the holder name. Every partner lookup counts toward DESTINATION_LOOKUPS_PER_DAY (`lookupsRemainingToday`). Valid for `destinationResolveTtlMinutes`. Send back `normalizedDestination` as `payoutDestination`.",
         "operationId": "resolve",
         "parameters": [],
         "requestBody": {
@@ -2597,10 +2712,20 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           },
           "422": {
             "description": "DESTINATION_NOT_FOUND"
+          },
+          "429": {
+            "description": "DESTINATION_LOOKUP_LIMIT"
           },
           "503": {
             "description": "PAYOUT_METHOD_UNAVAILABLE | SERVICE_UNAVAILABLE"
@@ -2642,6 +2767,7 @@
     },
     "/api/v1/withdrawals/destinations/otp/verify": {
       "post": {
+        "description": "Security audit #11: after a valid code the partner lookup for this destination runs here and the account holder name is returned (`accountName`, `provider`, `mock`, `validUntil`). 422 DESTINATION_NOT_FOUND when the partner has no such account; 429 DESTINATION_LOOKUP_LIMIT when the daily lookup cap is used up.",
         "operationId": "verifyDestinationOtp",
         "parameters": [],
         "requestBody": {
@@ -2661,8 +2787,11 @@
           "400": {
             "description": "OTP_INVALID | OTP_EXPIRED"
           },
+          "422": {
+            "description": "DESTINATION_NOT_FOUND"
+          },
           "429": {
-            "description": "OTP_TOO_MANY_ATTEMPTS"
+            "description": "OTP_TOO_MANY_ATTEMPTS | DESTINATION_LOOKUP_LIMIT"
           }
         },
         "security": [
@@ -2670,7 +2799,7 @@
             "bearer": []
           }
         ],
-        "summary": "Confirm the destination_change OTP for a specific destination",
+        "summary": "Confirm the destination_change OTP for a specific destination (then performs the partner lookup)",
         "tags": [
           "withdrawals"
         ]
@@ -2757,7 +2886,8 @@
                 "completed",
                 "failed",
                 "flagged_for_review",
-                "rejected"
+                "rejected",
+                "needs_manual_review"
               ]
             }
           }
@@ -3075,7 +3205,120 @@
             "bearer": []
           }
         ],
-        "summary": "Current admin profile and role",
+        "summary": "Current admin profile, role, MFA state and pending security requirements",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/me/change-password": {
+      "post": {
+        "operationId": "changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "INVALID_CREDENTIALS (current password wrong)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change my admin password (clears the temporary-password flag; revokes every session - sign in again)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/me/mfa/setup": {
+      "post": {
+        "operationId": "mfaSetup",
+        "parameters": [],
+        "responses": {
+          "409": {
+            "description": "MFA_ALREADY_ENABLED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start TOTP enrolment: returns the secret + otpauth URI (MFA is active only after /enable)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/me/mfa/enable": {
+      "post": {
+        "operationId": "mfaEnable",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaEnableDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "MFA_CODE_INVALID | MFA_NOT_ENABLED (setup not started)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Confirm a code from the authenticator app and switch MFA on",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/me/mfa/disable": {
+      "post": {
+        "operationId": "mfaDisable",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaDisableDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "MFA_CODE_INVALID | MFA_NOT_ENABLED"
+          },
+          "401": {
+            "description": "INVALID_CREDENTIALS"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Switch MFA off (requires a current code AND the password)",
         "tags": [
           "admin"
         ]
@@ -3116,6 +3359,161 @@
           }
         ],
         "summary": "Effective platform configuration (read-only)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/admins": {
+      "get": {
+        "operationId": "list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List admin accounts",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "operationId": "create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "EMAIL_ALREADY_REGISTERED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create an admin account with a one-time temporary password (must be changed at first login)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/admins/{id}/role": {
+      "patch": {
+        "operationId": "changeRole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAdminRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "LAST_SUPER_ADMIN"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change an admin role (revokes all of their sessions immediately)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/admins/{id}/reset-password": {
+      "post": {
+        "operationId": "resetPassword",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Issue a new temporary password (revokes all sessions; must be changed at next login)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/admins/{id}/active": {
+      "patch": {
+        "operationId": "setActive",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAdminActiveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "LAST_SUPER_ADMIN | CONFLICT (self-deactivation)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activate / deactivate an admin account",
         "tags": [
           "admin"
         ]
@@ -4441,7 +4839,8 @@
                 "completed",
                 "failed",
                 "flagged_for_review",
-                "rejected"
+                "rejected",
+                "needs_manual_review"
               ]
             }
           },
@@ -4602,6 +5001,46 @@
           }
         ],
         "summary": "Retry a failed payout",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/withdrawals/{id}/resolve-manual-review": {
+      "post": {
+        "description": "The worker parks a withdrawal as needs_manual_review when the partner outcome is unknown (timeout / 5xx / polling exhausted); the coins stay held. `completed` keeps them debited, `failed` refunds them. Audited with the reason.",
+        "operationId": "resolveManualReview",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveManualReviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "WITHDRAWAL_NOT_REVIEWABLE (not in needs_manual_review)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resolve a needs_manual_review payout after checking the partner (Phase 5 #7)",
         "tags": [
           "admin"
         ]
@@ -5389,29 +5828,47 @@
           "password"
         ]
       },
+      "AdminMfaLoginDto": {
+        "type": "object",
+        "properties": {
+          "mfaToken": {
+            "type": "string",
+            "description": "`mfaToken` from the `{ mfaRequired: true }` response of POST /auth/admin/login (valid 5 min, single use).",
+            "minLength": 20
+          },
+          "code": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 6,
+            "pattern": "^\\d{6}$",
+            "example": "123456",
+            "description": "6-digit TOTP code"
+          }
+        },
+        "required": [
+          "mfaToken",
+          "code"
+        ]
+      },
       "RefreshTokenDto": {
         "type": "object",
         "properties": {
           "refreshToken": {
             "type": "string",
+            "description": "Body mode. Omitted in cookie mode (`X-Auth-Mode: cookie`), where the `rap_refresh` cookie carries the token.",
             "minLength": 20
           }
-        },
-        "required": [
-          "refreshToken"
-        ]
+        }
       },
       "LogoutDto": {
         "type": "object",
         "properties": {
           "refreshToken": {
             "type": "string",
+            "description": "Body mode. Omitted in cookie mode (`X-Auth-Mode: cookie`).",
             "minLength": 20
           }
-        },
-        "required": [
-          "refreshToken"
-        ]
+        }
       },
       "ChangePasswordDto": {
         "type": "object",
@@ -5913,12 +6370,12 @@
           },
           "storageKey": {
             "type": "string",
-            "description": "Storage key returned by POST /campaigns/uploads/presign (preferred).",
+            "description": "Key from the presign endpoint; must start with creatives/<advertiserId>/ (else 400 MEDIA_SOURCE_NOT_ALLOWED)",
             "maxLength": 300
           },
           "mediaUrl": {
             "type": "string",
-            "description": "Alternatively a publicly reachable media URL.",
+            "description": "Public URL of an object under your own creatives/ prefix in the platform bucket (prefer storageKey)",
             "maxLength": 1000,
             "format": "uri"
           },
@@ -6129,6 +6586,115 @@
         "type": "object",
         "properties": {}
       },
+      "MfaEnableDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 6,
+            "pattern": "^\\d{6}$",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "MfaDisableDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 6,
+            "pattern": "^\\d{6}$",
+            "example": "123456"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "code",
+          "password"
+        ]
+      },
+      "CreateAdminDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 160,
+            "format": "email",
+            "example": "new.reviewer@rap.et"
+          },
+          "fullName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120,
+            "example": "Hana Tesfaye"
+          },
+          "role": {
+            "enum": [
+              "super_admin",
+              "ad_reviewer",
+              "support",
+              "finance"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "fullName",
+          "role"
+        ]
+      },
+      "UpdateAdminRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "enum": [
+              "super_admin",
+              "ad_reviewer",
+              "support",
+              "finance"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500,
+            "description": "Written to the audit log"
+          }
+        },
+        "required": [
+          "role",
+          "reason"
+        ]
+      },
+      "SetAdminActiveDto": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500,
+            "description": "Written to the audit log"
+          }
+        },
+        "required": [
+          "active",
+          "reason"
+        ]
+      },
       "BannedTopicsChecklistDto": {
         "type": "object",
         "properties": {
@@ -6238,6 +6804,34 @@
         },
         "required": [
           "outcome"
+        ]
+      },
+      "ResolveManualReviewDto": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "enum": [
+              "completed",
+              "failed"
+            ],
+            "type": "string",
+            "description": "completed = partner paid (coins stay debited); failed = partner never paid (coins refunded)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 1000,
+            "example": "telebirr support confirmed transfer TB-9981 settled on 2026-10-01 (ticket #77)"
+          },
+          "providerReference": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Partner transaction reference confirmed during the check"
+          }
+        },
+        "required": [
+          "outcome",
+          "reason"
         ]
       },
       "CreateCoinAdjustmentDto": {

@@ -62,7 +62,7 @@ operations in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 Prerequisites: Docker Desktop (Compose v2+). For development also Node.js ≥ 24.9 and pnpm ≥ 10.
 
 ```powershell
-Copy-Item .env.example .env        # cp .env.example .env on macOS/Linux; change POSTGRES_PORT if 5432 is taken
+Copy-Item .env.example .env        # cp .env.example .env on macOS/Linux; change POSTGRES_PORT if 5432 is taken. REQUIRED: compose has no default credentials any more
 docker compose up -d --build       # postgres, redis, minio (+bucket), api (migrations run on start), advertiser-web, admin-web
 pnpm install
 pnpm --filter @rap/api seed        # demo data + self-hosted demo videos (or set RUN_SEED=true in .env before the first start)
@@ -74,7 +74,7 @@ pnpm --filter @rap/api seed        # demo data + self-hosted demo videos (or set
 | Advertiser portal     | http://localhost:5173          | nginx static build (`docker compose`) or `pnpm dev:advertiser` |
 | Admin dashboard       | http://localhost:5174          | nginx static build (`docker compose`) or `pnpm dev:admin`      |
 | Mobile app (Expo web) | http://localhost:8081          | `pnpm dev:mobile` (dev server; scan the QR for a device)       |
-| MinIO console         | http://localhost:9001          | `minioadmin` / `minioadmin`; bucket `rap-media`                |
+| MinIO console         | http://localhost:9001          | `S3_ACCESS_KEY` / `S3_SECRET_KEY` from `.env` (loopback only); bucket `rap-media` (anonymous read: `creatives/*`, `seed/*`) |
 
 ## Development mode
 
@@ -96,8 +96,8 @@ pnpm dev:mobile                               # Expo web on :8081 (EXPO_PUBLIC_A
 | `pnpm media:tools`                                          | Install desktop ffmpeg/ffprobe for the media pipeline when running the API outside Docker     |
 | `pwsh scripts/backup.ps1` / `scripts/restore.ps1`           | Database dump + bucket mirror, and the restore drill (see `docs/RUNBOOK.md`)                  |
 
-Test counts (all green): API 217 Jest unit tests + 3 e2e · mobile 144 Jest · advertiser portal 105 Vitest · admin
-dashboard 98 Vitest · shared 12.
+Test counts (all green): API 349 Jest unit tests + 6 e2e · mobile 145 Jest · advertiser portal 106 Vitest · admin
+dashboard 109 Vitest · shared 12.
 
 ## Demo credentials (seeded)
 
@@ -129,6 +129,19 @@ Phase 4 demo data (seeded):
 | Payout destinations  | Users with withdrawal history (e.g. `+251911000137` telebirr, `+251911000411` bank) have **known** destinations (one-tap chip); any other number is new → partner lookup + OTP; in MOCK mode a number ending in `0000` is "not found"          |
 | Media pipeline       | Upload any MP4 in the portal wizard: probe → duration correction → 720p transcode → poster (`processing` badge until done; review refuses approval before)                                                                                     |
 | Impersonation        | Admin → Users → any user → "Impersonate" (support / super_admin, reason required) → read-only banner                                                                                                                                             |
+
+Phase 5 (security remediation) demo data and switches:
+
+| Feature                       | Where to look / how to try it                                                                                                                                                                                                                 |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payout needing manual review  | Admin → Withdrawals → **Needs manual review** tab: `+251911001644` (110 ETB, "MOCK: telebirr request timed out") – "Mark completed" keeps the hold, "Mark failed & refund" returns the coins (finance / super_admin)                           |
+| Admin MFA                     | Admin → **My security** (any admin) → "Set up" → paste the key into an authenticator app (or compute a code with `node -e "console.log(require('otplib').authenticator.generate('<secret>'))"` from `apps/api`) → "Turn on"; the next login asks for the 6-digit code. `ADMIN_MFA_REQUIRED=true` makes it mandatory for finance / super_admin |
+| Admin account management      | Admin → **Admin accounts** as `super@rap.et`: create an admin (temporary password shown once; first login is confined to "My security" until it is changed), change roles (sessions revoked), reset passwords, deactivate                      |
+| Login lockout                 | 5 wrong passwords on `finance@rap.et` → `423 ACCOUNT_LOCKED` for 15 min (also wrong TOTP codes); 30 attempts / 15 min per IP → `429 LOGIN_RATE_LIMITED`                                                                                        |
+| Destination lookup order      | Mobile → Withdraw → new number: the account holder name is shown only **after** the OTP; 5 partner lookups per user per day (`429 DESTINATION_LOOKUP_LIMIT`)                                                                                    |
+| Attention check               | Options are shuffled per watch session; a wrong answer removes the ad from the feed for the rest of the day                                                                                                                                   |
+| Cookie refresh mode           | Both web consoles keep the refresh token in the httpOnly `rap_refresh` cookie (DevTools → Application → Cookies); localStorage only holds the short-lived access token                                                                        |
+| Storage policy                | `curl -I http://localhost:9000/rap-media/private/kyc/<anything>` → 403; `…/rap-media/seed/eid-promo.mp4` → 200                                                                                                                                 |
 
 ## The demo journey
 
@@ -162,10 +175,10 @@ are kept outside the repo.
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Coin ledger & balances  | Append-only `coin_ledger` (DB triggers), single write path with row locks + idempotency keys, hourly reconciliation, DB `CHECK` constraints         | —                                                                                                                                                                                                      |
 | Ad verification & fraud | Server-timed watch sessions, heartbeats, attention questions, daily cap, 8-rule fraud engine with trust scores, flagged completions held for review | Device attestation (Play Integrity / App Attest) and ML scoring are not implemented; thresholds are tuned by hand                                                                                      |
-| Withdrawals             | Holds, first/large/low-trust review, two distinct finance approvals for ≥ 500 ETB, failover registry, reversing entries on failure, **destination verification (partner name lookup + OTP for new destinations), KYC tier limit, idempotency keys** | **telebirr and Chapa payouts and account lookups run in labelled MOCK mode** (`PAYOUTS_MOCK=true`); the real HTTP shapes exist and activate with credentials; telebirr endpoint paths must be confirmed with Ethio Telecom |
+| Withdrawals             | Holds, first/large/low-trust review, two distinct finance approvals for ≥ 500 ETB, failover registry (definitive errors only), reversing entries keyed to the hold, **`needs_manual_review` instead of auto-refund on ambiguous partner answers**, destination verification (OTP first, then partner name lookup; per-user lookup cap), KYC tier limit, idempotency keys, all gates under the user row lock | **telebirr and Chapa payouts and account lookups run in labelled MOCK mode** (`PAYOUTS_MOCK=true`); the real HTTP shapes (incl. transfer lookup by reference) exist and activate with credentials; telebirr endpoint paths must be confirmed with Ethio Telecom |
 | KYC                     | Tiers (`phone_only` / `id_verified`), private document uploads, admin queue with 5-minute presigned links, duplicate-identity flags, rolling 30-day threshold | **Fayda registry check is mocked** (`MockFaydaProvider`); NIDP onboarding needed for `FaydaProvider`                                                                                                     |
 | Advertiser billing      | Prepaid wallet ledger, budget reservation/refund, invoices (JSON), webhook signature verification, idempotent settlement, idempotency keys on top-ups | **Chapa checkout is mocked** without `CHAPA_SECRET_KEY` (local checkout page); PDF invoices and VAT policy (`INVOICE_VAT_RATE=0`) pending finance sign-off                                             |
-| Auth                    | OTP with per-phone/IP limits, rotating refresh tokens with reuse detection, **immediate access-token denylist** (logout / suspension / ban), RBAC re-checked per request, age computed server-side from Gregorian **or Ethiopian** DOB, terms/privacy consent enforcement, read-only support impersonation | **SMS provider is mocked** (code logged / echoed in dev); no admin MFA                                                                                                                                 |
+| Auth                    | OTP with per-phone/IP request **and verify** limits (atomic attempts, burn-after-max), rotating refresh tokens with reuse detection + atomic claim, **immediate access-token denylist** (logout / suspension / ban / role change), RBAC re-checked against the DB per request, login throttling + lockout, **admin TOTP MFA**, audited admin account management, httpOnly-cookie refresh mode for the web consoles, age computed server-side from Gregorian **or Ethiopian** DOB, terms/privacy consent enforcement, read-only support impersonation | **SMS provider is mocked** (code echoed in dev only); `HttpSmsProvider` is a generic JSON POST skeleton to wire to the chosen gateway |
 | Media                   | Presigned browser → MinIO/S3 uploads, public read, **ffprobe duration correction + 720p H.264 transcode + poster generation** (apk ffmpeg in the image)         | No CDN, single rendition, no virus scan                                                                                                                                                                |
 | Alerting                | `platform_alerts` + rules (ledger drift, payout failure rate, account minting, spend velocity, OTP spikes), admin acknowledgement, security log channel        | **Telegram / Slack-webhook delivery is mocked to the log** until `ALERT_TELEGRAM_*` / `ALERT_WEBHOOK_URL` are set                                                                                       |
 | Referrals               | Codes, first-login attribution, bonuses credited through the ledger on the referee's first valid completion, device/IP self-referral guards, daily cap, admin metrics | Share URL is a placeholder (`REFERRAL_SHARE_URL`) until the store listing exists                                                                                                                       |
@@ -179,36 +192,44 @@ The effective mock flags are shown at `GET /admin/config` (`mocks`) and in the a
 
 ## Before production
 
+Many former checklist items are now **enforced by the API's environment schema** – with `NODE_ENV=production` the API
+refuses to boot with mock payments / payouts / SMS, default storage credentials, wildcard CORS, a short
+`JWT_ACCESS_SECRET`, a missing `KYC_HASH_KEY`, `OTP_DEV_*` switches or Swagger enabled, mock checkout routes answer
+404 and the seed refuses to run (`ALLOW_SEED_IN_PRODUCTION`). The full threat model, controls, audit-finding table and
+hardening checklist live in [`docs/SECURITY.md`](docs/SECURITY.md). What remains is contractual and operational:
+
 Legal / money
 
 - Sign telebirr business API and Chapa merchant agreements; obtain sandbox credentials; confirm telebirr B2C endpoint
-  paths/fields and both partners' account-name lookup endpoints against the contract documentation; run
-  `PAYOUTS_MOCK=false` in staging with real 1 ETB payouts.
-- Register the Chapa webhook URL, set `CHAPA_WEBHOOK_SECRET`, reconcile gateway settlements against `advertiser_payments`.
+  paths/fields, the transfer "query by outTradeNo" lookup and both partners' account-name lookup endpoints against the
+  contract documentation; run `PAYOUTS_MOCK=false` in staging with real 1 ETB payouts and a forced timeout to see a
+  payout land in **Needs manual review**.
+- Register the Chapa webhook URL (payload-signed `Chapa-Signature`), set `CHAPA_WEBHOOK_SECRET`, reconcile gateway
+  settlements against `advertiser_payments`.
 - Finance sign-off: take rate, VAT on top-ups/invoices, invoice numbering, PDF invoices, statements, referral bonus budget.
 - Legal review: the seeded terms/privacy texts (v1.0 placeholders, en/am), data-retention basis for anonymised
   financial records after account deletion, KYC threshold under NBE rules, payout KYC; Fayda/NIDP onboarding to
   replace the mock identity check.
-- Real SMS provider (e.g. Ethio Telecom / AfroMessage).
+- Real SMS provider (`SMS_PROVIDER=http` + `SMS_API_URL` / `SMS_API_KEY`, adapt `HttpSmsProvider` to the gateway's payload).
 
 Security / infrastructure
 
-- Rotate all dev secrets (`JWT_ACCESS_SECRET`), disable `OTP_DEV_ECHO` / `OTP_DEV_FIXED_CODE` (the API refuses to start
-  in production otherwise), admin MFA + IP allow-list, edge rate limiting / WAF, TLS everywhere.
+- Generate production secrets (`JWT_ACCESS_SECRET`, `KYC_HASH_KEY`, `MFA_ENCRYPTION_KEY`, storage + database
+  credentials), set `ADMIN_MFA_REQUIRED=true`, create real admin accounts through `POST /admin/admins` and delete the
+  seeded ones, set `TRUST_PROXY_HOPS` to the number of proxies in front of the API, TLS everywhere, edge rate limiting / WAF.
 - Managed PostgreSQL with backups + PITR (replace `scripts/backup.*`), PgBouncer, managed Redis with persistence
-  (the access-token denylist lives there), a separate worker deployment (`QUEUES_ENABLED=false` on API replicas),
-  S3 + CDN for media, virus scanning of creatives before transcoding, observability (ship the `channel=security` log
-  stream to a SIEM; wire `ALERT_TELEGRAM_*` / `ALERT_WEBHOOK_URL` to on-call).
-- CI: run `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` and the API e2e/smoke on every change; the Playwright
-  E2E suites used for verification live outside the repo and should be committed into CI. Run the restore drill monthly.
+  (denylist, throttles and lockouts live there), a separate worker deployment (`QUEUES_ENABLED=false` on API replicas),
+  S3 + CDN for media with the `docker/minio-bucket-policy.json` semantics (anonymous read for `creatives/*` only),
+  virus scanning of creatives before transcoding, observability (ship the `channel=security` log stream to a SIEM; wire
+  `ALERT_TELEGRAM_*` / `ALERT_WEBHOOK_URL` to on-call).
+- CI: run `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, the API e2e/smoke and the pentest script on every
+  change; the Playwright E2E suites used for verification live outside the repo and should be committed into CI. Run
+  the restore drill monthly and `scripts/audit-reservations.mjs` weekly.
 
 Product
 
 - Native builds (EAS), real-device playback and push, store listings; Afaan Oromo / Tigrinya translations (incl. legal
-  texts); Phase 4B frontends for the ten roadmap features (consent screen, KYC upload, destination confirm + OTP,
-  Ethiopian DOB picker, referrals, alerts, KYC queue, deletion requests, impersonation banner, media status, frequency
-  cap in the wizard); wire the advertiser settings page to `GET/PATCH /advertisers/me`; app-install attribution
-  postbacks; fraud/alert threshold tuning with real traffic; additional media renditions.
+  texts); app-install attribution postbacks; fraud/alert threshold tuning with real traffic; additional media renditions.
 
 ## Environment variables
 
@@ -217,7 +238,11 @@ the seed and the scripts). Frontends read `VITE_API_URL` (web) and `EXPO_PUBLIC_
 `http://localhost:3000`. Phase 4 groups: `KYC_*` / `ID_VERIFICATION_PROVIDER` / `FAYDA_*`, `DESTINATION_RESOLVE_TTL_MINUTES`,
 `ALERT_*` (Telegram / webhook delivery + rule thresholds), `DEFAULT_FREQUENCY_CAP` / `ADVERTISER_IMPRESSION_CAP_PER_USER_PER_DAY`,
 `MEDIA_*` (ffmpeg paths, time-box, target height), `REFERRAL_*` / `REFEREE_BONUS_COINS`, `ACCOUNT_DELETION_GRACE_DAYS` /
-`DATA_*`, `IMPERSONATION_TTL_SECONDS`, `IDEMPOTENCY_TTL_HOURS`.
+`DATA_*`, `IMPERSONATION_TTL_SECONDS`, `IDEMPOTENCY_TTL_HOURS`. Phase 5 (security) groups: `TRUST_PROXY_HOPS`,
+`OTP_VERIFY_*`, `LOGIN_*` (throttle + lockout), `ADMIN_MFA_REQUIRED` / `MFA_ENCRYPTION_KEY`, `KYC_HASH_KEY`,
+`DESTINATION_LOOKUPS_PER_DAY` / `ALERT_DESTINATION_LOOKUPS_PER_IP_PER_HOUR`, `PAYOUT_PROVIDER_TIMEOUT_MS` /
+`PAYOUT_MAX_POLLS`, `AUTH_COOKIE_*`, `SMS_PROVIDER` / `SMS_API_*`, `SWAGGER_ENABLED`, `ALLOW_SEED_IN_PRODUCTION`,
+`MINIO_BIND`; `POSTGRES_*` and `S3_ACCESS_KEY` / `S3_SECRET_KEY` are **required** by docker compose (no defaults).
 
 ## Key engineering guarantees
 
@@ -225,9 +250,14 @@ the seed and the scripts). Frontends read `VITE_API_URL` (web) and `EXPO_PUBLIC_
   (a Jest guard greps the tree); `coin_ledger`, `advertiser_wallet_ledger` and `audit_log` are append-only at the database level.
 - **Rewards are decided server-side** from server timestamps and fraud signals; completions are idempotent.
 - **Risky withdrawals never auto-pay**; large ones need two distinct finance approvals; manual coin adjustments are a
-  real two-step workflow; every admin decision is audited with before/after state.
-- **Money POSTs are idempotent** (`Idempotency-Key`), new payout destinations are name-checked with the partner and
-  OTP-confirmed, and phone-only accounts are capped per rolling month until KYC (Phase 4A).
+  real two-step workflow; every admin decision is audited with before/after state; an ambiguous partner answer parks the
+  payout for a human instead of refunding (Phase 5).
+- **Money POSTs are idempotent** (`Idempotency-Key`), new payout destinations are OTP-confirmed before the partner is
+  asked who owns them, and phone-only accounts are capped per rolling month until KYC (Phase 4A/5).
+- **Every money gate runs under a row lock** (completion, withdrawal request, campaign reservation, payment
+  settlement) and every status transition is an atomic claim – concurrency cannot double-spend (Phase 5).
+- **Production is gated by the env schema**: no mock providers, default credentials or debug switches can reach a
+  production boot (Phase 5; see `docs/SECURITY.md`).
 - **No chance-based mechanics anywhere.**
 
 Operations: `docs/RUNBOOK.md` (daily checks, backups, restore drill, jobs, incidents, data-subject requests).

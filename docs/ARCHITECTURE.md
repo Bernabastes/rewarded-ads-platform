@@ -242,27 +242,40 @@ user, attempts per ad per day, refresh-token reuse detection, account status re-
              request (user)                                        approve (finance/super_admin,
   ┌────────────────────────────────┐                                2 distinct admins if large)
   │ validate min/destination/method│     review reasons?  ──yes──► flagged_for_review ──────────┐
-  │ rate limit, single in-flight,  │            │                        │ reject → rejected (hold reversed)
-  │ TX: create + ledger hold −coins│            └──no──► pending ◄───────┘
-  └────────────────────────────────┘                        │ BullMQ `payouts` worker
-                                                            ▼ initiate via PayoutProviderRegistry (failover)
+  │ rate limit; TX under users FOR │            │                        │ reject → rejected (hold reversed)
+  │ UPDATE: single in-flight, KYC, │            └──no──► pending ◄───────┘
+  │ create + ledger hold −coins    │                        │ BullMQ `payouts` worker
+  └────────────────────────────────┘                        ▼ initiate via PayoutProviderRegistry
                                                        processing ──poll──► completed  (hold stays: money left)
                                                             │
-                                                            └──────────► failed  (reversing ledger entry +coins,
-                                                                                  notification, security log)
-                                                                         └─ admin retry → new hold → pending
+                                                            ├──definitive failure──► failed  (reversing entry +coins,
+                                                            │                                 notification, security log)
+                                                            │                        └─ admin retry → new hold → pending
+                                                            └──ambiguous (timeout / 5xx / lookup unknown / poll give-up)
+                                                                         ──► needs_manual_review (hold STAYS)
+                                                                              └─ finance resolves: completed | failed (reversal)
 ```
 
 Review reasons: `first_withdrawal` (no previously completed withdrawal), `large_amount` (≥ `LARGE_WITHDRAWAL_THRESHOLD_ETB`,
 sets `requires_dual_approval`), `low_trust_score` (< 30). Held requests are **never** auto-paid. Coins are held at
-request time so a user cannot spend them twice; rejection/failure refunds via a reversing entry (never by deleting the
-hold – the ledger is append-only).
+request time so a user cannot spend them twice; rejection/failure refunds via a reversing entry keyed to the specific
+hold entry (`withdrawal_reversal:<holdEntryId>`, Phase 5 #6) – never by deleting the hold (the ledger is append-only).
+
+Phase 5 (#12): the one-in-flight rule, the first-withdrawal flag and the KYC monthly cap are evaluated INSIDE the
+request transaction after `SELECT … FROM users WHERE id = $1 FOR UPDATE`; the partial unique index
+`withdrawals_one_in_flight_per_user` (status ∈ pending / processing / flagged_for_review / needs_manual_review) is
+the database backstop and surfaces as `409 WITHDRAWAL_PENDING_EXISTS`.
 
 `PayoutProvider` (spec §9 signature, `providers/payout-provider.ts`): `TelebirrPayoutProvider` (telebirr B2C
 disbursement) and `ChapaPayoutProvider` (Chapa Transfers – banks and telebirr/CBE Birr wallets). Routing:
-`telebirr → [telebirr, chapa]`, `cbe_birr → [chapa]`, `bank → [chapa]`; the registry fails over to the next partner
-on error and logs `payout.provider_failover`. Mock mode (default) simulates async processing with a deterministic,
-configurable failure rate.
+`telebirr → [telebirr, chapa]`, `cbe_birr → [chapa]`, `bank → [chapa]`. Phase 5 (#7): every partner call has a
+timeout (`PAYOUT_PROVIDER_TIMEOUT_MS`), errors are classified **definitive** (connection refused, 4xx validation,
+auth) or **ambiguous** (timeout, 5xx, malformed body); the registry fails over ONLY on definitive errors, on an
+ambiguous one it first asks the partner `findByReference(ourReference)` – found → continue with that transfer, not
+found → fail over, lookup failing → `PayoutOutcomeUnknownError`. The processor parks unknown outcomes (and poll
+give-ups after `PAYOUT_MAX_POLLS`) as `needs_manual_review` with the coins still held; finance decides through
+`POST /admin/withdrawals/:id/resolve-manual-review` (audited, security-logged). Mock mode (default) simulates async
+processing with a deterministic, configurable failure rate; ambiguous errors cannot occur there.
 
 ## 8. Dual-approval workflows
 
@@ -480,6 +493,52 @@ conflicts. Gaps they reported were closed in the API (all backwards compatible):
   `where` to rows and total, and an unfiltered `limit=1` request keeps the tab count meaningful while filtering.
 - **RN-web deprecations** (P4-F2): `pointerEvents` moved into `style`, `shadow*` styles replaced by `boxShadow` on web
   (native keeps `shadow*`/`elevation` via `Platform.select`).
+
+### 12f. Phase 5 – security remediation (2026-10-01)
+
+Two independent reviews (read-only code audit, 17 findings; live pentest, notes A3a / D2) were remediated in one commit
+per finding. `docs/SECURITY.md` carries the threat model, the finding → fix → test table and the production checklist;
+the design decisions that changed this document are:
+
+- **Schema** (migrations `20261001080000_phase5_security_remediation`, `20261001080100_phase5_withdrawal_one_in_flight`):
+  `campaigns.submission_seq` (reservation / refund idempotency keys are `campaign_budget_reservation:<id>:<seq>` and
+  `campaign_budget_refund:<id>:<seq>:<reason>`), `WithdrawalStatus.needs_manual_review`,
+  `admin_users.{mfa_secret, mfa_enabled_at, must_change_password, password_changed_at, created_by}`,
+  `ad_watch_sessions.attention_option_order`, partial unique index `withdrawals_one_in_flight_per_user`.
+- **Reservation invariant** (#1): `budget_reserved_etb` must equal the net of the campaign's wallet reservation
+  entries; `submit()` claims `draft → pending_review` atomically, increments `submission_seq` in the same transaction,
+  reserves `budget − spent` under the wallet row lock and aborts if the ledger reports a replay; `update()` refuses a
+  budget change while the net reservation ≠ 0; reject / complete refunds run under `lockCampaign` (FOR UPDATE).
+  `scripts/audit-reservations.mjs` recomputes the invariant across all campaigns.
+- **Creatives never come from a URL** (#2): the only accepted source is a `storageKey` under
+  `creatives/<advertiserId>/` (a URL is accepted only if it maps to such a key in our own bucket); the media worker
+  downloads from storage with size / time caps and runs ffmpeg with `-nostdin -protocol_whitelist file,pipe`.
+- **Identity & sessions** (#3 #4 #5 #13 #15 #16): `req.ip` + `TRUST_PROXY_HOPS`; `OtpVerifier` (atomic attempt claim,
+  burn, verify rate limits); `LoginThrottle` + lockout; TOTP MFA with AES-256-GCM-at-rest secrets; the guard loads the
+  admin row (active, role, MFA state, temporary-password flag) BEFORE `@Roles`; refresh rotation claims the row
+  atomically; web consoles use the httpOnly `rap_refresh` cookie (`X-Auth-Mode: cookie`), the mobile app keeps the body
+  mode (Keychain / Keystore).
+- **Lookup oracle closed** (#11): a new payout destination is looked up at the partner only AFTER the destination OTP
+  succeeded (`otp/verify` returns the holder name); lookups are capped per user per day and spike-alerted per IP
+  (`DESTINATION_LOOKUP_SPIKE`).
+- **Production gates** (#8 #9): the env schema makes a production boot impossible with mock payments / payouts / SMS,
+  default storage credentials, wildcard CORS, a short JWT secret, a missing `KYC_HASH_KEY` or Swagger enabled; mock
+  checkout routes are 404; OTP values are redacted; the seed refuses to run. `HttpSmsProvider` is the generic real-SMS
+  skeleton (`SMS_PROVIDER=http`).
+- **Data protection** (#10 #14): bucket policy = anonymous read for `creatives/*` and `seed/*`, explicit deny for
+  `private/*`; identity numbers are HMAC-SHA256(`KYC_HASH_KEY`); account deletion scrubs every PII-bearing table
+  while keeping financial facts.
+- **Webhook trust** (#17): Chapa settlement is driven by `verify()`; the body's `status` is never trusted on its own and
+  the verified amount / currency must equal the payment row.
+- **Attention checks** (A3a): per-session shuffled option order stored on the session; a wrong answer consumes the ad
+  for the UTC day (excluded by the eligibility query).
+- **Operational posture** (#10 #16): digest-pinned images, loopback-only data stores, credentials required from `.env`,
+  API container runs as `node`, SPAs ship a strict CSP + hardening headers rendered from the deployment's API / media
+  origins.
+
+Deferred with reasons: telebirr's "query by outTradeNo" lookup must be confirmed against Ethio Telecom's partner
+documentation (the mock provider answers "not found", which is the safe branch); historic plain-sha256 KYC hashes are
+not re-hashed automatically (demo data is reseeded; a real database needs an offline re-hash with the key).
 
 ## 13. Assumptions
 
