@@ -16,10 +16,13 @@ import type { AdminActor } from './admin-review.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Rolls back a `releaseFlaggedCompletion` transaction when the campaign budget cannot cover the release (#15). */
-class CampaignBudgetExhaustedError extends Error {
+/**
+ * Rolls back a `releaseFlaggedCompletion` transaction when the campaign is no longer live or its reservation cannot
+ * cover the release (#15 / Phase 5b New-6); surfaced to the admin as 422 CAMPAIGN_NOT_CHARGEABLE.
+ */
+class CampaignNotChargeableError extends Error {
   constructor() {
-    super('campaign budget exhausted');
+    super('campaign not chargeable');
   }
 }
 
@@ -470,13 +473,17 @@ export class AdminReportsService {
   /**
    * Dismissing a flag attached to a *flagged* completion means the fraud team confirmed the view was genuine:
    * the completion becomes valid and the reward is credited (single ledger path), charging the campaign.
+   * Phase 5b New-6: the release runs BEFORE the flag is resolved and only against a live, funded campaign
+   * (`status IN (active, paused)` and `spent + cost <= LEAST(budget, reserved)`); otherwise the request fails with
+   * 422 CAMPAIGN_NOT_CHARGEABLE and the flag stays open - platform money never pays for a dead campaign's views.
    */
   async dismissFlag(flagId: string, note: string, actor: AdminActor) {
     const flag = await this.prisma.fraudFlag.findUnique({ where: { id: flagId } });
     if (!flag) throw AppException.notFound('Fraud flag not found');
-    await this.fraud.resolveFlag(flagId, 'dismissed', note, { adminId: actor.adminId, ip: actor.ip });
+    if (flag.resolved) throw AppException.conflict(ErrorCode.FLAG_ALREADY_RESOLVED, 'Flag already resolved');
     if (flag.relatedEntityType === 'ad_completion' && flag.relatedEntityId)
-      await this.releaseFlaggedCompletion(flag.relatedEntityId, actor);
+      await this.releaseFlaggedCompletion(flag.relatedEntityId, actor, flagId);
+    await this.fraud.resolveFlag(flagId, 'dismissed', note, { adminId: actor.adminId, ip: actor.ip });
     return this.fraud.getFlag(flagId);
   }
 
@@ -505,16 +512,24 @@ export class AdminReportsService {
     return this.fraud.getFlag(flagId);
   }
 
-  private async releaseFlaggedCompletion(completionId: string, actor: AdminActor) {
+  private async releaseFlaggedCompletion(completionId: string, actor: AdminActor, dismissingFlagId?: string) {
     const completion = await this.prisma.adCompletion.findUnique({
       where: { id: completionId },
       include: { campaign: true, ad: { select: { title: true } } },
     });
     if (!completion || completion.status !== 'flagged') return;
     const stillOpen = await this.prisma.fraudFlag.count({
-      where: { relatedEntityType: 'ad_completion', relatedEntityId: completionId, resolved: false },
+      where: {
+        relatedEntityType: 'ad_completion',
+        relatedEntityId: completionId,
+        resolved: false,
+        ...(dismissingFlagId ? { id: { not: dismissingFlagId } } : {}),
+      },
     });
     if (stillOpen > 0) return;
+    const cost = new Prisma.Decimal(completion.campaign.costPerActionEtb);
+    // New-6 pre-check (friendly 422 before anything is touched); the UPDATE below re-checks atomically.
+    this.assertCampaignChargeable(completion.campaign, cost);
     const coins = new Prisma.Decimal(completion.campaign.rewardPerActionEtb)
       .mul(this.config.platform.coinsPerEtb)
       .round()
@@ -527,10 +542,12 @@ export class AdminReportsService {
         data: { status: 'valid', coinRewardAmount: coins, rewardEtb: completion.campaign.rewardPerActionEtb, costEtb: completion.campaign.costPerActionEtb, rejectionCode: null },
       });
       if (claimed.count === 0) return null;
+      // New-6: only a live campaign with reservation headroom can be charged (never budget_etb alone).
       const charge = await tx.$queryRaw<Array<{ id: string }>>`
-        UPDATE campaigns SET spent_etb = spent_etb + ${completion.campaign.costPerActionEtb}, updated_at = NOW()
-        WHERE id = ${completion.campaignId}::uuid AND spent_etb + ${completion.campaign.costPerActionEtb} <= budget_etb RETURNING id`;
-      if (charge.length === 0) throw new CampaignBudgetExhaustedError();
+        UPDATE campaigns SET spent_etb = spent_etb + ${cost}, updated_at = NOW()
+        WHERE id = ${completion.campaignId}::uuid AND status IN ('active', 'paused')
+          AND spent_etb + ${cost} <= LEAST(budget_etb, budget_reserved_etb) RETURNING id`;
+      if (charge.length === 0) throw new CampaignNotChargeableError();
       const write = await this.ledger.applyEntry(
         {
           userId: completion.userId,
@@ -557,8 +574,14 @@ export class AdminReportsService {
       );
       return write;
     }).catch((err: unknown) => {
-      // budget exhausted: the transaction (incl. the status claim) rolled back and the completion stays flagged
-      if (err instanceof CampaignBudgetExhaustedError) return null;
+      // the transaction (incl. the status claim) rolled back: the completion stays flagged and so does the flag
+      if (err instanceof CampaignNotChargeableError) {
+        throw AppException.unprocessable(
+          ErrorCode.CAMPAIGN_NOT_CHARGEABLE,
+          'The campaign is no longer live or has no reserved budget left; the reward cannot be released',
+          { campaignId: completion.campaignId, campaignStatus: completion.campaign.status },
+        );
+      }
       throw err;
     });
     if (credited) {
@@ -576,6 +599,24 @@ export class AdminReportsService {
         data: { completionId, coins },
       });
     }
+  }
+
+  /** New-6: a released reward may only be charged to a live campaign with reservation headroom for one more action. */
+  private assertCampaignChargeable(
+    campaign: { id: string; status: string; spentEtb: Prisma.Decimal; budgetEtb: Prisma.Decimal; budgetReservedEtb: Prisma.Decimal },
+    cost: Prisma.Decimal,
+  ) {
+    const live = campaign.status === 'active' || campaign.status === 'paused';
+    const ceiling = Prisma.Decimal.min(new Prisma.Decimal(campaign.budgetEtb), new Prisma.Decimal(campaign.budgetReservedEtb));
+    const headroom = ceiling.minus(campaign.spentEtb);
+    if (live && headroom.greaterThanOrEqualTo(cost)) return;
+    throw AppException.unprocessable(
+      ErrorCode.CAMPAIGN_NOT_CHARGEABLE,
+      live
+        ? 'The campaign has no reserved budget left for this reward'
+        : `The campaign is ${campaign.status}; its views can no longer be charged`,
+      { campaignId: campaign.id, campaignStatus: campaign.status, remainingReservedEtb: Math.max(0, headroom.toNumber()) },
+    );
   }
 
   /* --------------------------- app install offers --------------------------- */

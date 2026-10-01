@@ -1,4 +1,5 @@
-import { mockAudit, mockNotifications, mockPrisma, mockSecurity, testConfig, uuid } from '../../../testing/test-utils';
+import { ErrorCode } from '@rap/shared';
+import { D, mockAudit, mockNotifications, mockPrisma, mockSecurity, testConfig, uuid } from '../../../testing/test-utils';
 import { AdminReportsService } from './admin-reports.service';
 
 const ADMIN = uuid(1);
@@ -118,7 +119,7 @@ describe('AdminReportsService dismissFlag -> releaseFlaggedCompletion (security 
       campaignId: CAMPAIGN,
       watchSessionId: uuid(23),
       status: 'flagged',
-      campaign: { costPerActionEtb: 2, rewardPerActionEtb: 1 },
+      campaign: { id: CAMPAIGN, status: 'active', costPerActionEtb: 2, rewardPerActionEtb: 1, spentEtb: D(100), budgetEtb: D(500), budgetReservedEtb: D(500) },
       ad: { title: 'Demo ad' },
     });
     prisma.$queryRaw.mockResolvedValue([{ id: CAMPAIGN }]);
@@ -135,6 +136,13 @@ describe('AdminReportsService dismissFlag -> releaseFlaggedCompletion (security 
     expect(claimOrder).toBeLessThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
     expect(claimOrder).toBeLessThan(ledger.applyEntry.mock.invocationCallOrder[0]);
     expect(ledger.applyEntry).toHaveBeenCalledTimes(1);
+    // New-6: the flag is resolved only AFTER the release succeeded, and the open-flag count excludes this flag
+    expect(fraud.resolveFlag).toHaveBeenCalledWith(FLAG, 'dismissed', 'genuine view', expect.anything());
+    expect(fraud.resolveFlag.mock.invocationCallOrder[0]).toBeGreaterThan(ledger.applyEntry.mock.invocationCallOrder[0]);
+    expect(prisma.fraudFlag.count).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { not: FLAG } }) }));
+    const chargeSql = prisma.$queryRaw.mock.calls[0][0].join('?');
+    expect(chargeSql).toContain("status IN ('active', 'paused')");
+    expect(chargeSql).toContain('LEAST(budget_etb, budget_reserved_etb)');
   });
 
   it('the loser of a concurrent dismissal (claim count 0) credits nothing and charges nothing', async () => {
@@ -144,7 +152,44 @@ describe('AdminReportsService dismissFlag -> releaseFlaggedCompletion (security 
     expect(ledger.applyEntry).not.toHaveBeenCalled();
   });
 
-  it('an exhausted campaign budget rolls the claim back (completion stays flagged) and credits nothing', async () => {
+  it('REGRESSION New-6: a completed / rejected campaign cannot be charged - 422 CAMPAIGN_NOT_CHARGEABLE, flag left open, nothing credited', async () => {
+    prisma.adCompletion.findUnique.mockResolvedValue({
+      id: COMPLETION,
+      userId: USER,
+      campaignId: CAMPAIGN,
+      watchSessionId: uuid(23),
+      status: 'flagged',
+      campaign: { id: CAMPAIGN, status: 'completed', costPerActionEtb: 2, rewardPerActionEtb: 1, spentEtb: D(100), budgetEtb: D(500), budgetReservedEtb: D(500) },
+      ad: { title: 'Demo ad' },
+    });
+    await expect(service.dismissFlag(FLAG, 'stale flag', { adminId: ADMIN, ip: '1.1.1.1' })).rejects.toMatchObject({
+      code: ErrorCode.CAMPAIGN_NOT_CHARGEABLE,
+      status: 422,
+      details: expect.objectContaining({ campaignStatus: 'completed' }),
+    });
+    expect(prisma.adCompletion.updateMany).not.toHaveBeenCalled();
+    expect(ledger.applyEntry).not.toHaveBeenCalled();
+    expect(fraud.resolveFlag).not.toHaveBeenCalled();
+  });
+
+  it('New-6: an active campaign with no reservation headroom (budget raised, reservation not) is refused the same way', async () => {
+    prisma.adCompletion.findUnique.mockResolvedValue({
+      id: COMPLETION,
+      userId: USER,
+      campaignId: CAMPAIGN,
+      watchSessionId: uuid(23),
+      status: 'flagged',
+      campaign: { id: CAMPAIGN, status: 'active', costPerActionEtb: 2, rewardPerActionEtb: 1, spentEtb: D(500), budgetEtb: D(10_000_000), budgetReservedEtb: D(500) },
+      ad: { title: 'Demo ad' },
+    });
+    await expect(service.dismissFlag(FLAG, 'genuine view', { adminId: ADMIN, ip: '1.1.1.1' })).rejects.toMatchObject({
+      code: ErrorCode.CAMPAIGN_NOT_CHARGEABLE,
+      details: expect.objectContaining({ remainingReservedEtb: 0 }),
+    });
+    expect(fraud.resolveFlag).not.toHaveBeenCalled();
+  });
+
+  it('a race that exhausts the reservation inside the transaction rolls the claim back and surfaces 422 (flag stays open)', async () => {
     prisma.adCompletion.updateMany.mockResolvedValue({ count: 1 });
     prisma.$queryRaw.mockResolvedValue([]);
     let rolledBack = false;
@@ -156,9 +201,10 @@ describe('AdminReportsService dismissFlag -> releaseFlaggedCompletion (security 
         throw err;
       }
     });
-    await expect(service.dismissFlag(FLAG, 'genuine view', { adminId: ADMIN, ip: '1.1.1.1' })).resolves.toBeDefined();
+    await expect(service.dismissFlag(FLAG, 'genuine view', { adminId: ADMIN, ip: '1.1.1.1' })).rejects.toMatchObject({ code: ErrorCode.CAMPAIGN_NOT_CHARGEABLE, status: 422 });
     expect(rolledBack).toBe(true);
     expect(ledger.applyEntry).not.toHaveBeenCalled();
+    expect(fraud.resolveFlag).not.toHaveBeenCalled();
   });
 });
 

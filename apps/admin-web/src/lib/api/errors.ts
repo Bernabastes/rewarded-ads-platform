@@ -100,6 +100,8 @@ const FRIENDLY: Partial<Record<string, string>> = {
   [ErrorCode.CAMPAIGN_INVALID_STATE]: 'The campaign is not in a state that allows this action.',
   [ErrorCode.INSUFFICIENT_BALANCE]: 'The deduction exceeds the user’s balance.',
   [ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED]: 'The campaign budget is exhausted; the reward cannot be credited.',
+  [ErrorCode.CAMPAIGN_NOT_CHARGEABLE]: 'The campaign is no longer live (or has no reserved budget left), so this reward cannot be charged to it. The flag was left open - escalate or confirm it instead.',
+  [ErrorCode.CAMPAIGN_UNDERFUNDED]: 'The wallet reservation does not cover this campaign budget. Reject it; the advertiser must resubmit.',
   [ErrorCode.RATE_LIMITED]: 'Too many requests. Please slow down.',
   [ErrorCode.NOT_FOUND]: 'Not found.',
   [ErrorCode.CONFLICT]: 'The record changed in the meantime. Refresh and try again.',

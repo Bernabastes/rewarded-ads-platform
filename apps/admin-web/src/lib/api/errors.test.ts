@@ -57,4 +57,9 @@ describe('describeError', () => {
     expect(describeError('???')).toBe('Unexpected error.');
     expect(describeError(ApiError.network())).toMatch(/Cannot reach the API/);
   });
+
+  it('Phase 5b: explains why a flagged reward cannot be released / a campaign cannot be approved', () => {
+    expect(describeError(new ApiError({ statusCode: 422, code: 'CAMPAIGN_NOT_CHARGEABLE', message: 'x', details: { campaignStatus: 'completed' } }))).toMatch(/no longer live.*flag was left open/i);
+    expect(describeError(new ApiError({ statusCode: 422, code: 'CAMPAIGN_UNDERFUNDED', message: 'x' }))).toMatch(/reservation does not cover/i);
+  });
 });

@@ -1,11 +1,11 @@
-import type { FraudFlagItem, FraudSeverity } from '@rap/shared';
+import { ErrorCode, type FraudFlagItem, type FraudSeverity } from '@rap/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, Ban, CheckCircle2, ExternalLink, ShieldAlert, ShieldCheck, TrendingUp, UserRoundX } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { fraudApi } from '@/lib/api/endpoints';
-import { describeError } from '@/lib/api/errors';
+import { describeError, isApiError } from '@/lib/api/errors';
 import { queryKeys } from '@/lib/api/query-keys';
 import { useListParams } from '@/lib/hooks/use-list-params';
 import { cn } from '@/lib/utils/cn';
@@ -189,7 +189,10 @@ export function FlagSheet({ id, initial, onClose }: { id: string | null; initial
               ? 'Flag confirmed, sessions revoked and trust score recomputed.'
               : undefined,
       ),
-    onError: (err) => toast.error('Action failed', { description: describeError(err) }),
+    onError: (err, { kind }) =>
+      toast.error(kind === 'dismiss' && isApiError(err) && err.code === ErrorCode.CAMPAIGN_NOT_CHARGEABLE ? 'Reward cannot be released' : 'Action failed', {
+        description: describeError(err),
+      }),
   });
 
   return (
