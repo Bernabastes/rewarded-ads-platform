@@ -422,6 +422,85 @@ describe('API e2e smoke (user money flow)', () => {
   }, 60_000);
 
   /**
+   * Phase 5b New-1 (TOCTOU re-open of #1): `PATCH budget x2000` and `POST submit` raced. Before the fix the
+   * reservation was computed from a row read BEFORE the transaction, so an interleaving could leave a
+   * pending_review campaign with budget_etb = 200,000 and budget_reserved_etb = 100 (wallet -100) - users would then
+   * be paid out of platform money. Now both paths lock the campaign row and re-validate under the lock: after N
+   * rounds of concurrent PATCH + submit every pending_review campaign has reserved == budget and the wallet
+   * balance always reconciles.
+   */
+  it('REGRESSION New-1: concurrent budget edit + submit can never leave an under-reserved pending campaign', async () => {
+    if (skipIfUnreachable()) return;
+    const login = await http
+      .post('/api/v1/auth/advertiser/login')
+      .send({ email: 'growth@addisfintech.et', password: 'Advertiser123!' })
+      .expect(201);
+    const adv = { Authorization: 'Bearer ' + login.body.tokens.accessToken };
+    const advertiserId = login.body.advertiser.id as string;
+    const reviewer = await http.post('/api/v1/auth/admin/login').send({ email: 'reviewer@rap.et', password: 'Admin123!' }).expect(201);
+    const rev = { Authorization: 'Bearer ' + reviewer.body.tokens.accessToken };
+    const balance = async () => Number((await http.get('/api/v1/billing/balance').set(adv).expect(200)).body.balanceEtb);
+
+    const topup = await http.post('/api/v1/billing/topups').set(adv).send({ amountEtb: 300, returnUrl: 'http://localhost:5173/billing/return' }).expect(201);
+    await http.post(`/api/v1/billing/mock-checkout/${topup.body.txRef}/pay`).send({ outcome: 'success' }).expect(201);
+    const balance0 = await balance();
+    expect(balance0).toBeGreaterThanOrEqual(300);
+
+    const budget = 100;
+    const campaign = await http
+      .post('/api/v1/campaigns')
+      .set(adv)
+      .send({ title: `TOCTOU regression ${Date.now()}`, budgetEtb: budget, costPerActionEtb: 2, targetActionType: 'video_view', attentionCheckEnabled: false })
+      .expect(201);
+    const campaignId = campaign.body.id as string;
+    await http
+      .post(`/api/v1/campaigns/${campaignId}/ads`)
+      .set(adv)
+      .send({ title: 'TOCTOU creative', storageKey: `creatives/${advertiserId}/2026-10-01/toctou.mp4`, mediaType: 'video', durationSeconds: 15 })
+      .expect(201);
+
+    const outcomes = { submitted: 0, edited: 0 };
+    for (let round = 0; round < 20; round++) {
+      // alternate the firing order (and give submit a head start on odd rounds, it has more pre-checks) so both
+      // interleavings - edit lands first / submit lands first - are exercised
+      const patchReq = () => http.patch(`/api/v1/campaigns/${campaignId}`).set(adv).send({ budgetEtb: budget * 2000 });
+      const submitReq = () => http.post(`/api/v1/campaigns/${campaignId}/submit`).set(adv);
+      const [patch, submit] = round % 2 === 0
+        ? await Promise.all([patchReq(), submitReq()])
+        : await Promise.all([submitReq(), sleep(25).then(patchReq)]).then(([s, p]) => [p, s] as const);
+      expect([200, 409]).toContain(patch.status);
+      expect([201, 409, 422]).toContain(submit.status);
+      const state = (await http.get(`/api/v1/campaigns/${campaignId}`).set(adv).expect(200)).body;
+      if (state.status === 'pending_review') {
+        outcomes.submitted++;
+        // THE INVARIANT: whatever interleaving happened, a pending campaign is funded for its WHOLE budget
+        expect(Number(state.budgetReservedEtb)).toBe(Number(state.budgetEtb));
+        expect(await balance()).toBeCloseTo(balance0 - Number(state.budgetEtb), 2);
+        expect(patch.status).toBe(409);
+        // reset for the next round: reject (refund keyed by this cycle's seq) and put the budget back
+        await http.post(`/api/v1/admin/campaigns/${campaignId}/reject`).set(rev).send({ reason: `TOCTOU round ${round}` }).expect(201);
+        const back = await http.patch(`/api/v1/campaigns/${campaignId}`).set(adv).send({ budgetEtb: budget }).expect(200);
+        expect(back.body.status).toBe('draft');
+      } else {
+        outcomes.edited++;
+        expect(state.status).toBe('draft');
+        expect(Number(state.budgetReservedEtb)).toBe(0);
+        expect(submit.status).toBe(422); // the edited 200,000 ETB budget cannot be afforded
+        expect(submit.body.code).toBe('INSUFFICIENT_WALLET_BALANCE');
+        if (Number(state.budgetEtb) !== budget) await http.patch(`/api/v1/campaigns/${campaignId}`).set(adv).send({ budgetEtb: budget }).expect(200);
+      }
+      expect(await balance()).toBeCloseTo(balance0, 2);
+    }
+    expect(outcomes.submitted + outcomes.edited).toBe(20);
+
+    // sweep: no pending campaign of this advertiser is under-reserved, and the wallet reconciles
+    const pending = await http.get('/api/v1/campaigns?status=pending_review&limit=100').set(adv).expect(200);
+    for (const c of pending.body.data) expect(Number(c.budgetReservedEtb)).toBeGreaterThanOrEqual(Number(c.budgetEtb));
+    expect(await balance()).toBeCloseTo(balance0, 2);
+    await http.delete(`/api/v1/campaigns/${campaignId}`).set(adv).expect(204);
+  }, 180_000);
+
+  /**
    * Security audit #12 (TOCTOU): before the fix the one-in-flight / KYC checks ran outside the transaction, so two
    * concurrent requests could both pass and double-hold (or bypass the KYC cap). Now they run under
    * `SELECT ... FROM users FOR UPDATE` and the partial unique index is the DB backstop: of N concurrent requests

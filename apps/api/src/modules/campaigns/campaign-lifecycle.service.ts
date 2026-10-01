@@ -28,6 +28,13 @@ export class CampaignLifecycleService {
    */
   async refundUnspent(tx: Prisma.TransactionClient, campaign: Campaign, reason: string) {
     const unspent = new Prisma.Decimal(campaign.budgetReservedEtb).minus(campaign.spentEtb);
+    if (unspent.isNegative()) {
+      // Phase 5b New-1: spending beyond the reservation must be impossible (chargeCampaign caps at the reservation);
+      // if it ever shows up it is a ledger anomaly worth an alert, not a silent no-op.
+      this.logger.error(
+        `Campaign ${campaign.id} spent ${campaign.spentEtb} ETB but only ${campaign.budgetReservedEtb} ETB was reserved (${reason})`,
+      );
+    }
     if (unspent.lessThanOrEqualTo(0)) return null;
     const write = await this.wallet.applyEntry(
       {

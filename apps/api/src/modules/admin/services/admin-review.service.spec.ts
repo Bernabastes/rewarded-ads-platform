@@ -1,5 +1,5 @@
 import { BANNED_TOPICS, ErrorCode } from '@rap/shared';
-import { mockAudit, mockPrisma, mockSecurity, uuid } from '../../../testing/test-utils';
+import { D, mockAudit, mockPrisma, mockSecurity, uuid } from '../../../testing/test-utils';
 import { AdminReviewService } from './admin-review.service';
 
 const ADMIN = uuid(1);
@@ -80,5 +80,44 @@ describe('AdminReviewService review queue (Phase 4C/4D: mediaStatus filter + med
       details: { mediaStatus: 'failed', mediaError: 'ffprobe: no video stream' },
     });
     expect(prisma.ad.update).not.toHaveBeenCalled();
+  });
+});
+
+/** Phase 5b New-1 (defence in depth): approval must never activate a campaign whose reservation is below its budget. */
+describe('AdminReviewService.approveCampaign funding gate (Phase 5b New-1)', () => {
+  const CAMPAIGN = uuid(40);
+  let prisma: any;
+  let service: AdminReviewService;
+  let row: Record<string, any>;
+
+  beforeEach(() => {
+    prisma = mockPrisma();
+    row = { id: CAMPAIGN, status: 'pending_review', budgetEtb: D(10_000_000), budgetReservedEtb: D(500), spentEtb: D(0), submissionSeq: 2 };
+    prisma.campaign.findUnique.mockImplementation(async () => ({ ...row }));
+    prisma.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (where.status && where.status !== row.status) return { count: 0 };
+      Object.assign(row, data);
+      return { count: 1 };
+    });
+    const lifecycle = { lockCampaign: jest.fn(async () => ({ ...row })) };
+    service = new AdminReviewService(prisma, mockAudit(), mockSecurity(), { toSummary: (c: any) => c, analyticsFor: jest.fn(async () => ({})) } as never, lifecycle as never, {} as never);
+    jest.spyOn(service, 'getCampaign').mockImplementation(async () => ({ ...row }) as never);
+  });
+
+  it('REGRESSION: budget_reserved_etb < budget_etb -> 422 CAMPAIGN_UNDERFUNDED and the campaign stays pending_review', async () => {
+    await expect(service.approveCampaign(CAMPAIGN, { adminId: ADMIN })).rejects.toMatchObject({
+      code: ErrorCode.CAMPAIGN_UNDERFUNDED,
+      status: 422,
+      details: { budgetEtb: 10_000_000, budgetReservedEtb: 500 },
+    });
+    expect(row.status).toBe('pending_review');
+    expect(prisma.campaign.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('a fully reserved campaign is activated through an atomic status claim', async () => {
+    row.budgetReservedEtb = D(10_000_000);
+    await service.approveCampaign(CAMPAIGN, { adminId: ADMIN }, 'ok');
+    expect(row.status).toBe('active');
+    expect(prisma.campaign.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'pending_review' }) }));
   });
 });

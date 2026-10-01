@@ -82,6 +82,10 @@ export const ErrorCode = {
   // Campaigns / billing
   CAMPAIGN_INVALID_STATE: 'CAMPAIGN_INVALID_STATE',
   CAMPAIGN_HAS_NO_ADS: 'CAMPAIGN_HAS_NO_ADS',
+  /** 422 (Phase 5b New-1): a pending campaign's wallet reservation is smaller than its budget; it cannot be approved. */
+  CAMPAIGN_UNDERFUNDED: 'CAMPAIGN_UNDERFUNDED',
+  /** 422 (Phase 5b New-6): a flagged completion cannot be released because its campaign is no longer live / funded. */
+  CAMPAIGN_NOT_CHARGEABLE: 'CAMPAIGN_NOT_CHARGEABLE',
   INSUFFICIENT_WALLET_BALANCE: 'INSUFFICIENT_WALLET_BALANCE',
   REJECTION_REASON_REQUIRED: 'REJECTION_REASON_REQUIRED',
   PAYMENT_NOT_FOUND: 'PAYMENT_NOT_FOUND',

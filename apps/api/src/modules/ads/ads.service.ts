@@ -534,25 +534,39 @@ export class AdsService {
     return { ...this.toResult(completion, sessionId, true), newBalance: user?.coinBalance ?? null };
   }
 
-  /** Charges the campaign atomically; pauses it when the budget is exhausted. */
+  /**
+   * Charges the campaign atomically; pauses it when the budget is exhausted.
+   * Phase 5b New-1: spend is capped at what the advertiser wallet actually reserved (`LEAST(budget_etb,
+   * budget_reserved_etb)`) - an under-funded campaign can never pay users from platform money.
+   */
   private async chargeCampaign(
     tx: Prisma.TransactionClient,
     campaignId: string,
     cost: Prisma.Decimal,
   ): Promise<{ ok: true } | { ok: false; reason: ErrorCode }> {
-    const rows = await tx.$queryRaw<Array<{ spent_etb: Prisma.Decimal; budget_etb: Prisma.Decimal }>>`
+    const rows = await tx.$queryRaw<Array<{ spent_etb: Prisma.Decimal; budget_etb: Prisma.Decimal; budget_reserved_etb: Prisma.Decimal }>>`
       UPDATE campaigns SET spent_etb = spent_etb + ${cost}, updated_at = NOW()
-      WHERE id = ${campaignId}::uuid AND status = 'active' AND spent_etb + ${cost} <= budget_etb
-      RETURNING spent_etb, budget_etb`;
+      WHERE id = ${campaignId}::uuid AND status = 'active'
+        AND spent_etb + ${cost} <= LEAST(budget_etb, budget_reserved_etb)
+      RETURNING spent_etb, budget_etb, budget_reserved_etb`;
     if (rows.length === 0) {
-      const c = await tx.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+      const c = await tx.campaign.findUnique({
+        where: { id: campaignId },
+        select: { status: true, budgetEtb: true, budgetReservedEtb: true },
+      });
+      if (c?.status === 'active' && c.budgetReservedEtb && c.budgetEtb && c.budgetReservedEtb.lessThan(c.budgetEtb)) {
+        this.logger.error(
+          `Campaign ${campaignId} is under-funded (reserved ${c.budgetReservedEtb} < budget ${c.budgetEtb}); completion refused`,
+        );
+      }
       return {
         ok: false,
         reason: c?.status === 'active' ? ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED : ErrorCode.CAMPAIGN_NOT_ACTIVE,
       };
     }
-    const { spent_etb, budget_etb } = rows[0];
-    if (new Prisma.Decimal(budget_etb).minus(spent_etb).lessThan(cost)) {
+    const { spent_etb, budget_etb, budget_reserved_etb } = rows[0];
+    const ceiling = Prisma.Decimal.min(new Prisma.Decimal(budget_etb), new Prisma.Decimal(budget_reserved_etb));
+    if (ceiling.minus(spent_etb).lessThan(cost)) {
       await tx.campaign.update({
         where: { id: campaignId },
         data: { status: 'paused', pausedReason: 'budget_exhausted' },

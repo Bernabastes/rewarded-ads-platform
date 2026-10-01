@@ -10,7 +10,8 @@
  *   pending_review / active / paused -> net ledger reservation == budget_reserved_etb == budget_etb (+ increases)
  *
  * A campaign whose cached reservation exceeds what the wallet was really debited for is an UNFUNDED campaign
- * (the exploit of audit finding #1). Exit code 1 when any discrepancy is found.
+ * (the exploit of audit finding #1); a live campaign whose reservation is below its budget is UNDERFUNDED
+ * (Phase 5b New-1: the PATCH-budget / submit race). Exit code 1 when any discrepancy is found.
  *
  *   node scripts/audit-reservations.mjs            # uses DATABASE_URL from .env (repo root or apps/api)
  *   node scripts/audit-reservations.mjs --json     # machine-readable output
@@ -64,7 +65,9 @@ for (const r of rows) {
   if (!reserved.equals(net)) {
     problems.push(`cached reservation ${reserved} != net wallet reservation ${net}${reserved.greaterThan(net) ? ' (UNFUNDED by ' + reserved.minus(net) + ' ETB)' : ''}`);
   }
-  if (LIVE.has(r.status) && reserved.lessThan(budget)) problems.push(`live campaign reserved ${reserved} < budget ${budget}`);
+  if (LIVE.has(r.status) && reserved.lessThan(budget)) {
+    problems.push(`UNDERFUNDED live campaign (New-1): reserved ${reserved} < budget ${budget} - users could be paid ${budget.minus(reserved)} ETB from platform money`);
+  }
   if (!LIVE.has(r.status) && r.status !== 'draft' && !reserved.equals(spent)) {
     problems.push(`${r.status} campaign reserved ${reserved} != spent ${spent} (refund missing or incomplete)`);
   }

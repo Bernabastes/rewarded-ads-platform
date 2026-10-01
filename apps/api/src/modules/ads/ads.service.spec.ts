@@ -101,7 +101,7 @@ describe('AdsService.completeWatchSession', () => {
     prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
       const sql = strings.join('?');
       if (sql.includes('FOR UPDATE') && sql.includes('coin_balance')) return [{ coin_balance: 250 }];
-      if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('100'), budget_etb: D('5000') }];
+      if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('100'), budget_etb: D('5000'), budget_reserved_etb: D('5000') }];
       return [];
     });
     prisma.coinLedger.findUnique.mockResolvedValue(null);
@@ -316,7 +316,7 @@ describe('AdsService.completeWatchSession', () => {
       prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
         const sql = strings.join('?');
         if (sql.includes('FOR UPDATE') && sql.includes('coin_balance')) return [{ coin_balance: 250 }];
-        if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('100'), budget_etb: D('5000') }];
+        if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('100'), budget_etb: D('5000'), budget_reserved_etb: D('5000') }];
         return [];
       });
       const right = await service.completeWatchSession(USER, SESSION, { attentionAnswerIndex: 1 }, { ip: '10.0.0.1' });
@@ -426,7 +426,7 @@ describe('AdsService.completeWatchSession', () => {
     prisma.adWatchSession.findUnique.mockResolvedValue(buildSession());
     prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
       const sql = strings.join('?');
-      if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('5000'), budget_etb: D('5000') }];
+      if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('5000'), budget_etb: D('5000'), budget_reserved_etb: D('5000') }];
       if (sql.includes('coin_balance')) return [{ coin_balance: 0 }];
       return [];
     });
@@ -437,6 +437,41 @@ describe('AdsService.completeWatchSession', () => {
       where: { id: CAMPAIGN },
       data: { status: 'paused', pausedReason: 'budget_exhausted' },
     });
+  });
+
+  /** Phase 5b New-1: an active campaign whose budget exceeds what the wallet reserved must stop paying at the reservation. */
+  it('REGRESSION New-1: spend is capped at LEAST(budget_etb, budget_reserved_etb) - an under-reserved campaign cannot pay users', async () => {
+    prisma.adWatchSession.findUnique.mockResolvedValue(buildSession());
+    let chargeSql = '';
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join('?');
+      if (sql.includes('UPDATE campaigns')) {
+        chargeSql = rawSqlText(strings, values);
+        return []; // the DB refused: spent + cost > budget_reserved_etb although budget_etb is huge
+      }
+      if (sql.includes('coin_balance')) return [{ coin_balance: 250 }];
+      return [];
+    });
+    prisma.campaign.findUnique.mockResolvedValue({ status: 'active', budgetEtb: D('10000000'), budgetReservedEtb: D('500') });
+    const result = await service.completeWatchSession(USER, SESSION, {}, { ip: '10.0.0.1' });
+    expect(chargeSql).toContain('LEAST(budget_etb, budget_reserved_etb)');
+    expect(chargeSql).toContain("status = 'active'");
+    expect(result.status).toBe('rejected');
+    expect(result.reasonCode).toBe(ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED);
+    expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+
+    // and the pause decision uses the same ceiling: reserved 500 fully spent -> paused even though budget is 10M
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = strings.join('?');
+      if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('500'), budget_etb: D('10000000'), budget_reserved_etb: D('500') }];
+      if (sql.includes('coin_balance')) return [{ coin_balance: 0 }];
+      return [];
+    });
+    prisma.campaign.update.mockResolvedValue({});
+    prisma.adWatchSession.findUnique.mockResolvedValue(buildSession({ id: uuid(77) }));
+    const second = await service.completeWatchSession(USER, uuid(77), {}, { ip: '10.0.0.1' });
+    expect(second.status).toBe('valid');
+    expect(prisma.campaign.update).toHaveBeenCalledWith({ where: { id: CAMPAIGN }, data: { status: 'paused', pausedReason: 'budget_exhausted' } });
   });
 
   it('refuses sessions that belong to another user', async () => {

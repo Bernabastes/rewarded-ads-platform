@@ -229,16 +229,39 @@ export class AdminReviewService {
     };
   }
 
+  /**
+   * pending_review -> active. Phase 5b New-1 (defence in depth): approval is refused unless the wallet reservation
+   * covers the whole budget (`budget_reserved_etb >= budget_etb`), so a campaign that somehow reached the queue
+   * under-funded can never start paying users; the status flip is an atomic claim under the campaign row lock.
+   */
   async approveCampaign(id: string, actor: AdminActor, note?: string) {
     const c = await this.prisma.campaign.findUnique({ where: { id } });
     if (!c) throw AppException.notFound('Campaign not found');
     if (c.status !== 'pending_review')
       throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, `Campaign is ${c.status}`);
     await this.prisma.$transaction(async (tx) => {
-      await tx.campaign.update({
-        where: { id },
+      const locked = await this.lifecycle.lockCampaign(tx, id);
+      if (!locked || locked.status !== 'pending_review')
+        throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, `Campaign is ${locked?.status ?? 'missing'}`);
+      if (locked.budgetReservedEtb.lessThan(locked.budgetEtb)) {
+        this.security.error('ledger.write', {
+          campaignId: id,
+          problem: 'campaign_underfunded',
+          budgetEtb: locked.budgetEtb.toNumber(),
+          budgetReservedEtb: locked.budgetReservedEtb.toNumber(),
+          adminId: actor.adminId,
+        });
+        throw AppException.unprocessable(
+          ErrorCode.CAMPAIGN_UNDERFUNDED,
+          'The wallet reservation does not cover this campaign budget; it must be rejected and resubmitted',
+          { budgetEtb: locked.budgetEtb.toNumber(), budgetReservedEtb: locked.budgetReservedEtb.toNumber() },
+        );
+      }
+      const claimed = await tx.campaign.updateMany({
+        where: { id, status: 'pending_review', budgetEtb: locked.budgetEtb },
         data: { status: 'active', reviewedAt: new Date(), reviewedBy: actor.adminId, rejectionReason: null },
       });
+      if (claimed.count === 0) throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, 'Campaign changed concurrently');
       await this.audit.record(
         {
           actorType: 'admin',
@@ -246,7 +269,7 @@ export class AdminReviewService {
           action: 'campaign.approved',
           targetType: 'campaign',
           targetId: id,
-          before: { status: c.status },
+          before: { status: locked.status, budgetEtb: locked.budgetEtb, budgetReservedEtb: locked.budgetReservedEtb },
           after: { status: 'active', note },
           ipAddress: actor.ip,
         },

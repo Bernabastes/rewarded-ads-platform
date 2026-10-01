@@ -147,6 +147,10 @@ describe('CampaignsService budget reservation (security audit #1: reject -> edit
     prisma.campaign.findUniqueOrThrow.mockImplementation(async () => ({ ...row }));
     prisma.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
       if (where.status && row.status !== where.status) return { count: 0 };
+      // Phase 5b New-1: the guarded claims also pin budget / spent / seq to the values read under the lock
+      if (where.budgetEtb !== undefined && !new Prisma.Decimal(where.budgetEtb).equals(row.budgetEtb)) return { count: 0 };
+      if (where.spentEtb !== undefined && !new Prisma.Decimal(where.spentEtb).equals(row.spentEtb)) return { count: 0 };
+      if (where.submissionSeq !== undefined && where.submissionSeq !== row.submissionSeq) return { count: 0 };
       applyUpdate(data);
       return { count: 1 };
     });
@@ -264,5 +268,73 @@ describe('CampaignsService budget reservation (security audit #1: reject -> edit
     expect(wallet.balance.toNumber()).toBe(1000);
     expect(wallet.entries.get(reservationKey(CAMPAIGN, 2))?.amountEtb.toNumber()).toBe(-3800);
     expect(row.budgetReservedEtb.toNumber()).toBe(5000);
+  });
+
+  /* ---------------- Phase 5b New-1: PATCH budget || submit race (TOCTOU) ---------------- */
+
+  it('REGRESSION New-1: a budget edit that lands between submit\'s pre-read and its row lock is funded from the LOCKED budget (or refused), never reserved at the stale one', async () => {
+    // the pre-transaction read sees budget 5000 ...
+    prisma.campaign.findFirst.mockImplementationOnce(async () => ({ ...row }));
+    // ... but by the time submit holds the row lock a concurrent PATCH has raised it x2000
+    prisma.$queryRaw.mockImplementationOnce(async () => {
+      row.budgetEtb = D(10_000_000);
+      return [{ id: CAMPAIGN }];
+    });
+    await expect(service.submit(ADVERTISER, CAMPAIGN)).rejects.toMatchObject({ code: ErrorCode.INSUFFICIENT_WALLET_BALANCE });
+    expect(wallet.balance.toNumber()).toBe(6000);
+    expect(wallet.entries.size).toBe(0);
+    expect(row.budgetReservedEtb.toNumber()).toBe(0);
+
+    // with enough money the SAME interleaving reserves the full new budget: reserved == budget always holds
+    // (the mock cannot roll the failed claim back, so the row is reset to the committed state by hand)
+    wallet = new FakeWallet(12_000_000);
+    (service as any).wallet = wallet;
+    row.status = 'draft';
+    row.budgetEtb = D(5000);
+    row.submissionSeq = 0;
+    prisma.$queryRaw.mockImplementationOnce(async () => {
+      row.budgetEtb = D(10_000_000);
+      return [{ id: CAMPAIGN }];
+    });
+    await service.submit(ADVERTISER, CAMPAIGN);
+    expect(row.status).toBe('pending_review');
+    expect(row.budgetReservedEtb.toNumber()).toBe(10_000_000);
+    expect(wallet.entries.get(reservationKey(CAMPAIGN, 1))?.amountEtb.toNumber()).toBe(-10_000_000);
+    expect(row.budgetReservedEtb.equals(row.budgetEtb)).toBe(true);
+  });
+
+  it('New-1: the status claim is pinned to the locked budget/spent - a mismatch aborts before any wallet debit', async () => {
+    // the locked re-read returns a stale budget while the row already carries a different one
+    prisma.campaign.findUnique.mockImplementationOnce(async () => ({ ...row, budgetEtb: D(100) }));
+    await expect(service.submit(ADVERTISER, CAMPAIGN)).rejects.toMatchObject({ code: ErrorCode.CAMPAIGN_INVALID_STATE });
+    expect(wallet.applyEntry).not.toHaveBeenCalled();
+    expect(row.status).toBe('draft');
+  });
+
+  it('New-1: submit refuses to start a new cycle while the ledger still holds more than spent (out-of-sync reservation)', async () => {
+    wallet.entries.set(reservationKey(CAMPAIGN, 1), { amountEtb: D(-5000), entryType: 'campaign_budget_reservation' });
+    await expect(service.submit(ADVERTISER, CAMPAIGN)).rejects.toMatchObject({
+      code: ErrorCode.CAMPAIGN_INVALID_STATE,
+      details: { netReservedEtb: 5000 },
+    });
+    expect(row.status).toBe('draft');
+  });
+
+  it('New-1: update() re-validates under the row lock - a submit that wins the race makes the budget edit fail with 409', async () => {
+    prisma.$queryRaw.mockImplementationOnce(async () => {
+      // concurrent submit committed while update() was still validating its plain read
+      row.status = 'pending_review';
+      row.budgetReservedEtb = D(5000);
+      return [{ id: CAMPAIGN }];
+    });
+    await expect(service.update(ADVERTISER, CAMPAIGN, { budgetEtb: 10_000_000 })).rejects.toMatchObject({ code: ErrorCode.CAMPAIGN_INVALID_STATE });
+    expect(row.budgetEtb.toNumber()).toBe(5000);
+    expect(row.status).toBe('pending_review');
+  });
+
+  it('New-1: update() writes are guarded by status + budget + spent (a concurrent change -> 409, nothing written)', async () => {
+    prisma.campaign.findUnique.mockImplementationOnce(async () => ({ ...row, budgetEtb: D(4999) }));
+    await expect(service.update(ADVERTISER, CAMPAIGN, { title: 'guarded' })).rejects.toMatchObject({ code: ErrorCode.CAMPAIGN_INVALID_STATE });
+    expect(row.title).toBe('Replay test');
   });
 });
