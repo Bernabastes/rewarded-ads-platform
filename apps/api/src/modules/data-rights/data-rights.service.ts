@@ -363,6 +363,10 @@ export class DataRightsService {
         data: { signupIp: null, signupDeviceFingerprint: null },
       });
       await tx.fraudFlag.updateMany({ where: { userId: req.userId }, data: { metadata: Prisma.JsonNull } });
+      // Phase 5b New-8: consent receipts keep kind/version/time (legal proof) but lose the network / device identifiers,
+      // and the deletion request itself must not retain the requester's IP once executed.
+      await tx.userConsent.updateMany({ where: { userId: req.userId }, data: { ipAddress: null, deviceId: null } });
+      await tx.accountDeletionRequest.updateMany({ where: { userId: req.userId }, data: { ipAddress: null } });
       await this.audit.record(
         {
           actorType: actor.actorType,
@@ -375,7 +379,7 @@ export class DataRightsService {
             status: 'deleted',
             anonymizedAt: anonymized.anonymizedAt,
             retained: ['coin_ledger', 'ad_completions', 'withdrawals', 'audit_log'],
-            scrubbed: ['kyc_submissions', 'otp_codes', 'ad_completions.ip/device', 'refresh_tokens.ip/ua', 'survey_responses', 'app_install_completions', 'referrals.signup', 'fraud_flags.metadata'],
+            scrubbed: ['kyc_submissions', 'otp_codes', 'ad_completions.ip/device', 'refresh_tokens.ip/ua', 'survey_responses', 'app_install_completions', 'referrals.signup', 'fraud_flags.metadata', 'user_consents.ip/device', 'account_deletion_requests.ip'],
           },
           ipAddress: actor.ip,
         },

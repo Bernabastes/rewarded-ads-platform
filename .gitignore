@@ -9,6 +9,11 @@ coverage/
 .expo/
 *.log
 .DS_Store
+# stray Jest/Prisma console dumps (a file literally named `profile` was once committed by accident - New-9)
+apps/api/profile
+isolate-*.log
+*.cpuprofile
+*.heapprofile
 
 
 # desktop ffmpeg/ffprobe binaries installed by pnpm media:tools (the Docker image uses apk ffmpeg)

@@ -167,6 +167,7 @@ describe('DataRightsService (deletion + anonymisation)', () => {
         surveyAnswer: 'I earn about 4000 birr per month',
         installProof: 'attribution-token-9f9f9f',
         fraudNote: 'same device as +251911000001',
+        deviceId: 'android-id-7e7e7e7e',
       };
       const tables: Record<string, Array<Record<string, unknown>>> = {
         kycSubmission: [{ userId: USER, fullName: 'Abebe Bikila', dateOfBirth: new Date(PII.dob), idNumberLast4: PII.idLast4, idNumberHash: PII.idHash, documentFrontKey: 'private/kyc/a', documentBackKey: 'private/kyc/c', selfieKey: 'private/kyc/b', providerResult: { match: true } }],
@@ -181,6 +182,9 @@ describe('DataRightsService (deletion + anonymisation)', () => {
         withdrawal: [{ userId: USER, payoutDestination: PII.phone, destinationName: 'Abebe', destinationAccountName: 'Abebe Bikila', amountEtb: 60 }],
         payoutDestination: [{ userId: USER, destination: PII.phone }],
         user: [{ id: USER, phoneNumber: PII.phone, fullName: 'Abebe Bikila', dateOfBirth: new Date(PII.dob), lastIp: PII.ip, signupIp: PII.ip, signupDeviceFingerprint: PII.fingerprint, deviceId: 'dev-1', referralCode: 'K7MP2X' }],
+        // Phase 5b New-8: consent receipts and the deletion request itself carried the IP / device too
+        userConsent: [{ userId: USER, kind: 'terms', version: '2026-09', ipAddress: PII.ip, deviceId: PII.deviceId }],
+        accountDeletionRequest: [{ id: REQ, userId: USER, status: 'pending', ipAddress: PII.ip }],
       };
       const matches = (row: Record<string, unknown>, where: Record<string, unknown>) =>
         Object.entries(where).every(([k, v]) => (v && typeof v === 'object' && 'in' in (v as object) ? ((v as { in: unknown[] }).in ?? []).includes(row[k]) : row[k] === v));
@@ -219,6 +223,9 @@ describe('DataRightsService (deletion + anonymisation)', () => {
       expect(tables.adCompletion[0].coinReward).toBe(150);
       expect(tables.withdrawal[0].amountEtb).toBe(60);
       expect(tables.kycSubmission[0].idNumberHash).toMatch(/^deleted:[a-f0-9]{64}$/);
+      // legal proof of consent survives without identifiers; the request row is executed and IP-free
+      expect(tables.userConsent[0]).toMatchObject({ kind: 'terms', version: '2026-09', ipAddress: null, deviceId: null });
+      expect(tables.accountDeletionRequest[0]).toMatchObject({ status: 'executed', ipAddress: null });
     });
   });
 
