@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicCreatives",
+      "Effect": "Allow",
+      "Principal": { "AWS": ["*"] },
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::BUCKET/creatives/*", "arn:aws:s3:::BUCKET/seed/*"]
+    },
+    {
+      "Sid": "DenyPrivate",
+      "Effect": "Deny",
+      "Principal": { "AWS": ["*"] },
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::BUCKET/private/*"]
+    }
+  ]
+}

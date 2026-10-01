@@ -1,31 +1,34 @@
 name: rap
 
+# Security audit #10: images are pinned to digests, the data stores (postgres / redis / minio) are bound to
+# loopback only, and credentials are REQUIRED from .env - compose refuses to start (the ':?' messages below)
+# instead of silently falling back to well-known defaults.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     container_name: rap-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-rap}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rap}
-      POSTGRES_DB: ${POSTGRES_DB:-rap}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (never rely on a default)}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-rap} -d ${POSTGRES_DB:-rap}']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 5s
       timeout: 5s
       retries: 20
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     container_name: rap-redis
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
     ports:
-      - '${REDIS_PORT:-6379}:6379'
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -35,16 +38,18 @@ services:
       retries: 20
 
   minio:
-    image: quay.io/minio/minio:latest
+    image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     container_name: rap-minio
     restart: unless-stopped
     command: server /data --console-address ':9001'
     environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set in .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set in .env (never rely on a default)}
     ports:
-      - '${MINIO_PORT:-9000}:9000'
-      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+      # The S3 API port is loopback-only by default; browsers / phones fetch media through S3_PUBLIC_URL (a reverse
+      # proxy or CDN in production). For LAN testing with a real phone set MINIO_BIND=0.0.0.0 in .env.
+      - '${MINIO_BIND:-127.0.0.1}:${MINIO_PORT:-9000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001'
     volumes:
       - minio-data:/data
     healthcheck:
@@ -53,19 +58,39 @@ services:
       timeout: 5s
       retries: 20
 
-  # Creates the media bucket and makes it publicly readable (ad creatives are public by design).
+  # Creates the media bucket. Anonymous READ is granted ONLY for creatives/* and seed/* (ad media is public by
+  # design); private/* (KYC documents, data exports) is explicitly denied. docker/minio-bucket-policy.json is the
+  # reference copy of this policy (the mc image has no sed, so it is rendered inline here).
   minio-init:
-    image: quay.io/minio/mc:latest
+    image: quay.io/minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     container_name: rap-minio-init
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin} &&
-      mc mb --ignore-existing local/${S3_BUCKET:-rap-media} &&
-      mc anonymous set download local/${S3_BUCKET:-rap-media} &&
-      echo 'bucket ready'"
+    environment:
+      MC_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set in .env}
+      MC_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set in .env}
+      MC_BUCKET: ${S3_BUCKET:-rap-media}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MC_ACCESS_KEY" "$$MC_SECRET_KEY"
+        mc mb --ignore-existing "local/$$MC_BUCKET"
+        cat > /tmp/policy.json <<EOF
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            { "Sid": "PublicCreatives", "Effect": "Allow", "Principal": { "AWS": ["*"] }, "Action": ["s3:GetObject"],
+              "Resource": ["arn:aws:s3:::$$MC_BUCKET/creatives/*", "arn:aws:s3:::$$MC_BUCKET/seed/*"] },
+            { "Sid": "DenyPrivate", "Effect": "Deny", "Principal": { "AWS": ["*"] }, "Action": ["s3:GetObject"],
+              "Resource": ["arn:aws:s3:::$$MC_BUCKET/private/*"] }
+          ]
+        }
+        EOF
+        mc anonymous set-json /tmp/policy.json "local/$$MC_BUCKET"
+        echo "bucket ready (anonymous read: creatives/*, seed/* only; private/* denied)"
     restart: 'no'
 
   api:
@@ -87,7 +112,7 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-rap}:${POSTGRES_PASSWORD:-rap}@postgres:5432/${POSTGRES_DB:-rap}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}

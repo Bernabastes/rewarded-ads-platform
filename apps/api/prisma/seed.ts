@@ -95,6 +95,8 @@ async function uploadSeedMedia() {
     await s3.send(new HeadBucketCommand({ Bucket: S3_BUCKET }));
   } catch {
     await s3.send(new CreateBucketCommand({ Bucket: S3_BUCKET }));
+    // Security audit #10: anonymous read ONLY for public creatives + seed media; private/ (KYC documents, data
+    // exports) is explicitly denied even if a broader statement is ever added. Mirrors docker/minio-bucket-policy.
     await s3.send(
       new PutBucketPolicyCommand({
         Bucket: S3_BUCKET,
@@ -102,10 +104,18 @@ async function uploadSeedMedia() {
           Version: '2012-10-17',
           Statement: [
             {
+              Sid: 'PublicCreatives',
               Effect: 'Allow',
               Principal: { AWS: ['*'] },
               Action: ['s3:GetObject'],
-              Resource: [`arn:aws:s3:::${S3_BUCKET}/*`],
+              Resource: [`arn:aws:s3:::${S3_BUCKET}/creatives/*`, `arn:aws:s3:::${S3_BUCKET}/${MEDIA_PREFIX}/*`],
+            },
+            {
+              Sid: 'DenyPrivate',
+              Effect: 'Deny',
+              Principal: { AWS: ['*'] },
+              Action: ['s3:GetObject'],
+              Resource: [`arn:aws:s3:::${S3_BUCKET}/private/*`],
             },
           ],
         }),
