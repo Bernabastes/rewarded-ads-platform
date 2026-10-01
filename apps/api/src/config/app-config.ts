@@ -60,6 +60,8 @@ export class AppConfig {
       referralMaxPerReferrerPerDay: e.REFERRAL_MAX_PER_REFERRER_PER_DAY,
       accountDeletionGraceDays: e.ACCOUNT_DELETION_GRACE_DAYS,
       destinationResolveTtlMinutes: e.DESTINATION_RESOLVE_TTL_MINUTES,
+      /** Security audit #11: partner account lookups a user may trigger per UTC day. */
+      destinationLookupsPerDay: e.DESTINATION_LOOKUPS_PER_DAY,
       idempotencyTtlHours: e.IDEMPOTENCY_TTL_HOURS,
       impersonationTtlSeconds: e.IMPERSONATION_TTL_SECONDS,
     };
@@ -77,6 +79,8 @@ export class AppConfig {
       spendVelocityMultiplier: e.ALERT_SPEND_VELOCITY_MULTIPLIER,
       spendVelocityMinEtb: e.ALERT_SPEND_VELOCITY_MIN_ETB,
       otpRequestsPerIpPerHour: e.ALERT_OTP_REQUESTS_PER_IP_PER_HOUR,
+      /** Security audit #11: partner account lookups per IP per hour before DESTINATION_LOOKUP_SPIKE is raised. */
+      destinationLookupsPerIpPerHour: e.ALERT_DESTINATION_LOOKUPS_PER_IP_PER_HOUR,
       telegramConfigured: Boolean(e.ALERT_TELEGRAM_BOT_TOKEN && e.ALERT_TELEGRAM_CHAT_ID),
       webhookConfigured: Boolean(e.ALERT_WEBHOOK_URL),
     };

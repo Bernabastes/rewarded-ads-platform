@@ -124,6 +124,8 @@ export const ErrorCode = {
   DESTINATION_OTP_REQUIRED: 'DESTINATION_OTP_REQUIRED',
   /** The payout partner could not find an account for this destination. */
   DESTINATION_NOT_FOUND: 'DESTINATION_NOT_FOUND',
+  /** 429 (Phase 5 #11): DESTINATION_LOOKUPS_PER_DAY partner lookups already used today. */
+  DESTINATION_LOOKUP_LIMIT: 'DESTINATION_LOOKUP_LIMIT',
 
   // KYC (Phase 4A)
   /** Rolling 30-day payouts + the new request would reach (>=) KYC_REQUIRED_ABOVE_MONTHLY_ETB and the user is `phone_only`. */

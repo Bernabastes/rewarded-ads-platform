@@ -2,13 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { type PayoutDestination, type PayoutMethod } from '@prisma/client';
 import { ErrorCode } from '@rap/shared';
 import { AppException } from '../../../common/errors/app.exception';
-import { addSeconds, maskDestination, randomNumericCode, sha256 } from '../../../common/utils';
+import { addSeconds, maskDestination, randomNumericCode, secondsUntilEndOfUtcDay, sha256, utcDayKey } from '../../../common/utils';
 import { AppConfig } from '../../../config/app-config';
 import { SecurityLogger } from '../../../infra/logger/logger.module';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { RedisService } from '../../../infra/redis/redis.service';
 import { SMS_PROVIDER, type SmsProvider } from '../../../infra/sms/sms.module';
 import { Inject } from '@nestjs/common';
+import { ALERT_TYPES } from '../../alerts/alert.rules';
+import { AlertService } from '../../alerts/alerts.service';
 import { AuditService } from '../../audit/audit.service';
 import { OtpVerifier } from '../../auth/otp.verifier';
 import { DestinationNotFoundError } from '../providers/payout-provider';
@@ -42,6 +44,7 @@ export class DestinationsService {
     private readonly security: SecurityLogger,
     private readonly audit: AuditService,
     private readonly otpVerifier: OtpVerifier,
+    private readonly alerts: AlertService,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
   ) {}
 
@@ -95,11 +98,62 @@ export class DestinationsService {
     return row;
   }
 
-  /** Partner account lookup; upserts the destination with `verifiedAt = now`. */
+  /**
+   * Destination lookup (security audit #11). The partner is an oracle for "does this phone/account exist and who
+   * owns it", so:
+   *  - a NEW destination is NOT looked up until the OTP re-check for it succeeded (`verifyOtp` performs the lookup
+   *    and reveals the holder name) - every lookup of a fresh destination costs an OTP on the user's own phone;
+   *  - known destinations and OTP-fresh ones are looked up directly;
+   *  - every partner call counts toward DESTINATION_LOOKUPS_PER_DAY per user (429 DESTINATION_LOOKUP_LIMIT) and a
+   *    per-IP hourly spike raises the DESTINATION_LOOKUP_SPIKE alert.
+   */
   async resolve(userId: string, input: DestinationInput, ip?: string) {
     if (!this.registry.isMethodAvailable(input.payoutMethod)) {
       throw new AppException(ErrorCode.PAYOUT_METHOD_UNAVAILABLE, 'This payout method is temporarily unavailable', 503);
     }
+    const now = new Date();
+    const existing = await this.find(userId, input);
+    const known = Boolean(existing?.lastUsedAt);
+    const otpFresh = this.isFresh(existing?.otpVerifiedAt ?? null, now);
+    if (!known && !otpFresh) {
+      // Remember the intent (no partner call, nothing revealed) so verifyOtp can complete the lookup.
+      const row = await this.prisma.payoutDestination.upsert({
+        where: { userId_payoutMethod_destination: { userId, payoutMethod: input.payoutMethod, destination: input.destination } },
+        create: { userId, payoutMethod: input.payoutMethod, destination: input.destination, bankCode: input.bankCode },
+        update: { bankCode: input.bankCode ?? undefined },
+      });
+      this.security.info('destination.lookup_deferred', { userId, method: input.payoutMethod, ip });
+      return {
+        accountName: null,
+        normalizedDestination: row.destination,
+        payoutMethod: row.payoutMethod,
+        provider: null,
+        mock: false,
+        known: false,
+        otpRequired: true,
+        lookupPerformed: false,
+        lookupsRemainingToday: await this.lookupsRemaining(userId),
+        validUntil: new Date(now.getTime() + this.ttlMs),
+      };
+    }
+    const { row, resolved } = await this.lookupAndStore(userId, input, ip, now);
+    return {
+      accountName: row.accountName,
+      normalizedDestination: row.destination,
+      payoutMethod: row.payoutMethod,
+      provider: resolved.provider.name,
+      mock: resolved.provider.isMock,
+      known,
+      otpRequired: !known && !this.isFresh(row.otpVerifiedAt, now),
+      lookupPerformed: true,
+      lookupsRemainingToday: await this.lookupsRemaining(userId),
+      validUntil: new Date(now.getTime() + this.ttlMs),
+    };
+  }
+
+  /** Counts the lookup (per-user daily cap + per-IP spike alert), asks the partner and stores the result. */
+  private async lookupAndStore(userId: string, input: DestinationInput, ip: string | undefined, now: Date) {
+    await this.claimLookup(userId, ip);
     let resolved;
     try {
       resolved = await this.registry.resolveWithFailover(input.payoutMethod, input.destination, input.bankCode);
@@ -114,7 +168,6 @@ export class DestinationsService {
       }
       throw new AppException(ErrorCode.SERVICE_UNAVAILABLE, 'Account lookup is temporarily unavailable', 503);
     }
-    const now = new Date();
     const row = await this.prisma.payoutDestination.upsert({
       where: {
         userId_payoutMethod_destination: {
@@ -149,17 +202,51 @@ export class DestinationsService {
       known: Boolean(row.lastUsedAt),
       ip,
     });
-    const known = Boolean(row.lastUsedAt);
-    return {
-      accountName: row.accountName!,
-      normalizedDestination: row.destination,
-      payoutMethod: row.payoutMethod,
-      provider: resolved.provider.name,
-      mock: resolved.provider.isMock,
-      known,
-      otpRequired: !known && !this.isFresh(row.otpVerifiedAt, now),
-      validUntil: new Date(now.getTime() + this.ttlMs),
-    };
+    return { row, resolved };
+  }
+
+  private lookupDayKey(userId: string) {
+    return `dest:lookup:${userId}:${utcDayKey()}`;
+  }
+
+  async lookupsRemaining(userId: string): Promise<number> {
+    const used = await this.redis.getNumber(this.lookupDayKey(userId)).catch(() => 0);
+    return Math.max(0, this.config.platform.destinationLookupsPerDay - used);
+  }
+
+  /** Per-user daily cap (429) + per-IP hourly spike alert. Fails open when Redis is unavailable. */
+  private async claimLookup(userId: string, ip?: string) {
+    const limit = this.config.platform.destinationLookupsPerDay;
+    let count: number;
+    try {
+      count = await this.redis.incrWithTtl(this.lookupDayKey(userId), secondsUntilEndOfUtcDay());
+    } catch (err) {
+      this.security.error('auth.denylist_unavailable', { scope: 'destination_lookup_cap', error: (err as Error).message });
+      return;
+    }
+    if (count > limit) {
+      this.security.warn('destination.lookup_rate_limited', { userId, count, limit, ip });
+      throw AppException.rateLimited(
+        ErrorCode.DESTINATION_LOOKUP_LIMIT,
+        `You can verify at most ${limit} payout destinations per day`,
+        { limit, retryAfterSeconds: secondsUntilEndOfUtcDay() },
+      );
+    }
+    if (ip) {
+      const threshold = this.config.alerts.destinationLookupsPerIpPerHour;
+      const perIp = await this.redis.incrWithTtl(`dest:lookup:ip:${ip}:${new Date().toISOString().slice(0, 13)}`, 3600).catch(() => 0);
+      if (perIp === threshold + 1) {
+        await this.alerts
+          .raise({
+            type: ALERT_TYPES.destinationLookupSpike,
+            severity: 'warning',
+            title: `${perIp} payout-destination lookups from one IP in the last hour`,
+            payload: { ip, lookups: perIp, threshold, userId },
+            dedupeKey: `destination_lookup_spike:${ip}`,
+          })
+          .catch(() => undefined);
+      }
+    }
   }
 
   /* ------------------------------ OTP re-check ------------------------------ */
@@ -249,7 +336,17 @@ export class DestinationsService {
       after: { payoutMethod: row.payoutMethod, destination: maskDestination(row.destination) },
       ipAddress: ip,
     });
-    return this.toItem(row);
+    // Security audit #11: the partner lookup happens only now, after the user proved control of the phone.
+    const needsLookup = !this.isFresh(row.verifiedAt, now) || !row.accountName;
+    const looked = needsLookup ? await this.lookupAndStore(userId, input, ip, now) : null;
+    const finalRow = looked?.row ?? row;
+    return {
+      ...this.toItem(finalRow),
+      normalizedDestination: finalRow.destination,
+      provider: finalRow.providerName ?? null,
+      mock: finalRow.providerMock ?? false,
+      validUntil: new Date(now.getTime() + this.ttlMs),
+    };
   }
 
   /* ------------------------------ enforcement ------------------------------ */

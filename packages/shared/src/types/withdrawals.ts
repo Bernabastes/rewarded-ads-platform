@@ -62,17 +62,27 @@ export interface ResolveDestinationDto {
 }
 
 export interface ResolveDestinationResponse {
-  /** Account holder name from the payout partner (MOCK: deterministic fake name, `mock: true`). */
-  accountName: string;
+  /**
+   * Account holder name from the payout partner (MOCK: deterministic fake name, `mock: true`).
+   * Phase 5 (#11): for a NEW destination the partner is NOT asked until the OTP re-check succeeded, so this is
+   * `null` while `otpRequired` is true; `POST /withdrawals/destinations/otp/verify` then performs the lookup and
+   * returns the name in `PayoutDestinationItem.accountName`.
+   */
+  accountName: string | null;
   /** E.164 phone or cleaned account number - send THIS back as `payoutDestination`. */
   normalizedDestination: string;
   payoutMethod: PayoutMethod;
-  provider: string;
+  /** Partner that answered the lookup; `null` when no lookup happened yet (OTP pending). */
+  provider: string | null;
   mock: boolean;
   /** true when the user already paid out to this destination (no OTP re-check needed). */
   known: boolean;
   /** true when an OTP re-check (destination_change) is still required before requesting. */
   otpRequired: boolean;
+  /** true once the partner lookup ran and `accountName` is populated. */
+  lookupPerformed: boolean;
+  /** Partner lookups left for this user today (DESTINATION_LOOKUPS_PER_DAY). */
+  lookupsRemainingToday: number;
   /** The lookup must be used before this time. */
   validUntil: IsoDateTime;
 }
@@ -83,6 +93,17 @@ export interface VerifyDestinationOtpDto {
   payoutMethod: PayoutMethod;
   payoutDestination: string;
   bankCode?: string;
+}
+
+/**
+ * Response of `POST /withdrawals/destinations/otp/verify` (Phase 5 #11): the destination item with the account
+ * holder name now revealed, plus the lookup details that `resolve` used to return.
+ */
+export interface VerifyDestinationOtpResponse extends PayoutDestinationItem {
+  normalizedDestination: string;
+  provider: string | null;
+  mock: boolean;
+  validUntil: IsoDateTime;
 }
 
 export interface PayoutDestinationItem {

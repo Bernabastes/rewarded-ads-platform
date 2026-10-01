@@ -16,6 +16,8 @@ export const ALERT_TYPES = {
   accountMinting: 'ACCOUNT_MINTING',
   spendVelocity: 'SPEND_VELOCITY',
   otpSpike: 'OTP_SPIKE',
+  /** Security audit #11: too many payout-destination partner lookups from one IP (enumeration attempt). */
+  destinationLookupSpike: 'DESTINATION_LOOKUP_SPIKE',
 } as const;
 
 /* ------------------------------ payout failure rate ------------------------------ */

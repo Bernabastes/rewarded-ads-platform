@@ -52,9 +52,12 @@ export class WithdrawalsController {
   @ApiOperation({
     summary: 'Look up the account holder name for a payout destination (required for NEW destinations)',
     description:
-      'Calls the payout partner (telebirr / Chapa; MOCK returns a deterministic name). Valid for `destinationResolveTtlMinutes`. The response says whether an OTP re-check is still required (`otpRequired`). Send back `normalizedDestination` as `payoutDestination`.',
+      'Known destinations (and ones whose OTP re-check is fresh) are looked up at the payout partner (telebirr / Chapa; MOCK returns a deterministic name) and `accountName` is returned. ' +
+      'Security audit #11: for a NEW destination NO partner call is made - the response is `{ accountName: null, otpRequired: true, lookupPerformed: false }`; request + verify the destination OTP, and the verify response reveals the holder name. ' +
+      'Every partner lookup counts toward DESTINATION_LOOKUPS_PER_DAY (`lookupsRemainingToday`). Valid for `destinationResolveTtlMinutes`. Send back `normalizedDestination` as `payoutDestination`.',
   })
   @ApiResponse({ status: 422, description: 'DESTINATION_NOT_FOUND' })
+  @ApiResponse({ status: 429, description: 'DESTINATION_LOOKUP_LIMIT' })
   @ApiResponse({ status: 503, description: 'PAYOUT_METHOD_UNAVAILABLE | SERVICE_UNAVAILABLE' })
   resolve(@CurrentAuth() auth: AuthContext, @Body() dto: ResolveDestinationDto, @ClientIp() ip: string) {
     const destination = this.withdrawals.validateDestination({
@@ -80,9 +83,14 @@ export class WithdrawalsController {
   @Post('destinations/otp/verify')
   @HttpCode(200)
   @RequireVerifiedAdult()
-  @ApiOperation({ summary: 'Confirm the destination_change OTP for a specific destination' })
+  @ApiOperation({
+    summary: 'Confirm the destination_change OTP for a specific destination (then performs the partner lookup)',
+    description:
+      'Security audit #11: after a valid code the partner lookup for this destination runs here and the account holder name is returned (`accountName`, `provider`, `mock`, `validUntil`). 422 DESTINATION_NOT_FOUND when the partner has no such account; 429 DESTINATION_LOOKUP_LIMIT when the daily lookup cap is used up.',
+  })
   @ApiResponse({ status: 400, description: 'OTP_INVALID | OTP_EXPIRED' })
-  @ApiResponse({ status: 429, description: 'OTP_TOO_MANY_ATTEMPTS' })
+  @ApiResponse({ status: 422, description: 'DESTINATION_NOT_FOUND' })
+  @ApiResponse({ status: 429, description: 'OTP_TOO_MANY_ATTEMPTS | DESTINATION_LOOKUP_LIMIT' })
   verifyDestinationOtp(@CurrentAuth() auth: AuthContext, @Body() dto: VerifyDestinationOtpDto, @ClientIp() ip: string) {
     const destination = this.withdrawals.validateDestination({
       payoutMethod: dto.payoutMethod,

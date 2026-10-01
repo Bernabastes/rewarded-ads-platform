@@ -184,8 +184,12 @@ export const envSchema = z
     MFA_ENCRYPTION_KEY: z.string().optional(),
     /** finance / super_admin accounts must have TOTP enabled; until then every non-MFA admin route is 403 MFA_SETUP_REQUIRED. */
     ADMIN_MFA_REQUIRED: bool.default(false),
-    /** Login throttling (#5): attempts per IP / per account inside LOGIN_WINDOW_SECONDS, lockout after LOGIN_LOCKOUT_THRESHOLD failures. */
-    LOGIN_RATE_LIMIT_PER_IP: num(10),
+    /**
+     * Login throttling (#5): attempts per IP / per account inside LOGIN_WINDOW_SECONDS, lockout after
+     * LOGIN_LOCKOUT_THRESHOLD consecutive failures. The per-IP limit is deliberately higher than the per-account one
+     * so an office NAT shared by many admins is not locked out by normal use.
+     */
+    LOGIN_RATE_LIMIT_PER_IP: num(30),
     LOGIN_RATE_LIMIT_PER_ACCOUNT: num(10),
     LOGIN_WINDOW_SECONDS: num(900),
     LOGIN_LOCKOUT_THRESHOLD: num(5),

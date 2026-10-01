@@ -21,6 +21,9 @@ process.env.MIN_WATCH_RATIO = '0.05';
 process.env.HEARTBEAT_INTERVAL_SECONDS = '1';
 process.env.OTP_RATE_LIMIT_PER_IP_PER_HOUR = '1000';
 process.env.OTP_VERIFY_LIMIT_PER_IP = '1000';
+// Security audit #5: the suite logs in as several admins from one IP; keep the login throttle out of the way.
+process.env.LOGIN_RATE_LIMIT_PER_IP = '1000';
+process.env.LOGIN_RATE_LIMIT_PER_ACCOUNT = '1000';
 process.env.LOG_LEVEL = 'silent';
 
 async function infraReachable(): Promise<boolean> {
@@ -247,10 +250,12 @@ describe('API e2e smoke (user money flow)', () => {
       .set(adult)
       .send({ payoutMethod: 'telebirr', payoutDestination: phone2 })
       .expect(200);
-    expect(resolved.body.accountName).toBeTruthy();
+    // Security audit #11: a NEW destination is not looked up (no holder name) until the OTP re-check succeeded
+    expect(resolved.body.accountName).toBeNull();
+    expect(resolved.body.lookupPerformed).toBe(false);
     expect(resolved.body.otpRequired).toBe(true);
     const destOtp = await http.post('/api/v1/withdrawals/destinations/otp/request').set(adult).expect(200);
-    await http
+    const destVerified = await http
       .post('/api/v1/withdrawals/destinations/otp/verify')
       .set(adult)
       .send({
@@ -259,6 +264,8 @@ describe('API e2e smoke (user money flow)', () => {
         payoutDestination: resolved.body.normalizedDestination,
       })
       .expect(200);
+    expect(destVerified.body.accountName).toBeTruthy(); // revealed only now
+    expect(destVerified.body.normalizedDestination).toBe(resolved.body.normalizedDestination);
     const wdBody = {
       amountEtb: 50,
       payoutMethod: 'telebirr',
@@ -272,7 +279,7 @@ describe('API e2e smoke (user money flow)', () => {
       .expect(201);
     expect(wd.body.status).toBe('flagged_for_review');
     expect(wd.body.reviewReasons).toContain('first_withdrawal');
-    expect(wd.body.destinationAccountName).toBe(resolved.body.accountName);
+    expect(wd.body.destinationAccountName).toBe(destVerified.body.accountName);
     // Idempotency-Key: same payload replays, different payload is refused
     const wdReplay = await http
       .post('/api/v1/withdrawals')

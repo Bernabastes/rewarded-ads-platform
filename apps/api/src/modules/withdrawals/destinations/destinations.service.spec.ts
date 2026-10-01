@@ -10,13 +10,17 @@ const input = { payoutMethod: 'telebirr' as const, destination: '+251911223344' 
 describe('DestinationsService (withdrawal destination verification)', () => {
   let prisma: any;
   let registry: any;
+  let security: any;
+  let alerts: any;
   let service: DestinationsService;
-  const config = testConfig({ DESTINATION_RESOLVE_TTL_MINUTES: 10, NODE_ENV: 'development' });
+  const config = testConfig({ DESTINATION_RESOLVE_TTL_MINUTES: 10, NODE_ENV: 'development', DESTINATION_LOOKUPS_PER_DAY: 5 });
   const now = new Date('2026-09-28T10:00:00Z');
   const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000);
 
   beforeEach(() => {
     prisma = mockPrisma();
+    security = mockSecurity();
+    alerts = { raise: jest.fn().mockResolvedValue({ id: 'alert-1' }) };
     registry = {
       isMethodAvailable: jest.fn().mockReturnValue(true),
       resolveWithFailover: jest.fn().mockResolvedValue({
@@ -30,9 +34,10 @@ describe('DestinationsService (withdrawal destination verification)', () => {
       config,
       registry,
       redis,
-      mockSecurity(),
+      security,
       mockAudit(),
       new OtpVerifier(prisma, redis, config, mockSecurity()),
+      alerts,
       { sendOtp: jest.fn() } as any,
     );
     // atomic attempt claim / consume used by the OtpVerifier (the mocked table has a single row)
@@ -186,22 +191,26 @@ describe('DestinationsService (withdrawal destination verification)', () => {
     });
   });
 
-  describe('resolve', () => {
-    it('calls the payout partner, stores verifiedAt and reports whether an OTP is still required', async () => {
+  describe('resolve (security audit #11: OTP before lookup, per-user cap, per-IP alert)', () => {
+    it('a NEW destination is NOT looked up: no partner call, no name, otpRequired=true, intent stored', async () => {
+      prisma.payoutDestination.findUnique.mockResolvedValue(null);
       const result = await service.resolve(USER, input, '1.1.1.1');
-      expect(registry.resolveWithFailover).toHaveBeenCalledWith('telebirr', '+251911223344', undefined);
+      expect(registry.resolveWithFailover).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        accountName: 'Abebe Tesfaye',
+        accountName: null,
         normalizedDestination: '+251911223344',
-        provider: 'telebirr',
-        mock: true,
+        provider: null,
         known: false,
         otpRequired: true,
+        lookupPerformed: false,
+        lookupsRemainingToday: 5,
       });
-      expect(prisma.payoutDestination.upsert.mock.calls[0][0].create.verifiedAt).toBeInstanceOf(Date);
+      expect(prisma.payoutDestination.upsert.mock.calls[0][0].create.verifiedAt).toBeUndefined();
+      expect(security.info).toHaveBeenCalledWith('destination.lookup_deferred', expect.objectContaining({ userId: USER }));
     });
 
-    it('a previously used destination needs no OTP', async () => {
+    it('a previously used (KNOWN) destination is looked up directly and needs no OTP', async () => {
+      prisma.payoutDestination.findUnique.mockResolvedValue({ id: uuid(5), lastUsedAt: minutesAgo(1000), otpVerifiedAt: null, verifiedAt: null });
       prisma.payoutDestination.upsert.mockResolvedValueOnce({
         id: uuid(5),
         destination: '+251911223344',
@@ -211,21 +220,85 @@ describe('DestinationsService (withdrawal destination verification)', () => {
         otpVerifiedAt: null,
       });
       const result = await service.resolve(USER, input, '1.1.1.1');
-      expect(result.known).toBe(true);
-      expect(result.otpRequired).toBe(false);
+      expect(registry.resolveWithFailover).toHaveBeenCalledWith('telebirr', '+251911223344', undefined);
+      expect(result).toMatchObject({ accountName: 'Abebe Tesfaye', known: true, otpRequired: false, lookupPerformed: true, provider: 'telebirr', mock: true });
+      expect(result.lookupsRemainingToday).toBe(4);
     });
 
-    it('maps an unknown account to 422 DESTINATION_NOT_FOUND', async () => {
+    it('a destination whose OTP re-check is fresh is looked up and the name revealed', async () => {
+      prisma.payoutDestination.findUnique.mockResolvedValue({ id: uuid(5), lastUsedAt: null, otpVerifiedAt: new Date(), verifiedAt: null });
+      const result = await service.resolve(USER, input, '1.1.1.1');
+      expect(registry.resolveWithFailover).toHaveBeenCalled();
+      expect(result.accountName).toBe('Abebe Tesfaye');
+      expect(result.lookupPerformed).toBe(true);
+      expect(prisma.payoutDestination.upsert.mock.calls[0][0].create.verifiedAt).toBeInstanceOf(Date);
+    });
+
+    it('maps an unknown account to 422 DESTINATION_NOT_FOUND and partner outages to 503', async () => {
+      prisma.payoutDestination.findUnique.mockResolvedValue({ id: uuid(5), lastUsedAt: new Date(), otpVerifiedAt: null, verifiedAt: null });
       registry.resolveWithFailover.mockRejectedValueOnce(new DestinationNotFoundError());
-      await expect(service.resolve(USER, input, '1.1.1.1')).rejects.toMatchObject({
-        code: ErrorCode.DESTINATION_NOT_FOUND,
-        status: 422,
-      });
-    });
-
-    it('maps partner outages to 503 SERVICE_UNAVAILABLE', async () => {
+      await expect(service.resolve(USER, input, '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.DESTINATION_NOT_FOUND, status: 422 });
       registry.resolveWithFailover.mockRejectedValueOnce(new Error('timeout'));
       await expect(service.resolve(USER, input, '1.1.1.1')).rejects.toMatchObject({ status: 503 });
+    });
+
+    it('caps partner lookups per user per day (429 DESTINATION_LOOKUP_LIMIT) - failed lookups count too', async () => {
+      prisma.payoutDestination.findUnique.mockResolvedValue({ id: uuid(5), lastUsedAt: new Date(), otpVerifiedAt: null, verifiedAt: null });
+      for (let i = 0; i < 5; i++) await service.resolve(USER, { ...input, destination: `+25191122334${i}` }, '1.1.1.1');
+      await expect(service.resolve(USER, { ...input, destination: '+251911223399' }, '1.1.1.1')).rejects.toMatchObject({
+        code: ErrorCode.DESTINATION_LOOKUP_LIMIT,
+        status: 429,
+        details: { limit: 5 },
+      });
+      expect(registry.resolveWithFailover).toHaveBeenCalledTimes(5);
+      expect(security.warn).toHaveBeenCalledWith('destination.lookup_rate_limited', expect.objectContaining({ userId: USER, count: 6 }));
+    });
+
+    it('raises DESTINATION_LOOKUP_SPIKE once when one IP crosses the hourly threshold', async () => {
+      const spiky = new DestinationsService(
+        prisma,
+        testConfig({ DESTINATION_LOOKUPS_PER_DAY: 100, ALERT_DESTINATION_LOOKUPS_PER_IP_PER_HOUR: 2 }),
+        registry,
+        mockRedis(),
+        security,
+        mockAudit(),
+        new OtpVerifier(prisma, mockRedis(), config, mockSecurity()),
+        alerts,
+        { sendOtp: jest.fn() } as any,
+      );
+      prisma.payoutDestination.findUnique.mockResolvedValue({ id: uuid(5), lastUsedAt: new Date(), otpVerifiedAt: null, verifiedAt: null });
+      for (let i = 0; i < 4; i++) await spiky.resolve(uuid(10 + i), input, '7.7.7.7');
+      expect(alerts.raise).toHaveBeenCalledTimes(1);
+      expect(alerts.raise).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DESTINATION_LOOKUP_SPIKE', severity: 'warning', dedupeKey: 'destination_lookup_spike:7.7.7.7', payload: expect.objectContaining({ ip: '7.7.7.7', lookups: 3 }) }),
+      );
+    });
+  });
+
+  describe('verifyOtp performs the deferred lookup (security audit #11)', () => {
+    it('after a valid code the partner is asked and the holder name is returned', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ phoneNumber: '+251911000000' });
+      const { sha256 } = await import('../../../common/utils');
+      prisma.otpCode.findFirst.mockResolvedValueOnce({
+        id: 'otp-1',
+        codeHash: sha256('+251911000000:destination_change:246810'),
+        attempts: 0,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const result = await service.verifyOtp(USER, '246810', input, '1.1.1.1');
+      expect(registry.resolveWithFailover).toHaveBeenCalledWith('telebirr', '+251911223344', undefined);
+      expect(result).toMatchObject({ accountName: 'Abebe Tesfaye', normalizedDestination: '+251911223344', provider: 'telebirr', mock: true, known: false });
+      expect(result.validUntil).toBeInstanceOf(Date);
+      // the OTP upsert came first, the lookup upsert second (verifiedAt + accountName)
+      expect(prisma.payoutDestination.upsert.mock.calls[0][0].create.otpVerifiedAt).toBeInstanceOf(Date);
+      expect(prisma.payoutDestination.upsert.mock.calls[1][0].update.accountName).toBe('Abebe Tesfaye');
+    });
+
+    it('a wrong code never triggers a partner lookup', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ phoneNumber: '+251911000000' });
+      prisma.otpCode.findFirst.mockResolvedValueOnce({ id: 'otp-1', codeHash: 'nope', attempts: 0, expiresAt: new Date(Date.now() + 60_000) });
+      await expect(service.verifyOtp(USER, '000000', input, '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.OTP_INVALID });
+      expect(registry.resolveWithFailover).not.toHaveBeenCalled();
     });
   });
 

@@ -196,11 +196,10 @@ describe('WithdrawalsService', () => {
       expect(prisma.coinLedger.create).not.toHaveBeenCalled();
     });
 
-    it('a stale pre-transaction balance cannot be spent twice: the locked balance is re-checked', async () => {
-      // outside the tx the user looks rich; by the time the lock is taken the coins are gone
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ coinBalance: 50_000 });
+    it('the balance is checked from the LOCKED row, never from a stale read', async () => {
       balance = 1_000;
       await expect(service.request(USER, dto, 'ip')).rejects.toMatchObject({ code: ErrorCode.INSUFFICIENT_BALANCE });
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
       expect(prisma.withdrawal.create).not.toHaveBeenCalled();
     });
   });

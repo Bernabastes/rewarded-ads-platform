@@ -443,6 +443,8 @@
       "expired": "The account check expired. Please check the destination again.",
       "confirmTitle": "Is this the right account?",
       "payTo": "Pay {{name}} on {{method}}?",
+      "payToPending": "Send to this {{method}} account?",
+      "nameAfterOtp": "We show the account holder's name right after you confirm the code sent to your phone.",
       "validFor": "Valid for {{time}}",
       "lookupExpired": "This check has expired - please check the account again.",
       "confirmYes": "Yes, send me a code",

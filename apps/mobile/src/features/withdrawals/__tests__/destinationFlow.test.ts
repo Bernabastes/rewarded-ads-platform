@@ -20,6 +20,8 @@ const resolution = (overrides: Partial<ResolveDestinationResponse> = {}): Resolv
   mock: true,
   known: false,
   otpRequired: true,
+  lookupPerformed: true,
+  lookupsRemainingToday: 4,
   validUntil: '2026-09-29T14:41:41.229Z',
   ...overrides,
 });
@@ -30,6 +32,44 @@ const run = (events: Parameters<typeof destinationReducer>[1][]): DestinationFlo
   events.reduce(destinationReducer, initialDestinationState);
 
 describe('destination step state machine', () => {
+  it('Phase 5 (#11): a NEW destination resolves WITHOUT a name; the OTP verify response reveals it', () => {
+    let state = run([
+      { type: 'input_changed', value: '0977200002' },
+      { type: 'resolve_started' },
+      { type: 'resolve_succeeded', resolution: resolution({ accountName: null, provider: null, mock: false, lookupPerformed: false }) },
+      { type: 'otp_requested' },
+      { type: 'otp_sent', otp },
+      { type: 'otp_submitted' },
+    ]);
+    expect(state.phase).toMatchObject({ phase: 'otp', resolution: { accountName: null, lookupPerformed: false } });
+    state = destinationReducer(state, {
+      type: 'otp_verified',
+      verified: {
+        id: 'd1',
+        payoutMethod: 'telebirr',
+        destination: '+2519****0002',
+        bankCode: null,
+        accountName: 'Fikru Desta',
+        verifiedAt: '2026-09-29T14:40:00.000Z',
+        otpVerifiedAt: '2026-09-29T14:40:00.000Z',
+        lastUsedAt: null,
+        useCount: 0,
+        known: false,
+        normalizedDestination: '+251977200002',
+        provider: 'telebirr',
+        mock: true,
+        validUntil: '2026-09-29T14:50:00.000Z',
+      },
+    });
+    expect(state.phase).toMatchObject({
+      phase: 'verified',
+      via: 'otp',
+      payoutDestination: '+251977200002',
+      accountName: 'Fikru Desta',
+      resolution: { accountName: 'Fikru Desta', provider: 'telebirr', mock: true, lookupPerformed: true, validUntil: '2026-09-29T14:50:00.000Z' },
+    });
+  });
+
   it('goes entry → resolving → resolved → otp → verified for a brand-new destination', () => {
     let state = run([{ type: 'input_changed', value: '0977200002' }, { type: 'resolve_started' }]);
     expect(state.phase.phase).toBe('resolving');

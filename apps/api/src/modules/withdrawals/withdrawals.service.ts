@@ -152,17 +152,6 @@ export class WithdrawalsService {
       );
     }
 
-    // Fail-fast balance read (the authoritative check happens under the row lock inside the transaction).
-    const preview = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { coinBalance: true },
-    });
-    if (preview.coinBalance < coinAmount) {
-      throw AppException.unprocessable(ErrorCode.INSUFFICIENT_BALANCE, 'Insufficient coin balance', {
-        coinBalance: preview.coinBalance,
-        required: coinAmount,
-      });
-    }
     const requiresDualApproval = amountEtb.greaterThanOrEqualTo(p.largeWithdrawalThresholdEtb);
 
     /**

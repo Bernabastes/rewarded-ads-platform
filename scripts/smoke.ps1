@@ -169,17 +169,18 @@ Step "New payout destination: partner account lookup + OTP re-check before the f
 $unverified = Call POST '/withdrawals' @{ amountEtb = 50; payoutMethod = 'telebirr'; payoutDestination = $phone } $userToken -AllowError
 Assert ($unverified.code -eq 'DESTINATION_NOT_VERIFIED') "unverified destination refused: $($unverified.code)"
 $resolved = Call POST '/withdrawals/destinations/resolve' @{ payoutMethod = 'telebirr'; payoutDestination = $phone } $userToken
-Assert ($resolved.accountName -and $resolved.otpRequired) "lookup: '$($resolved.accountName)' via $($resolved.provider) (mock=$($resolved.mock)), OTP required"
+# Security audit #11: a NEW destination is not looked up at the partner until the OTP re-check succeeded
+Assert ((-not $resolved.accountName) -and $resolved.otpRequired -and ($resolved.lookupPerformed -eq $false)) "new destination: holder name hidden until OTP, $($resolved.lookupsRemainingToday) lookups left today"
 $destination = $resolved.normalizedDestination
 $destOtp = Call POST '/withdrawals/destinations/otp/request' @{} $userToken
 if (-not $destOtp.devCode) { Fail 'OTP_DEV_ECHO must be enabled for the smoke test (destination OTP)' }
 $destVerified = Call POST '/withdrawals/destinations/otp/verify' @{ code = $destOtp.devCode; payoutMethod = 'telebirr'; payoutDestination = $destination } $userToken
-Ok "destination OTP verified ($destination)"
+Assert ($destVerified.accountName -and $destVerified.provider) "OTP verified -> partner lookup: '$($destVerified.accountName)' via $($destVerified.provider) (mock=$($destVerified.mock))"
 
 Step "Withdrawal request (first-ever -> held for review)"
 $wd = Call POST '/withdrawals' @{ amountEtb = 50; payoutMethod = 'telebirr'; payoutDestination = $destination } $userToken
 Assert ($wd.status -eq 'flagged_for_review' -and ($wd.reviewReasons -contains 'first_withdrawal')) "withdrawal $($wd.id) held: [$($wd.reviewReasons -join ',')]"
-Assert ($wd.destinationAccountName -eq $resolved.accountName) "account name persisted on the withdrawal: $($wd.destinationAccountName)"
+Assert ($wd.destinationAccountName -eq $destVerified.accountName) "account name persisted on the withdrawal: $($wd.destinationAccountName)"
 $balance3 = Call GET '/users/me/balance' $null $userToken
 Assert ($balance3.coinBalance -eq ($expected + 6000 - 5000)) "coins held immediately: balance $($balance3.coinBalance)"
 

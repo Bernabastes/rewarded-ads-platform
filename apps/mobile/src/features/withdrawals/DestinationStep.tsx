@@ -232,14 +232,19 @@ export function DestinationStep({
           onVerify={async (code) => {
             dispatch({ type: 'otp_submitted' });
             try {
-              await withdrawalsApi.verifyDestinationOtp({
+              const verified = await withdrawalsApi.verifyDestinationOtp({
                 code,
                 payoutMethod,
                 payoutDestination: phase.resolution.normalizedDestination,
                 bankCode: payoutMethod === 'bank' ? bankCode.trim() : undefined,
               });
-              dispatch({ type: 'otp_verified' });
+              dispatch({ type: 'otp_verified', verified });
             } catch (error) {
+              // Phase 5 (#11): the partner lookup runs after the code; "no such account" surfaces here now.
+              if (isApiError(error) && error.code === ErrorCode.DESTINATION_NOT_FOUND) {
+                dispatch({ type: 'resolve_not_found' });
+                return;
+              }
               dispatch({
                 type: 'otp_failed',
                 message: errorMessage(error, t),
@@ -294,7 +299,8 @@ export function DestinationStep({
 }
 
 interface ConfirmationCardProps {
-  accountName: string;
+  /** null for a NEW destination: the partner is only asked after the OTP (security audit #11). */
+  accountName: string | null;
   destination: string;
   methodLabel: string;
   mock: boolean;
@@ -326,11 +332,16 @@ function ConfirmationCard({ accountName, destination, methodLabel, mock, validUn
           {mock ? <Badge label={t('withdraw.verify.mock')} tone="warning" /> : null}
         </View>
         <Text variant="h2" weight="bold" style={{ marginTop: spacing.sm }} testID="withdraw-resolve-name">
-          {t('withdraw.verify.payTo', { name: accountName, method: methodLabel })}
+          {accountName ? t('withdraw.verify.payTo', { name: accountName, method: methodLabel }) : t('withdraw.verify.payToPending', { method: methodLabel })}
         </Text>
         <Text variant="bodySmall" tone="secondary">
           {destination}
         </Text>
+        {!accountName ? (
+          <Text variant="caption" tone="muted" style={{ marginTop: spacing.xs }} testID="withdraw-resolve-pending-hint">
+            {t('withdraw.verify.nameAfterOtp')}
+          </Text>
+        ) : null}
         <Text variant="caption" tone={expired ? 'danger' : 'muted'} style={{ marginTop: spacing.sm }} testID="withdraw-resolve-expiry">
           {expired ? t('withdraw.verify.lookupExpired') : t('withdraw.verify.validFor', { time: formatClock(secondsLeft) })}
         </Text>

@@ -72,6 +72,7 @@ export type SecurityEvent =
   | 'payout.outcome_unknown'
   | 'payout.manual_review_decided'
   | 'destination.lookup_rate_limited'
+  | 'destination.lookup_deferred'
   | 'attention.answer_wrong'
   | 'security.production_gate';
 

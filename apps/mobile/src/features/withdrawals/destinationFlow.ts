@@ -1,4 +1,4 @@
-import type { PayoutDestinationItem, PayoutMethod, ResolveDestinationResponse } from '@rap/shared';
+import type { PayoutDestinationItem, PayoutMethod, ResolveDestinationResponse, VerifyDestinationOtpResponse } from '@rap/shared';
 
 /** A destination the user already paid out to from this device (full number, never masked). */
 export interface RememberedDestination {
@@ -69,7 +69,8 @@ export type DestinationEvent =
   | { type: 'otp_sent'; otp: DestinationOtpInfo }
   | { type: 'otp_send_failed'; message: string }
   | { type: 'otp_submitted' }
-  | { type: 'otp_verified' }
+  /** Phase 5 (#11): the verify response carries the partner lookup (holder name) that `resolve` no longer reveals. */
+  | { type: 'otp_verified'; verified?: VerifyDestinationOtpResponse }
   | { type: 'otp_failed'; message: string; attemptsLeft: number | null }
   /** `POST /withdrawals` answered DESTINATION_NOT_VERIFIED / DESTINATION_OTP_REQUIRED (lookup TTL elapsed). */
   | { type: 'verification_expired' };
@@ -158,16 +159,27 @@ export function destinationReducer(state: DestinationFlowState, event: Destinati
     case 'otp_verified': {
       if (state.phase.phase !== 'otp') return state;
       const { resolution } = state.phase;
+      const verified = event.verified;
+      const merged: ResolveDestinationResponse = verified
+        ? {
+            ...resolution,
+            accountName: verified.accountName ?? resolution.accountName,
+            provider: verified.provider ?? resolution.provider,
+            mock: verified.mock,
+            lookupPerformed: true,
+            validUntil: verified.validUntil,
+          }
+        : resolution;
       return {
         ...state,
         error: null,
         phase: {
           phase: 'verified',
           via: 'otp',
-          payoutDestination: resolution.normalizedDestination,
+          payoutDestination: merged.normalizedDestination,
           payoutDestinationId: null,
-          accountName: resolution.accountName,
-          resolution,
+          accountName: merged.accountName,
+          resolution: merged,
         },
       };
     }

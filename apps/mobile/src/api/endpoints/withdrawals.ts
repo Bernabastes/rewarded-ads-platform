@@ -6,6 +6,7 @@ import type {
   ResolveDestinationDto,
   ResolveDestinationResponse,
   VerifyDestinationOtpDto,
+  VerifyDestinationOtpResponse,
   WithdrawalConfig,
   WithdrawalItem,
   WithdrawalStatus,
@@ -55,6 +56,7 @@ export const withdrawalsApi = {
     return api.post<DestinationOtpRequestResponse>(API_ROUTES.withdrawals.destinationOtpRequest);
   },
   verifyDestinationOtp(dto: VerifyDestinationOtpDto) {
-    return api.post<PayoutDestinationItem>(API_ROUTES.withdrawals.destinationOtpVerify, dto);
+    // Phase 5 (#11): the partner lookup runs after the code; the holder name is revealed in this response.
+    return api.post<VerifyDestinationOtpResponse>(API_ROUTES.withdrawals.destinationOtpVerify, dto);
   },
 };

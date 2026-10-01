@@ -403,18 +403,19 @@ async function main() {
     token: userToken,
     body: { payoutMethod: 'telebirr', payoutDestination: phone },
   });
+  // Security audit #11: a NEW destination is not looked up at the partner until the OTP re-check succeeded
   assert(
-    resolved.body.accountName && resolved.body.otpRequired === true,
-    `partner lookup: account holder "${resolved.body.accountName}" via ${resolved.body.provider} (mock=${resolved.body.mock}); OTP re-check required`,
+    resolved.body.accountName === null && resolved.body.lookupPerformed === false && resolved.body.otpRequired === true,
+    `new destination: no partner lookup yet (holder name hidden), OTP re-check required; ${resolved.body.lookupsRemainingToday} lookups left today`,
   );
   const otpOnly = await call('POST', '/withdrawals', {
     token: userToken,
     body: { amountEtb: 50, payoutMethod: 'telebirr', payoutDestination: resolved.body.normalizedDestination },
     allowError: true,
   });
-  assert(otpOnly.body.code === 'DESTINATION_OTP_REQUIRED', 'lookup alone is not enough (DESTINATION_OTP_REQUIRED)');
+  assert(otpOnly.body.code === 'DESTINATION_NOT_VERIFIED', 'without the OTP step nothing is verified (DESTINATION_NOT_VERIFIED)');
   const destOtp = await call('POST', '/withdrawals/destinations/otp/request', { token: userToken });
-  await call('POST', '/withdrawals/destinations/otp/verify', {
+  const destVerified = await call('POST', '/withdrawals/destinations/otp/verify', {
     token: userToken,
     body: {
       code: destOtp.body.devCode,
@@ -422,6 +423,10 @@ async function main() {
       payoutDestination: resolved.body.normalizedDestination,
     },
   });
+  assert(
+    destVerified.body.accountName && destVerified.body.provider,
+    `OTP verified -> partner lookup: account holder "${destVerified.body.accountName}" via ${destVerified.body.provider} (mock=${destVerified.body.mock})`,
+  );
   const idemKey = `demo-wd-${stamp}`;
   const wdBody = {
     amountEtb: 50,
@@ -438,7 +443,7 @@ async function main() {
     `withdrawal ${wd.body.id} held for review [${wd.body.reviewReasons}]`,
   );
   assert(
-    wd.body.destinationAccountName === resolved.body.accountName,
+    wd.body.destinationAccountName === destVerified.body.accountName,
     'verified account holder name snapshotted on the withdrawal',
   );
   const wdReplay = await call('POST', '/withdrawals', {
