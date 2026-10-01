@@ -631,6 +631,45 @@ describe('API e2e smoke (user money flow)', () => {
     await http.post('/api/v1/auth/refresh').set('X-Auth-Mode', 'cookie').set('Cookie', c2).send({}).expect(401);
   }, 30_000);
 
+  /**
+   * Phase 5b New-3 (login CSRF): before the fix a cross-site top-level form POST to
+   * `/auth/advertiser/login?mode=cookie` with attacker credentials planted a `rap_refresh` cookie in the victim's
+   * browser (SameSite governs sending, not setting). Now: `?mode=cookie` is ignored, form bodies are refused with
+   * 415, and a cookie-mode request from a foreign / cross-site origin is refused with 403 - no cookie is ever set.
+   */
+  it('REGRESSION New-3: a cross-site form login cannot plant a refresh cookie', async () => {
+    if (skipIfUnreachable()) return;
+    // 1. the exact exploit: HTML form (urlencoded), ?mode=cookie, cross-site browser headers
+    const form = await http
+      .post('/api/v1/auth/advertiser/login?mode=cookie')
+      .set('Origin', 'https://evil.example')
+      .set('Sec-Fetch-Site', 'cross-site')
+      .type('form')
+      .send('email=growth%40addisfintech.et&password=Advertiser123%21');
+    expect(form.status).toBe(415);
+    expect(form.headers['set-cookie']).toBeUndefined();
+    // 2. text/plain form variant
+    const plain = await http.post('/api/v1/auth/advertiser/login?mode=cookie').set('Origin', 'https://evil.example').type('text/plain').send('{"email":"growth@addisfintech.et","password":"Advertiser123!"}');
+    expect(plain.status).toBe(415);
+    expect(plain.headers['set-cookie']).toBeUndefined();
+    // 3. JSON with ?mode=cookie but WITHOUT the header: plain body mode, no cookie
+    const query = await http.post('/api/v1/auth/advertiser/login?mode=cookie').send({ email: 'growth@addisfintech.et', password: 'Advertiser123!' }).expect(201);
+    expect(query.headers['set-cookie']).toBeUndefined();
+    expect(query.body.tokens.refreshToken).toBeTruthy();
+    // 4. the header from a cross-site / unknown origin -> 403 before any work, no cookie
+    const foreign = await http
+      .post('/api/v1/auth/advertiser/login')
+      .set('X-Auth-Mode', 'cookie')
+      .set('Origin', 'https://evil.example')
+      .set('Sec-Fetch-Site', 'cross-site')
+      .send({ email: 'growth@addisfintech.et', password: 'Advertiser123!' });
+    expect(foreign.status).toBe(403);
+    expect(foreign.headers['set-cookie']).toBeUndefined();
+    // cookie-mode refresh / logout from a foreign origin are refused the same way
+    await http.post('/api/v1/auth/refresh').set('X-Auth-Mode', 'cookie').set('Origin', 'https://evil.example').send({}).expect(403);
+    await http.post('/api/v1/auth/logout').set('X-Auth-Mode', 'cookie').set('Sec-Fetch-Site', 'cross-site').send({}).expect(403);
+  }, 30_000);
+
   it('serves the OpenAPI document', async () => {
     if (skipIfUnreachable()) return;
     const res = await http.get('/health').expect(200);

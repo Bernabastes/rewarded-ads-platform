@@ -12,7 +12,7 @@ import {
 } from '../../common/decorators/auth.decorators';
 import { AppException } from '../../common/errors/app.exception';
 import { AppConfig } from '../../config/app-config';
-import { clearRefreshCookie, deliverTokens, readRefreshCookie, wantsCookieMode } from './auth-cookies';
+import { assertCookieModeOrigin, clearRefreshCookie, deliverTokens, readRefreshCookie, wantsCookieMode } from './auth-cookies';
 import { AuthService } from './auth.service';
 import {
   AdminMfaLoginDto,
@@ -30,7 +30,8 @@ const COOKIE_MODE_DOC = {
   name: AUTH_MODE_HEADER,
   required: false,
   description:
-    'Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).',
+    'Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile). ' +
+    'Cookie mode is selected by this header ONLY and is refused (403) for cross-site requests / unknown origins (Phase 5b New-3).',
 };
 
 @ApiTags('auth')
@@ -40,6 +41,11 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly config: AppConfig,
   ) {}
+
+  /** New-3: a cookie-mode auth request from a cross-site page / unknown origin is refused before any work is done. */
+  private rejectCrossSiteCookieMode(req: Request) {
+    if (wantsCookieMode(req)) assertCookieModeOrigin(req, this.config);
+  }
 
   @Post('otp/request')
   @Public()
@@ -92,6 +98,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
     @UserAgent() userAgent?: string,
   ) {
+    this.rejectCrossSiteCookieMode(req);
     const result = await this.auth.registerAdvertiser(dto, { ip, userAgent });
     return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
   }
@@ -110,6 +117,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
     @UserAgent() userAgent?: string,
   ) {
+    this.rejectCrossSiteCookieMode(req);
     const result = await this.auth.loginAdvertiser(dto.email, dto.password, { ip, userAgent });
     return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
   }
@@ -133,6 +141,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
     @UserAgent() userAgent?: string,
   ) {
+    this.rejectCrossSiteCookieMode(req);
     const result = await this.auth.loginAdmin(dto.email, dto.password, { ip, userAgent });
     if ('mfaRequired' in result) return result;
     return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
@@ -155,6 +164,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
     @UserAgent() userAgent?: string,
   ) {
+    this.rejectCrossSiteCookieMode(req);
     const result = await this.auth.loginAdminMfa(dto.mfaToken, dto.code, { ip, userAgent });
     return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
   }
@@ -176,6 +186,7 @@ export class AuthController {
     @UserAgent() userAgent?: string,
   ) {
     const cookieMode = wantsCookieMode(req);
+    this.rejectCrossSiteCookieMode(req);
     const token = cookieMode ? readRefreshCookie(req) ?? dto.refreshToken : dto.refreshToken;
     if (!token) {
       if (cookieMode) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Missing refresh cookie');
@@ -208,6 +219,7 @@ export class AuthController {
   ) {
     const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
     // cookie mode: the httpOnly cookie carries the token and is cleared regardless of the outcome
+    this.rejectCrossSiteCookieMode(req);
     const token = wantsCookieMode(req) ? readRefreshCookie(req) ?? dto.refreshToken : dto.refreshToken;
     if (wantsCookieMode(req)) clearRefreshCookie(res, this.config);
     if (token) await this.auth.logout(token, accessToken);
