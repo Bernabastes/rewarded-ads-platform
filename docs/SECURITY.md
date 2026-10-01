@@ -112,6 +112,12 @@ Source: read-only code audit (17 findings) + live pentest (notes A3a, D2). One c
 | A3a | pentest | Attention-check answers guessable across attempts | wrong answer consumes the ad for the day; per-session shuffled option order (`ads.service.ts`) | `ads.service.spec.ts` |
 | D2 | pentest | SSRF exploitable via `mediaUrl` | see #2 | pentest re-run (`files/security/pentest`) → BLOCKED |
 
+Live pentest re-run (2026-10-01, rebuilt local stack, adapted script with four new probes): A1a, A1b, A2a, A2b, B1,
+B2, B2b, C1, C2, C3, D1, D2, A3a, #4, #5 and #11 — **16 / 16 BLOCKED**. D2 is now refused before anything is fetched
+(`400 MEDIA_SOURCE_NOT_ALLOWED` for a loopback URL, a `private/kyc/…` key and another tenant's `creatives/…` prefix);
+#4 evaluated exactly `OTP_MAX_ATTEMPTS` of 20 parallel guesses and burned the code; #5 locked after 5 failures (423);
+#11 revealed no holder name before the OTP step.
+
 Deliberately **not** changed: telebirr `findByReference` uses the documented "query by outTradeNo" endpoint and must
 be confirmed against Ethio Telecom's partner API before go-live (mock providers return "not found"); plain-sha256 KYC
 hashes written before #14 do not match new submissions (reseed for demo data; re-hash offline with the key for a real
