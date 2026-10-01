@@ -75,7 +75,7 @@ describe('Ad result screen', () => {
     );
     await renderWithProviders(<AdResultScreen />);
     expect(screen.getByTestId('ad-result-rejected')).toBeTruthy();
-    expect(screen.getByTestId('result-reason')).toHaveTextContent('የትኩረት ጥያቄው መልስ ትክክል አልነበረም።');
+    expect(screen.getByTestId('result-reason')).toHaveTextContent('የትኩረት ጥያቄው መልስ ትክክል አልነበረም። ይህ ማስታወቂያ ዛሬ እንደገና አይገኝም፤ ሌላ ይሞክሩ።');
     expect(screen.getByText('ይህ ውጤት ቀደም ብሎ ተመዝግቧል — ቀሪ ሂሳብዎ ሁለት ጊዜ አልተቀየረም።')).toBeTruthy();
   });
 
