@@ -19,7 +19,9 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
   const config = app.get(AppConfig);
 
   app.useLogger(app.get(Logger));
-  app.set('trust proxy', 1);
+  // Security audit #3: only the configured number of proxy hops may set the client IP (0 = none, the default for
+  // the direct-exposure docker compose setup). Behind one load balancer / reverse proxy set TRUST_PROXY_HOPS=1.
+  app.set('trust proxy', config.env.TRUST_PROXY_HOPS);
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   // Keep the raw body for webhook signature verification.
   app.use(

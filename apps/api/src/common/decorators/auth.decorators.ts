@@ -44,10 +44,16 @@ export const CurrentAuth = createParamDecorator((_data: unknown, ctx: ExecutionC
   return req.auth;
 });
 
+/**
+ * Client IP for rate limits, fraud signals, referral checks and audit rows.
+ *
+ * Security audit #3: NEVER read `X-Forwarded-For` here. Express computes `req.ip` from the socket address and the
+ * configured number of trusted proxy hops (`TRUST_PROXY_HOPS`, see app.setup.ts); a client-supplied header is
+ * only honoured when it was appended by a trusted proxy. With 0 hops (direct exposure, docker compose) the
+ * header is ignored completely.
+ */
 export function extractClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0];
-  const ip = (first ?? req.ip ?? req.socket?.remoteAddress ?? '0.0.0.0').trim();
+  const ip = (req.ip ?? req.socket?.remoteAddress ?? '0.0.0.0').trim();
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
 }
 

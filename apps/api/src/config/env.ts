@@ -15,6 +15,11 @@ export const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: num(3000),
+    /**
+     * Number of trusted reverse-proxy hops in front of the API (Express `trust proxy`). 0 = the API is exposed
+     * directly and X-Forwarded-For is ignored; 1 = one load balancer / nginx. Never more than you really have.
+     */
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
     API_PUBLIC_URL: z.string().default('http://localhost:3000'),
     ADVERTISER_WEB_URL: z.string().default('http://localhost:5173'),
     ADMIN_WEB_URL: z.string().default('http://localhost:5174'),
