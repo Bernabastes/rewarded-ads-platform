@@ -1,4 +1,4 @@
-import type { AdminMe } from '@rap/shared';
+import { type AdminAuthResponse, type AdminMe, type AdminMfaChallengeResponse, isAdminMfaChallenge } from '@rap/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api, authStore } from '../api/api';
@@ -17,7 +17,9 @@ export interface AuthApi {
   admin: AdminMe | null;
   role: Role | null;
   can: (key: AccessKey) => boolean;
-  login: (email: string, password: string) => Promise<AdminMe>;
+  /** Resolves to the profile, or to an MFA challenge that must be completed with `completeMfaLogin`. */
+  login: (email: string, password: string) => Promise<AdminMe | AdminMfaChallengeResponse>;
+  completeMfaLogin: (mfaToken: string, code: string) => Promise<AdminMe>;
   logout: (reason?: AuthState['lastLogoutReason']) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -26,16 +28,26 @@ export function useAuth(): AuthApi {
   const state = useAuthState();
   const queryClient = useQueryClient();
 
+  const finishLogin = useCallback(async (res: AdminAuthResponse) => {
+    authStore.tokens.set(res.tokens);
+    // The login payload lacks `permissions`; /admin/me is the single source of truth for role data.
+    const me = await authApi.me();
+    authStore.setState({ status: 'authenticated', admin: me, lastLogoutReason: null });
+    return me;
+  }, []);
+
   const login = useCallback(
     async (email: string, password: string) => {
       const res = await authApi.login(email, password);
-      authStore.tokens.set(res.tokens);
-      // The login payload lacks `permissions`; /admin/me is the single source of truth for role data.
-      const me = await authApi.me();
-      authStore.setState({ status: 'authenticated', admin: me, lastLogoutReason: null });
-      return me;
+      if (isAdminMfaChallenge(res)) return res;
+      return finishLogin(res);
     },
-    [],
+    [finishLogin],
+  );
+
+  const completeMfaLogin = useCallback(
+    async (mfaToken: string, code: string) => finishLogin(await authApi.loginMfa(mfaToken, code)),
+    [finishLogin],
   );
 
   const logout = useCallback(
@@ -68,6 +80,7 @@ export function useAuth(): AuthApi {
     role,
     can: (key) => can(role, key),
     login,
+    completeMfaLogin,
     logout,
     refreshProfile,
   };

@@ -6,8 +6,10 @@ import { AppConfig } from '../../config/app-config';
 import { SecurityLogger } from '../../infra/logger/logger.module';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditService } from '../../modules/audit/audit.service';
+import { MfaService } from '../../modules/auth/mfa.service';
 import { TokenService } from '../../modules/auth/token.service';
 import {
+  ALLOW_PENDING_SECURITY_SETUP_KEY,
   type AuthContext,
   extractClientIp,
   IS_PUBLIC_KEY,
@@ -46,6 +48,7 @@ export class AuthGuard implements CanActivate {
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
     private readonly security: SecurityLogger,
+    private readonly mfa: MfaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -100,6 +103,14 @@ export class AuthGuard implements CanActivate {
       );
     }
 
+    // Account status (and, for admins, the CURRENT role from the DB) is loaded BEFORE @Roles is evaluated,
+    // so a role change takes effect on the next request even for an access token minted with the old role (#13).
+    await this.assertAccountUsable(
+      auth,
+      this.reflector.getAllAndOverride<boolean>(REQUIRE_VERIFIED_ADULT_KEY, targets),
+      Boolean(this.reflector.getAllAndOverride<boolean>(ALLOW_PENDING_SECURITY_SETUP_KEY, targets)),
+    );
+
     const roles = this.reflector.getAllAndOverride<AdminRole[] | undefined>(ROLES_KEY, targets);
     if (roles?.length) {
       if (auth.subjectType !== 'admin' || !auth.role || !roles.includes(auth.role)) {
@@ -112,11 +123,6 @@ export class AuthGuard implements CanActivate {
         );
       }
     }
-
-    await this.assertAccountUsable(
-      auth,
-      this.reflector.getAllAndOverride<boolean>(REQUIRE_VERIFIED_ADULT_KEY, targets),
-    );
     return true;
   }
 
@@ -160,7 +166,11 @@ export class AuthGuard implements CanActivate {
     }
   }
 
-  private async assertAccountUsable(auth: AuthContext, requireVerifiedAdult?: boolean) {
+  private async assertAccountUsable(
+    auth: AuthContext,
+    requireVerifiedAdult?: boolean,
+    allowPendingSecuritySetup = false,
+  ) {
     if (auth.subjectType === 'user') {
       const user = await this.prisma.user.findUnique({
         where: { id: auth.subjectId },
@@ -186,12 +196,27 @@ export class AuthGuard implements CanActivate {
     if (auth.subjectType === 'admin') {
       const admin = await this.prisma.adminUser.findUnique({
         where: { id: auth.subjectId },
-        select: { active: true, role: true },
+        select: { active: true, role: true, mfaEnabledAt: true, mustChangePassword: true },
       });
       if (!admin) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Account no longer exists');
       if (!admin.active) throw AppException.forbidden(ErrorCode.ADMIN_INACTIVE, 'Admin account deactivated');
-      // role changes take effect without re-login
+      // role changes take effect without re-login (#13: @Roles is evaluated against this value, not the claim)
       auth.role = admin.role;
+      if (!allowPendingSecuritySetup) {
+        // Audit #5: temporary passwords and (when required) missing TOTP confine the admin to /admin/me + setup routes.
+        if (admin.mustChangePassword) {
+          throw AppException.forbidden(
+            ErrorCode.PASSWORD_CHANGE_REQUIRED,
+            'Change your temporary password before using the console',
+          );
+        }
+        if (this.mfa.setupRequiredFor(admin)) {
+          throw AppException.forbidden(
+            ErrorCode.MFA_SETUP_REQUIRED,
+            'Two-factor authentication must be enabled for your role before using the console',
+          );
+        }
+      }
       return;
     }
     const advertiser = await this.prisma.advertiser.findUnique({

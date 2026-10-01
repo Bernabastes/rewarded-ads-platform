@@ -198,11 +198,110 @@ export interface AdminProfile {
   /** Same shape as GET /admin/me: role(s) and coarse permission strings the UI can gate on. */
   roles: AdminRole[];
   permissions: string[];
+  /** Phase 5 (#5): TOTP second factor enabled (login then needs POST /auth/admin/login/mfa). */
+  mfaEnabled: boolean;
+  /**
+   * ADMIN_MFA_REQUIRED is on, this role (finance / super_admin) must use MFA and it is not enabled yet:
+   * every admin route except /admin/me, /admin/me/mfa/* and /admin/me/change-password answers 403 MFA_SETUP_REQUIRED.
+   */
+  mfaSetupRequired: boolean;
+  /** Temporary password (account created / reset by a super_admin): only /admin/me + change-password work until changed. */
+  mustChangePassword: boolean;
 }
 
 export interface AdminAuthResponse {
   tokens: AuthTokens;
   admin: AdminProfile;
+}
+
+/** First login step for an admin with MFA enabled: no tokens yet; finish with POST /auth/admin/login/mfa. */
+export interface AdminMfaChallengeResponse {
+  mfaRequired: true;
+  /** Short-lived (5 min), single-use token binding the second step to the verified password. */
+  mfaToken: string;
+  expiresIn: number;
+}
+
+export type AdminLoginResponse = AdminAuthResponse | AdminMfaChallengeResponse;
+
+export function isAdminMfaChallenge(res: AdminLoginResponse): res is AdminMfaChallengeResponse {
+  return (res as AdminMfaChallengeResponse).mfaRequired === true;
+}
+
+export interface AdminMfaLoginDto {
+  mfaToken: string;
+  /** 6-digit TOTP code from the authenticator app. */
+  code: string;
+}
+
+/** `POST /admin/me/mfa/setup` – a pending secret; MFA is NOT active until /enable confirms a valid code. */
+export interface MfaSetupResponse {
+  /** Base32 secret for manual entry. */
+  secret: string;
+  /** otpauth:// URI for QR-code rendering. */
+  otpauthUri: string;
+  issuer: string;
+  account: string;
+}
+
+export interface MfaEnableDto {
+  code: string;
+}
+
+export interface MfaDisableDto {
+  code: string;
+  password: string;
+}
+
+export interface MfaStatusResponse {
+  mfaEnabled: boolean;
+  mfaEnabledAt: IsoDateTime | null;
+}
+
+/** `POST /admin/me/change-password` – revokes every other admin session (re-login required). */
+export interface AdminChangePasswordResponse {
+  changed: true;
+  sessionsRevoked: true;
+}
+
+/** `GET /admin/admins` list item (super_admin only). */
+export interface AdminAccountItem {
+  id: Uuid;
+  email: string;
+  fullName: string;
+  role: AdminRole;
+  active: boolean;
+  mfaEnabled: boolean;
+  mustChangePassword: boolean;
+  lastLoginAt: IsoDateTime | null;
+  passwordChangedAt: IsoDateTime | null;
+  createdBy: Uuid | null;
+  createdAt: IsoDateTime;
+}
+
+/** `POST /admin/admins` */
+export interface CreateAdminDto {
+  email: string;
+  fullName: string;
+  role: AdminRole;
+}
+
+/** The temporary password is shown ONCE; the new admin must change it at first login. */
+export interface CreateAdminResponse {
+  admin: AdminAccountItem;
+  temporaryPassword: string;
+}
+
+/** `PATCH /admin/admins/:id/role` – stamps tokens_invalid_before so the old role dies immediately. */
+export interface UpdateAdminRoleDto {
+  role: AdminRole;
+  reason: string;
+}
+
+/** `POST /admin/admins/:id/reset-password` */
+export interface ResetAdminPasswordResponse {
+  admin: AdminAccountItem;
+  temporaryPassword: string;
 }
 
 export interface RefreshTokenDto {

@@ -3,6 +3,7 @@ import {
   IDEMPOTENCY_KEY_HEADER,
   type AdFeedItem,
   type AdFeedMeta,
+  type AdminAccountItem,
   type AdminAdReportItem,
   type AdminAdvertiserItem,
   type AdminAdvertisersQuery,
@@ -10,12 +11,14 @@ import {
   type AdminAppInstallCompletionItem,
   type AdminAuthResponse,
   type AdminCampaignsQuery,
+  type AdminChangePasswordResponse,
   type AdminCoinAdjustmentsQuery,
   type AdminDeletionRequestItem,
   type AdminDeletionRequestsQuery,
   type AdminKycDetail,
   type AdminKycQuery,
   type AdminKycSummary,
+  type AdminLoginResponse,
   type AdminMe,
   type AdminOverview,
   type AdminReferralItem,
@@ -33,6 +36,8 @@ import {
   type BalanceResponse,
   type BannedTopicsChecklist,
   type CoinAdjustmentItem,
+  type CreateAdminDto,
+  type CreateAdminResponse,
   type CreateCoinAdjustmentDto,
   type DeletionRequestItem,
   type FraudFlagItem,
@@ -40,15 +45,19 @@ import {
   type FraudMetrics,
   type ImpersonationTokenResponse,
   type LedgerEntry,
+  type MfaSetupResponse,
+  type MfaStatusResponse,
   type NotificationItem,
   type OfferCompletionStatus,
   type Paginated,
   type PlatformAlertItem,
   type PlatformConfigResponse,
+  type ResetAdminPasswordResponse,
   type RevenueOverview,
   type RevenueQuery,
   type ResolveManualReviewDto,
   type ReviewAdReportDto,
+  type UpdateAdminRoleDto,
   type UserProfile,
   type WithdrawalItem,
 } from '@rap/shared';
@@ -62,9 +71,32 @@ const q = (params: object | undefined): QueryParams => (params ?? {}) as QueryPa
 
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post<AdminAuthResponse>(API_ROUTES.auth.adminLogin, { email, password }, { anonymous: true }),
+    api.post<AdminLoginResponse>(API_ROUTES.auth.adminLogin, { email, password }, { anonymous: true }),
+  /** Second login step for admins with TOTP enabled (Phase 5 #5). */
+  loginMfa: (mfaToken: string, code: string) =>
+    api.post<AdminAuthResponse>(API_ROUTES.auth.adminLoginMfa, { mfaToken, code }, { anonymous: true }),
   logout: (refreshToken: string) => api.post<void>(API_ROUTES.auth.logout, { refreshToken }, { anonymous: true }),
   me: () => api.get<AdminMe>(API_ROUTES.admin.me),
+};
+
+/* ------------------------ my account security (Phase 5 #5) ------------------------ */
+
+export const accountApi = {
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<AdminChangePasswordResponse>(API_ROUTES.admin.meChangePassword, { currentPassword, newPassword }),
+  mfaSetup: () => api.post<MfaSetupResponse>(API_ROUTES.admin.meMfaSetup, {}),
+  mfaEnable: (code: string) => api.post<MfaStatusResponse>(API_ROUTES.admin.meMfaEnable, { code }),
+  mfaDisable: (code: string, password: string) => api.post<MfaStatusResponse>(API_ROUTES.admin.meMfaDisable, { code, password }),
+};
+
+/* ------------------------ admin accounts (super_admin, Phase 5 #5) ------------------------ */
+
+export const adminsApi = {
+  list: () => api.get<{ data: AdminAccountItem[]; meta: { total: number } }>(API_ROUTES.admin.admins),
+  create: (dto: CreateAdminDto) => api.post<CreateAdminResponse>(API_ROUTES.admin.admins, dto),
+  changeRole: (id: string, dto: UpdateAdminRoleDto) => api.patch<AdminAccountItem>(API_ROUTES.admin.adminRole(id), dto),
+  resetPassword: (id: string) => api.post<ResetAdminPasswordResponse>(API_ROUTES.admin.adminResetPassword(id), {}),
+  setActive: (id: string, active: boolean, reason: string) => api.patch<AdminAccountItem>(`${API_ROUTES.admin.admins}/${id}/active`, { active, reason }),
 };
 
 /* ------------------------------- home ------------------------------- */

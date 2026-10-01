@@ -27,17 +27,26 @@ const LOGOUT_MESSAGES = {
 } as const;
 
 export function LoginPage() {
-  const { login, state } = useAuth();
+  const { login, completeMfaLogin, state } = useAuth();
   const { resolved } = useTheme();
   const reduce = useReducedMotion();
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [mfa, setMfa] = useState<{ mfaToken: string; email: string } | null>(null);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const form = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { email: '', password: '' } });
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
     try {
-      await login(values.email, values.password);
+      const res = await login(values.email, values.password);
+      if ('mfaRequired' in res && res.mfaRequired) {
+        setMfa({ mfaToken: res.mfaToken, email: values.email });
+        setCode('');
+        setCodeError(null);
+      }
     } catch (err) {
       if (isApiError(err) && err.code === ErrorCode.VALIDATION_ERROR) {
         const applied = applyFieldErrors(err, (name, e) => form.setError(name as keyof FormValues, e), ['email', 'password']);
@@ -47,9 +56,46 @@ export function LoginPage() {
         form.setError('password', { type: 'server', message: 'Incorrect email or password.' });
         return;
       }
+      if (isApiError(err) && err.code === ErrorCode.ACCOUNT_LOCKED) {
+        const retry = (err.details as { retryAfterSeconds?: number } | undefined)?.retryAfterSeconds;
+        setFormError(`Too many failed attempts - this account is temporarily locked${retry ? ` (try again in about ${Math.ceil(retry / 60)} min)` : ''}.`);
+        return;
+      }
+      if (isApiError(err) && err.code === ErrorCode.LOGIN_RATE_LIMITED) {
+        setFormError('Too many sign-in attempts. Please wait a few minutes and try again.');
+        return;
+      }
       setFormError(describeError(err));
     }
   });
+
+  const onVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfa) return;
+    if (!/^\d{6}$/.test(code)) {
+      setCodeError('Enter the 6-digit code from your authenticator app.');
+      return;
+    }
+    setCodeError(null);
+    setVerifying(true);
+    try {
+      await completeMfaLogin(mfa.mfaToken, code);
+    } catch (err) {
+      if (isApiError(err) && err.code === ErrorCode.MFA_CODE_INVALID) {
+        setCodeError('That code is not valid. Wait for the next code and try again.');
+      } else if (isApiError(err) && err.code === ErrorCode.MFA_TOKEN_INVALID) {
+        setMfa(null);
+        setFormError('The verification challenge expired. Please sign in again.');
+      } else if (isApiError(err) && err.code === ErrorCode.ACCOUNT_LOCKED) {
+        setMfa(null);
+        setFormError('Too many failed attempts - this account is temporarily locked.');
+      } else {
+        setCodeError(describeError(err));
+      }
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const notice = state.lastLogoutReason ? LOGOUT_MESSAGES[state.lastLogoutReason] : null;
 
@@ -98,8 +144,16 @@ export function LoginPage() {
             <BrandMark />
             <div className="text-sm font-semibold">{APP_NAME}</div>
           </div>
-          <h2 className="text-xl font-semibold tracking-tight text-fg">Sign in</h2>
-          <p className="mt-1 text-sm text-fg-muted">Internal console for the platform team. Use your admin email.</p>
+          <h2 className="text-xl font-semibold tracking-tight text-fg">{mfa ? 'Two-factor verification' : 'Sign in'}</h2>
+          <p className="mt-1 text-sm text-fg-muted">
+            {mfa ? (
+              <>
+                Enter the 6-digit code from your authenticator app for <span className="font-medium text-fg">{mfa.email}</span>.
+              </>
+            ) : (
+              'Internal console for the platform team. Use your admin email.'
+            )}
+          </p>
 
           {notice ? (
             <div role="status" className="mt-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-fg">
@@ -112,6 +166,33 @@ export function LoginPage() {
             </div>
           ) : null}
 
+          {mfa ? (
+            <form onSubmit={onVerifyCode} noValidate className="mt-6 space-y-4" data-testid="mfa-form">
+              <Field label="Verification code" required error={codeError ?? undefined}>
+                {(id, describedBy) => (
+                  <Input
+                    id={id}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    maxLength={6}
+                    placeholder="123456"
+                    className="font-mono text-lg tracking-[0.4em]"
+                    aria-describedby={describedBy}
+                    invalid={Boolean(codeError)}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                  />
+                )}
+              </Field>
+              <Button type="submit" size="lg" className="w-full" loading={verifying}>
+                <ShieldCheck className="size-4" /> Verify & sign in
+              </Button>
+              <Button type="button" variant="link" size="sm" className="w-full" onClick={() => setMfa(null)} disabled={verifying}>
+                Back to password
+              </Button>
+            </form>
+          ) : (
           <form onSubmit={onSubmit} noValidate className="mt-6 space-y-4">
             <Field label="Email" required error={form.formState.errors.email?.message}>
               {(id, describedBy) => (
@@ -146,6 +227,7 @@ export function LoginPage() {
               <LockKeyhole className="size-4" /> Sign in
             </Button>
           </form>
+          )}
 
           <p className="mt-6 text-2xs leading-relaxed text-fg-subtle">
             Sessions use short-lived access tokens with rotating refresh tokens. Every action you take is written to the audit log. Theme:{' '}

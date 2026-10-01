@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import type { Advertiser, AdminUser, Language } from '@prisma/client';
 import {
   calculateAge,
@@ -10,6 +11,7 @@ import {
   normalizeEthiopianPhone,
 } from '@rap/shared';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 import { AppException } from '../../common/errors/app.exception';
 import { addSeconds, randomNumericCode, sha256 } from '../../common/utils';
 import { AppConfig } from '../../config/app-config';
@@ -22,6 +24,8 @@ import { LegalService } from '../legal/legal.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { toUserProfile } from '../users/user.mapper';
 import { permissionsFor } from './admin-permissions';
+import { LoginThrottle } from './login-throttle';
+import { MfaService } from './mfa.service';
 import { OtpVerifier } from './otp.verifier';
 import { TokenService } from './token.service';
 
@@ -60,7 +64,7 @@ export function toAdvertiserProfile(a: Advertiser, consent?: AdvertiserConsentVi
   };
 }
 
-export function toAdminProfile(a: AdminUser) {
+export function toAdminProfile(a: AdminUser, opts: { mfaSetupRequired?: boolean } = {}) {
   return {
     id: a.id,
     email: a.email,
@@ -71,8 +75,15 @@ export function toAdminProfile(a: AdminUser) {
     createdAt: a.createdAt,
     roles: [a.role],
     permissions: permissionsFor(a.role),
+    mfaEnabled: Boolean(a.mfaEnabledAt),
+    mfaSetupRequired: opts.mfaSetupRequired ?? false,
+    mustChangePassword: a.mustChangePassword,
   };
 }
+
+/** Lifetime of the single-use token that links the password step of an admin login to the TOTP step. */
+export const MFA_TOKEN_TTL_SECONDS = 300;
+export const mfaTokenUsedKey = (jti: string) => `mfa:token_used:${jti}`;
 
 @Injectable()
 export class AuthService {
@@ -88,6 +99,9 @@ export class AuthService {
     private readonly legal: LegalService,
     private readonly referrals: ReferralsService,
     private readonly otpVerifier: OtpVerifier,
+    private readonly loginThrottle: LoginThrottle,
+    private readonly mfa: MfaService,
+    private readonly jwt: JwtService,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
   ) {}
 
@@ -386,13 +400,15 @@ export class AuthService {
   }
 
   async loginAdvertiser(email: string, password: string, meta: { ip: string; userAgent?: string }) {
-    const advertiser = await this.prisma.advertiser.findUnique({
-      where: { contactEmail: email.trim().toLowerCase() },
-    });
+    const account = email.trim().toLowerCase();
+    await this.loginThrottle.assertAllowed('advertiser', account, meta.ip);
+    const advertiser = await this.prisma.advertiser.findUnique({ where: { contactEmail: account } });
     if (!advertiser || !(await bcrypt.compare(password, advertiser.passwordHash))) {
       this.security.warn('auth.invalid_credentials', { subjectType: 'advertiser', email, ip: meta.ip });
+      await this.loginThrottle.recordFailure('advertiser', account, meta.ip, advertiser?.id);
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
+    await this.loginThrottle.recordSuccess('advertiser', account);
     const [tokens, consent] = await Promise.all([
       this.tokens.issue({ type: 'advertiser', id: advertiser.id }, meta),
       this.legal.advertiserConsentState(advertiser.id),
@@ -400,19 +416,74 @@ export class AuthService {
     return { tokens, advertiser: toAdvertiserProfile(advertiser, consent) };
   }
 
+  /**
+   * Admin login step 1 (password). With TOTP enabled the response is `{ mfaRequired: true, mfaToken }` and the
+   * session is only issued by `loginAdminMfa`. Throttled per IP + account with lockout (audit #5).
+   */
   async loginAdmin(email: string, password: string, meta: { ip: string; userAgent?: string }) {
-    const admin = await this.prisma.adminUser.findUnique({ where: { email: email.trim().toLowerCase() } });
+    const account = email.trim().toLowerCase();
+    await this.loginThrottle.assertAllowed('admin', account, meta.ip);
+    const admin = await this.prisma.adminUser.findUnique({ where: { email: account } });
     if (!admin || !(await bcrypt.compare(password, admin.passwordHash))) {
       this.security.warn('auth.invalid_credentials', { subjectType: 'admin', email, ip: meta.ip });
+      await this.loginThrottle.recordFailure('admin', account, meta.ip, admin?.id);
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
     if (!admin.active) throw AppException.forbidden(ErrorCode.ADMIN_INACTIVE, 'Admin account deactivated');
+    await this.loginThrottle.recordSuccess('admin', account);
+    if (admin.mfaEnabledAt) {
+      const mfaToken = await this.jwt.signAsync(
+        { typ: 'mfa' },
+        {
+          subject: admin.id,
+          expiresIn: MFA_TOKEN_TTL_SECONDS,
+          secret: this.config.env.JWT_ACCESS_SECRET,
+          jwtid: randomUUID(),
+        },
+      );
+      return { mfaRequired: true as const, mfaToken, expiresIn: MFA_TOKEN_TTL_SECONDS };
+    }
+    return this.issueAdminSession(admin, meta);
+  }
+
+  /** Admin login step 2: single-use mfaToken + TOTP code. Code attempts share the per-account login throttle. */
+  async loginAdminMfa(mfaToken: string, code: string, meta: { ip: string; userAgent?: string }) {
+    let claims: { sub: string; typ?: string; jti?: string; exp?: number };
+    try {
+      claims = await this.jwt.verifyAsync(mfaToken, { secret: this.config.env.JWT_ACCESS_SECRET });
+    } catch {
+      throw AppException.unauthorized(ErrorCode.MFA_TOKEN_INVALID, 'Sign in again to get a new verification challenge');
+    }
+    if (claims.typ !== 'mfa' || !claims.jti) {
+      throw AppException.unauthorized(ErrorCode.MFA_TOKEN_INVALID, 'Sign in again to get a new verification challenge');
+    }
+    const admin = await this.prisma.adminUser.findUnique({ where: { id: claims.sub } });
+    if (!admin || !admin.active || !admin.mfaEnabledAt) {
+      throw AppException.unauthorized(ErrorCode.MFA_TOKEN_INVALID, 'Sign in again to get a new verification challenge');
+    }
+    if (await this.redis.client.get(mfaTokenUsedKey(claims.jti)).catch(() => null)) {
+      throw AppException.unauthorized(ErrorCode.MFA_TOKEN_INVALID, 'This verification challenge was already used');
+    }
+    await this.loginThrottle.assertAllowed('admin', admin.email, meta.ip);
+    try {
+      await this.mfa.verifyForAdmin(admin, code, meta.ip, 'login');
+    } catch (err) {
+      await this.loginThrottle.recordFailure('admin', admin.email, meta.ip, admin.id);
+      throw err;
+    }
+    const ttl = Math.max(1, (claims.exp ?? 0) - Math.floor(Date.now() / 1000));
+    await this.redis.client.set(mfaTokenUsedKey(claims.jti), '1', 'EX', ttl).catch(() => undefined);
+    await this.loginThrottle.recordSuccess('admin', admin.email);
+    return this.issueAdminSession(admin, meta);
+  }
+
+  private async issueAdminSession(admin: AdminUser, meta: { ip: string; userAgent?: string }) {
     const updated = await this.prisma.adminUser.update({
       where: { id: admin.id },
       data: { lastLoginAt: new Date() },
     });
     const tokens = await this.tokens.issue({ type: 'admin', id: admin.id, role: admin.role }, meta);
-    return { tokens, admin: toAdminProfile(updated) };
+    return { tokens, admin: toAdminProfile(updated, { mfaSetupRequired: this.mfa.setupRequiredFor(updated) }) };
   }
 
   async refresh(refreshToken: string, meta: { ip: string; userAgent?: string }) {
@@ -461,6 +532,39 @@ export class AuthService {
       ipAddress: ip,
     });
     return { changed: true, sessionsRevoked: true };
+  }
+
+  /**
+   * Admin password change (audit #5). Clears `mustChangePassword` (temporary passwords from account creation /
+   * reset) and revokes every other session; the caller must sign in again.
+   */
+  async changeAdminPassword(adminId: string, currentPassword: string, newPassword: string, ip: string) {
+    const admin = await this.prisma.adminUser.findUniqueOrThrow({ where: { id: adminId } });
+    if (!(await bcrypt.compare(currentPassword, admin.passwordHash))) {
+      this.security.warn('auth.invalid_credentials', { subjectType: 'admin', adminId, ip, action: 'change_password' });
+      throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Current password is incorrect');
+    }
+    if (currentPassword === newPassword) {
+      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'New password must differ from the current password');
+    }
+    await this.prisma.adminUser.update({
+      where: { id: adminId },
+      data: {
+        passwordHash: await bcrypt.hash(newPassword, BCRYPT_ROUNDS),
+        mustChangePassword: false,
+        passwordChangedAt: new Date(),
+      },
+    });
+    await this.tokens.revokeAllForSubject('admin', adminId, 'password_changed');
+    await this.audit.record({
+      actorType: 'admin',
+      actorId: adminId,
+      action: 'admin.password_changed',
+      targetType: 'admin',
+      targetId: adminId,
+      ipAddress: ip,
+    });
+    return { changed: true as const, sessionsRevoked: true as const };
   }
 
   normalizePhone(raw: string): string {

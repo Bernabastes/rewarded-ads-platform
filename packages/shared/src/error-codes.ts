@@ -95,6 +95,24 @@ export const ErrorCode = {
   AD_NOT_PENDING: 'AD_NOT_PENDING',
   FLAG_ALREADY_RESOLVED: 'FLAG_ALREADY_RESOLVED',
 
+  // Login hardening + admin MFA / account management (Phase 5, audit #5)
+  /** 429: too many login attempts from this IP or against this account inside LOGIN_WINDOW_SECONDS. */
+  LOGIN_RATE_LIMITED: 'LOGIN_RATE_LIMITED',
+  /** 423: LOGIN_LOCKOUT_THRESHOLD consecutive failures; `details.retryAfterSeconds` says when to try again. */
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  /** 400: the TOTP code is wrong (or was already used inside its validity window). */
+  MFA_CODE_INVALID: 'MFA_CODE_INVALID',
+  /** 401: the `mfaToken` from the first login step is missing, expired or already consumed. */
+  MFA_TOKEN_INVALID: 'MFA_TOKEN_INVALID',
+  /** 403: ADMIN_MFA_REQUIRED is on and this finance / super_admin has not enabled TOTP yet (only /admin/me + MFA setup routes work). */
+  MFA_SETUP_REQUIRED: 'MFA_SETUP_REQUIRED',
+  MFA_ALREADY_ENABLED: 'MFA_ALREADY_ENABLED',
+  MFA_NOT_ENABLED: 'MFA_NOT_ENABLED',
+  /** 403: the account has a temporary password; only /admin/me and POST /admin/me/change-password work until it is changed. */
+  PASSWORD_CHANGE_REQUIRED: 'PASSWORD_CHANGE_REQUIRED',
+  /** 409: the change would leave the platform without an active super_admin. */
+  LAST_SUPER_ADMIN: 'LAST_SUPER_ADMIN',
+
   // Idempotency (Phase 4A)
   /** Same `Idempotency-Key` reused with a different payload, or while the first request is still running. */
   IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',

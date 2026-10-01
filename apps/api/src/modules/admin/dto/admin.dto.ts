@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ActorType,
+  AdminRole,
   AdReportStatus,
   AdvertiserVerificationStatus,
   CampaignStatus,
@@ -15,6 +16,7 @@ import { BANNED_TOPICS } from '@rap/shared';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEmail,
   IsEnum,
   IsIn,
   IsInt,
@@ -352,4 +354,46 @@ export class RevenueQueryDto {
   @IsOptional()
   @IsString()
   to?: string;
+}
+/* --------------------- admin accounts (security audit #5) --------------------- */
+
+export class CreateAdminDto {
+  @ApiProperty({ example: 'new.reviewer@rap.et' })
+  @IsEmail()
+  @MaxLength(160)
+  email: string;
+
+  @ApiProperty({ example: 'Hana Tesfaye' })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  fullName: string;
+
+  @ApiProperty({ enum: AdminRole })
+  @IsEnum(AdminRole)
+  role: AdminRole;
+}
+
+export class UpdateAdminRoleDto {
+  @ApiProperty({ enum: AdminRole })
+  @IsEnum(AdminRole)
+  role: AdminRole;
+
+  @ApiProperty({ description: 'Written to the audit log' })
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  reason: string;
+}
+
+export class SetAdminActiveDto {
+  @ApiProperty()
+  @IsBoolean()
+  active: boolean;
+
+  @ApiProperty({ description: 'Written to the audit log' })
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  reason: string;
 }

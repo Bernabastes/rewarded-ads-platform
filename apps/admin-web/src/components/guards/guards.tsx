@@ -24,8 +24,14 @@ export function RequireAuth({ children }: { children?: ReactNode }) {
   const location = useLocation();
   if (state.status === 'booting') return <BootSplash />;
   if (state.status !== 'authenticated') return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  // Phase 5 (#5): a temporary password or missing (required) TOTP confines the admin to the security page -
+  // the API answers 403 PASSWORD_CHANGE_REQUIRED / MFA_SETUP_REQUIRED everywhere else anyway.
+  const pending = state.admin?.mustChangePassword || state.admin?.mfaSetupRequired;
+  if (pending && location.pathname !== SECURITY_PATH) return <Navigate to={SECURITY_PATH} replace />;
   return children ? <>{children}</> : <Outlet />;
 }
+
+export const SECURITY_PATH = '/account/security';
 
 /** Sends authenticated admins away from the login page. */
 export function RedirectIfAuthed({ children }: { children: ReactNode }) {

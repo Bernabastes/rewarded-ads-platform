@@ -46,6 +46,9 @@ export const adminSuper: AdminMe = {
     'revenue.view',
     'audit.view',
   ],
+  mfaEnabled: false,
+  mfaSetupRequired: false,
+  mustChangePassword: false,
 };
 
 export const adminFinance: AdminMe = {

@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
+  AllowPendingSecuritySetup,
   type AuthContext,
   ClientIp,
   CurrentAuth,
@@ -23,6 +24,7 @@ import {
   AppInstallCompletionsQueryDto,
   ApproveAdDto,
   AuditLogQueryDto,
+  CreateAdminDto,
   CreateCoinAdjustmentDto,
   OptionalNoteDto,
   ReasonDto,
@@ -31,13 +33,18 @@ import {
   ResolveManualReviewDto,
   RevenueQueryDto,
   ReviewAdReportDto,
+  SetAdminActiveDto,
+  UpdateAdminRoleDto,
 } from '../dto/admin.dto';
+import { AdminAccountsService } from '../services/admin-accounts.service';
 import { AdminReportsService } from '../services/admin-reports.service';
 import { AdminReviewService } from '../services/admin-review.service';
 import { AdminUsersService } from '../services/admin-users.service';
 import { CoinAdjustmentsService } from '../services/coin-adjustments.service';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
-import { toAdminProfile } from '../../auth/auth.service';
+import { AuthService, toAdminProfile } from '../../auth/auth.service';
+import { ChangePasswordDto, MfaDisableDto, MfaEnableDto } from '../../auth/dto/auth.dto';
+import { MfaService } from '../../auth/mfa.service';
 
 const actorOf = (auth: AuthContext, ip: string) => ({ adminId: auth.subjectId, ip });
 
@@ -53,13 +60,56 @@ export class AdminHomeController {
   constructor(
     private readonly reports: AdminReportsService,
     private readonly prisma: PrismaService,
+    private readonly auth: AuthService,
+    private readonly mfa: MfaService,
   ) {}
 
   @Get('me')
-  @ApiOperation({ summary: 'Current admin profile and role' })
+  @AllowPendingSecuritySetup()
+  @ApiOperation({ summary: 'Current admin profile, role, MFA state and pending security requirements' })
   async me(@CurrentAuth() auth: AuthContext) {
     const admin = await this.prisma.adminUser.findUniqueOrThrow({ where: { id: auth.subjectId } });
-    return toAdminProfile(admin);
+    return toAdminProfile(admin, { mfaSetupRequired: this.mfa.setupRequiredFor(admin) });
+  }
+
+  @Post('me/change-password')
+  @AllowPendingSecuritySetup()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Change my admin password (clears the temporary-password flag; revokes every session - sign in again)',
+  })
+  @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS (current password wrong)' })
+  changePassword(@Body() dto: ChangePasswordDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.auth.changeAdminPassword(auth.subjectId, dto.currentPassword, dto.newPassword, ip);
+  }
+
+  @Post('me/mfa/setup')
+  @AllowPendingSecuritySetup()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Start TOTP enrolment: returns the secret + otpauth URI (MFA is active only after /enable)',
+  })
+  @ApiResponse({ status: 409, description: 'MFA_ALREADY_ENABLED' })
+  mfaSetup(@CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.mfa.setup(auth.subjectId, ip);
+  }
+
+  @Post('me/mfa/enable')
+  @AllowPendingSecuritySetup()
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Confirm a code from the authenticator app and switch MFA on' })
+  @ApiResponse({ status: 400, description: 'MFA_CODE_INVALID | MFA_NOT_ENABLED (setup not started)' })
+  mfaEnable(@Body() dto: MfaEnableDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.mfa.enable(auth.subjectId, dto.code, ip);
+  }
+
+  @Post('me/mfa/disable')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Switch MFA off (requires a current code AND the password)' })
+  @ApiResponse({ status: 400, description: 'MFA_CODE_INVALID | MFA_NOT_ENABLED' })
+  @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
+  mfaDisable(@Body() dto: MfaDisableDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.mfa.disable(auth.subjectId, dto.code, dto.password, ip);
   }
 
   @Get('overview')
@@ -72,6 +122,65 @@ export class AdminHomeController {
   @ApiOperation({ summary: 'Effective platform configuration (read-only)' })
   config() {
     return this.reports.platformConfig();
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Admin accounts (super_admin)                                        */
+/* ------------------------------------------------------------------ */
+
+@ApiTags('admin')
+@ApiBearerAuth()
+@Controller('admin/admins')
+@Subjects('admin')
+@Roles('super_admin')
+export class AdminAccountsController {
+  constructor(private readonly accounts: AdminAccountsService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'List admin accounts' })
+  list() {
+    return this.accounts.list();
+  }
+
+  @Post()
+  @ApiOperation({
+    summary: 'Create an admin account with a one-time temporary password (must be changed at first login)',
+  })
+  @ApiResponse({ status: 409, description: 'EMAIL_ALREADY_REGISTERED' })
+  create(@Body() dto: CreateAdminDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.accounts.create(actorOf(auth, ip), dto);
+  }
+
+  @Patch(':id/role')
+  @ApiOperation({ summary: 'Change an admin role (revokes all of their sessions immediately)' })
+  @ApiResponse({ status: 409, description: 'LAST_SUPER_ADMIN' })
+  changeRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAdminRoleDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
+    return this.accounts.changeRole(actorOf(auth, ip), id, dto.role, dto.reason);
+  }
+
+  @Post(':id/reset-password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Issue a new temporary password (revokes all sessions; must be changed at next login)' })
+  resetPassword(@Param('id', ParseUUIDPipe) id: string, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.accounts.resetPassword(actorOf(auth, ip), id);
+  }
+
+  @Patch(':id/active')
+  @ApiOperation({ summary: 'Activate / deactivate an admin account' })
+  @ApiResponse({ status: 409, description: 'LAST_SUPER_ADMIN | CONFLICT (self-deactivation)' })
+  setActive(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetAdminActiveDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
+    return this.accounts.setActive(actorOf(auth, ip), id, dto.active, dto.reason);
   }
 }
 

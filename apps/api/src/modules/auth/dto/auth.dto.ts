@@ -189,3 +189,35 @@ export class ChangePasswordDto {
   @Matches(/^(?=.*[A-Za-z])(?=.*\d).+$/, { message: 'newPassword must contain a letter and a digit' })
   newPassword: string;
 }
+
+/* ------------------------- admin MFA (security audit #5) ------------------------- */
+
+export class AdminMfaLoginDto {
+  /** `mfaToken` from the `{ mfaRequired: true }` response of POST /auth/admin/login (valid 5 min, single use). */
+  @ApiProperty()
+  @IsString()
+  @MinLength(20)
+  mfaToken: string;
+
+  @ApiProperty({ example: '123456', description: '6-digit TOTP code' })
+  @IsString()
+  @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  code: string;
+}
+
+export class MfaEnableDto {
+  @ApiProperty({ example: '123456' })
+  @IsString()
+  @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  code: string;
+}
+
+export class MfaDisableDto extends MfaEnableDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  password: string;
+}

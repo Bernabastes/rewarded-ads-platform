@@ -174,8 +174,9 @@ export class ApiClient {
         if (refreshed) return this.perform<T>(method, path, options, true);
         throw new ApiError(envelope);
       }
-      if (envelope.code !== ErrorCode.TOKEN_EXPIRED) {
-        // Invalid / revoked token: the session is gone.
+      if (envelope.code !== ErrorCode.TOKEN_EXPIRED && envelope.code !== ErrorCode.INVALID_CREDENTIALS) {
+        // Invalid / revoked token: the session is gone. (INVALID_CREDENTIALS on an authenticated route means
+        // "wrong current password" - e.g. change-password / MFA disable - and must not end the session.)
         if (this.options.tokens.get()?.accessToken === tokens.accessToken) {
           this.options.tokens.clear();
           this.options.onAuthLost?.('unauthorized');

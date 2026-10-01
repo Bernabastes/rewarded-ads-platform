@@ -14,7 +14,9 @@ import {
   ScrollText,
   Settings2,
   ShieldAlert,
+  ShieldCheck,
   Smartphone,
+  UserCog,
   UserRoundX,
   Users,
   Video,
@@ -97,6 +99,8 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Audit log', to: '/audit', icon: ScrollText, access: 'audit', key: 'l', description: 'Every admin decision' },
       { label: 'Platform config', to: '/config', icon: Settings2, access: 'config', key: 'g', description: 'Effective settings & mocks' },
+      { label: 'Admin accounts', to: '/admins', icon: UserCog, access: 'adminAccounts', key: 'm', description: 'Create admins, change roles, reset passwords', keywords: ['staff', 'role', 'reset password', 'mfa'] },
+      { label: 'My security', to: '/account/security', icon: ShieldCheck, access: 'accountSecurity', key: 's', description: 'Password & two-factor authentication', keywords: ['password', 'totp', '2fa', 'authenticator'] },
     ],
   },
 ];

@@ -10,6 +10,7 @@ import {
 } from '../../common/decorators/auth.decorators';
 import { AuthService } from './auth.service';
 import {
+  AdminMfaLoginDto,
   AdvertiserRegisterDto,
   ChangePasswordDto,
   CompleteProfileDto,
@@ -78,8 +79,10 @@ export class AuthController {
 
   @Post('advertiser/login')
   @Public()
-  @ApiOperation({ summary: 'Advertiser email + password login' })
+  @ApiOperation({ summary: 'Advertiser email + password login (throttled per IP / account; lockout after repeated failures)' })
   @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
+  @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED (details.retryAfterSeconds)' })
+  @ApiResponse({ status: 429, description: 'LOGIN_RATE_LIMITED' })
   loginAdvertiser(
     @Body() dto: EmailPasswordLoginDto,
     @ClientIp() ip: string,
@@ -90,10 +93,30 @@ export class AuthController {
 
   @Post('admin/login')
   @Public()
-  @ApiOperation({ summary: 'Admin email + password login (role is embedded in the access token)' })
+  @ApiOperation({
+    summary: 'Admin email + password login (role is embedded in the access token)',
+    description:
+      'Throttled per IP and per account (429 LOGIN_RATE_LIMITED) with lockout after repeated failures (423 ACCOUNT_LOCKED). ' +
+      'When the admin has TOTP enabled the response is `{ mfaRequired: true, mfaToken, expiresIn }` and the session is only issued by POST /auth/admin/login/mfa.',
+  })
   @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
+  @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED (details.retryAfterSeconds)' })
+  @ApiResponse({ status: 429, description: 'LOGIN_RATE_LIMITED' })
   loginAdmin(@Body() dto: EmailPasswordLoginDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
     return this.auth.loginAdmin(dto.email, dto.password, { ip, userAgent });
+  }
+
+  @Post('admin/login/mfa')
+  @Public()
+  @ApiOperation({
+    summary: 'Admin login step 2: TOTP code + the single-use mfaToken from step 1',
+    description: 'Wrong codes count toward the account lockout. Returns the same `{ tokens, admin }` payload as a password-only login.',
+  })
+  @ApiResponse({ status: 400, description: 'MFA_CODE_INVALID' })
+  @ApiResponse({ status: 401, description: 'MFA_TOKEN_INVALID (expired / already used)' })
+  @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED' })
+  loginAdminMfa(@Body() dto: AdminMfaLoginDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
+    return this.auth.loginAdminMfa(dto.mfaToken, dto.code, { ip, userAgent });
   }
 
   @Post('refresh')

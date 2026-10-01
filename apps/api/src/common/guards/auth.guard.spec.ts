@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ErrorCode } from '@rap/shared';
 import { mockAudit, mockPrisma, mockSecurity, testConfig, uuid } from '../../testing/test-utils';
+import { ALLOW_PENDING_SECURITY_SETUP_KEY, ROLES_KEY } from '../decorators/auth.decorators';
 import { AuthGuard } from './auth.guard';
 
 const USER = uuid(1);
@@ -25,18 +26,26 @@ describe('AuthGuard (Phase 4A: denylist, impersonation, deleted accounts)', () =
   let prisma: any;
   let tokens: any;
   let audit: any;
+  let mfa: { setupRequiredFor: jest.Mock };
   let guard: AuthGuard;
 
   const sign = (payload: Record<string, unknown>, sub: string) =>
     jwt.signAsync(payload, { subject: sub, secret: config.env.JWT_ACCESS_SECRET, expiresIn: 600, jwtid: uuid(77) });
 
+  /** Attach handler metadata (what @Roles / @AllowPendingSecuritySetup would set). */
+  const withMeta = (c: ExecutionContext, meta: Record<string, unknown>) => {
+    for (const [k, v] of Object.entries(meta)) Reflect.defineMetadata(k, v, c.getHandler());
+    return c;
+  };
+
   beforeEach(() => {
     prisma = mockPrisma();
     tokens = { isAccessTokenDenied: jest.fn().mockResolvedValue(false) };
     audit = mockAudit();
-    guard = new AuthGuard(new Reflector(), jwt, config, prisma, tokens, audit, mockSecurity());
+    mfa = { setupRequiredFor: jest.fn().mockReturnValue(false) };
+    guard = new AuthGuard(new Reflector(), jwt, config, prisma, tokens, audit, mockSecurity(), mfa as never);
     prisma.user.findUnique.mockResolvedValue({ status: 'active', ageVerificationStatus: 'verified_adult' });
-    prisma.adminUser.findUnique.mockResolvedValue({ active: true, role: 'support' });
+    prisma.adminUser.findUnique.mockResolvedValue({ active: true, role: 'support', mfaEnabledAt: null, mustChangePassword: false });
   });
 
   it('rejects denylisted access tokens with 401 INVALID_TOKEN (F2)', async () => {
@@ -87,6 +96,50 @@ describe('AuthGuard (Phase 4A: denylist, impersonation, deleted accounts)', () =
       tokens.isAccessTokenDenied.mockResolvedValue(true);
       const token = await sign({ typ: 'impersonation', actorAdminId: ADMIN }, USER);
       await expect(guard.canActivate(ctx(token))).rejects.toMatchObject({ code: ErrorCode.INVALID_TOKEN });
+    });
+  });
+
+  describe('admin role from the database (security audit #13)', () => {
+    it('evaluates @Roles against the CURRENT DB role, not the role claim baked into the token', async () => {
+      // token still says super_admin; the DB was changed to support by PATCH /admin/admins/:id/role
+      const token = await sign({ typ: 'admin', role: 'super_admin' }, ADMIN);
+      prisma.adminUser.findUnique.mockResolvedValue({ active: true, role: 'support', mfaEnabledAt: null, mustChangePassword: false });
+      const c = withMeta(ctx(token, 'POST', '/api/v1/admin/admins'), { [ROLES_KEY]: ['super_admin'] });
+      await expect(guard.canActivate(c)).rejects.toMatchObject({ code: ErrorCode.ROLE_NOT_ALLOWED, status: 403 });
+    });
+
+    it('grants a route when the DB role qualifies even if the token claim is stale', async () => {
+      const token = await sign({ typ: 'admin', role: 'support' }, ADMIN);
+      prisma.adminUser.findUnique.mockResolvedValue({ active: true, role: 'super_admin', mfaEnabledAt: null, mustChangePassword: false });
+      const c = withMeta(ctx(token, 'GET', '/api/v1/admin/admins'), { [ROLES_KEY]: ['super_admin'] });
+      await expect(guard.canActivate(c)).resolves.toBe(true);
+      expect(c.switchToHttp().getRequest<{ auth: { role: string } }>().auth.role).toBe('super_admin');
+    });
+  });
+
+  describe('pending security state (security audit #5)', () => {
+    it('confines an admin with a temporary password to the allow-listed routes (403 PASSWORD_CHANGE_REQUIRED elsewhere)', async () => {
+      const token = await sign({ typ: 'admin', role: 'support' }, ADMIN);
+      prisma.adminUser.findUnique.mockResolvedValue({ active: true, role: 'support', mfaEnabledAt: null, mustChangePassword: true });
+      await expect(guard.canActivate(ctx(token, 'GET', '/api/v1/admin/overview'))).rejects.toMatchObject({
+        code: ErrorCode.PASSWORD_CHANGE_REQUIRED,
+        status: 403,
+      });
+      const allowed = withMeta(ctx(token, 'POST', '/api/v1/admin/me/change-password'), { [ALLOW_PENDING_SECURITY_SETUP_KEY]: true });
+      await expect(guard.canActivate(allowed)).resolves.toBe(true);
+    });
+
+    it('returns 403 MFA_SETUP_REQUIRED for a finance/super_admin without TOTP when ADMIN_MFA_REQUIRED is on', async () => {
+      const token = await sign({ typ: 'admin', role: 'finance' }, ADMIN);
+      prisma.adminUser.findUnique.mockResolvedValue({ active: true, role: 'finance', mfaEnabledAt: null, mustChangePassword: false });
+      mfa.setupRequiredFor.mockReturnValue(true);
+      await expect(guard.canActivate(ctx(token, 'GET', '/api/v1/admin/withdrawals'))).rejects.toMatchObject({
+        code: ErrorCode.MFA_SETUP_REQUIRED,
+        status: 403,
+      });
+      const setup = withMeta(ctx(token, 'POST', '/api/v1/admin/me/mfa/setup'), { [ALLOW_PENDING_SECURITY_SETUP_KEY]: true });
+      await expect(guard.canActivate(setup)).resolves.toBe(true);
+      expect(mfa.setupRequiredFor).toHaveBeenCalledWith(expect.objectContaining({ role: 'finance', mfaEnabledAt: null }));
     });
   });
 });

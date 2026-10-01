@@ -106,6 +106,8 @@ export const routes: RouteObject[] = [
       { path: 'revenue', element: page(() => import('@/features/revenue/revenue-page'), 'RevenuePage', 'revenue') },
       { path: 'audit', element: page(() => import('@/features/audit/audit-page'), 'AuditPage', 'audit') },
       { path: 'config', element: page(() => import('@/features/config/config-page'), 'ConfigPage', 'config') },
+      { path: 'admins', element: page(() => import('@/features/admins/admins-page'), 'AdminsPage', 'adminAccounts') },
+      { path: 'account/security', element: page(() => import('@/features/account/security-page'), 'SecurityPage', 'accountSecurity') },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

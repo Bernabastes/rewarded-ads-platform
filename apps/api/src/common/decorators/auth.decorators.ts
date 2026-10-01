@@ -22,9 +22,16 @@ export const ROLES_KEY = 'auth:roles';
 export const REQUIRE_VERIFIED_ADULT_KEY = 'auth:requireVerifiedAdult';
 export const REQUIRE_CONSENT_KEY = 'auth:requireConsent';
 export const ALLOW_IMPERSONATION_WRITE_KEY = 'auth:allowImpersonationWrite';
+export const ALLOW_PENDING_SECURITY_SETUP_KEY = 'auth:allowPendingSecuritySetup';
 
 /** Skip authentication for this handler/controller. */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+/**
+ * Admin routes that stay reachable while the account is in a pending security state
+ * (403 MFA_SETUP_REQUIRED / PASSWORD_CHANGE_REQUIRED everywhere else): /admin/me, MFA setup, change-password.
+ */
+export const AllowPendingSecuritySetup = () => SetMetadata(ALLOW_PENDING_SECURITY_SETUP_KEY, true);
 
 /** Restrict the handler/controller to the given token subject types. */
 export const Subjects = (...subjects: AuthSubjectType[]) => SetMetadata(SUBJECTS_KEY, subjects);

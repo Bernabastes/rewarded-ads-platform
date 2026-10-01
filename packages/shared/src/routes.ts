@@ -16,6 +16,8 @@ export const API_ROUTES = {
     advertiserRegister: '/auth/advertiser/register',
     advertiserLogin: '/auth/advertiser/login',
     adminLogin: '/auth/admin/login',
+    /** Phase 5 (#5): second login step when the admin has TOTP enabled. */
+    adminLoginMfa: '/auth/admin/login/mfa',
     advertiserChangePassword: '/auth/advertiser/change-password',
     refresh: '/auth/refresh',
     logout: '/auth/logout',
@@ -110,6 +112,14 @@ export const API_ROUTES = {
     me: '/admin/me',
     overview: '/admin/overview',
     config: '/admin/config',
+    /** Phase 5 (#5): admin self-service security + super_admin account management. */
+    meChangePassword: '/admin/me/change-password',
+    meMfaSetup: '/admin/me/mfa/setup',
+    meMfaEnable: '/admin/me/mfa/enable',
+    meMfaDisable: '/admin/me/mfa/disable',
+    admins: '/admin/admins',
+    adminRole: (id: string) => `/admin/admins/${id}/role`,
+    adminResetPassword: (id: string) => `/admin/admins/${id}/reset-password`,
     adsReviewQueue: '/admin/ads/review-queue',
     ad: (id: string) => `/admin/ads/${id}`,
     adApprove: (id: string) => `/admin/ads/${id}/approve`,

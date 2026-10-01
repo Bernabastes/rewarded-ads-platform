@@ -52,6 +52,10 @@ export const ACCESS = {
   deletionRequests: ['super_admin', 'support'],
   impersonate: ['super_admin', 'support'],
   mediaReprocess: ['super_admin', 'ad_reviewer'],
+
+  // Phase 5 (#5): every admin manages their own password / TOTP; only super_admins manage other admins.
+  accountSecurity: ALL_ROLES,
+  adminAccounts: ['super_admin'],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type AccessKey = keyof typeof ACCESS;

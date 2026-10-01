@@ -63,6 +63,7 @@ export type SecurityEvent =
   | 'auth.login_rate_limited'
   | 'auth.account_locked'
   | 'auth.mfa_failed'
+  | 'auth.mfa_setup_started'
   | 'auth.mfa_enabled'
   | 'auth.mfa_disabled'
   | 'admin.account_created'
