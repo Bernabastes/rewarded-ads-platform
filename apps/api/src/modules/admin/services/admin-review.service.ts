@@ -264,6 +264,10 @@ export class AdminReviewService {
     if (!['pending_review', 'active', 'paused'].includes(c.status))
       throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, `Campaign is ${c.status}`);
     await this.prisma.$transaction(async (tx) => {
+      // Lock + re-read so the refund is computed from the current spent_etb (#1 / #15) and the status claim is atomic.
+      const locked = await this.lifecycle.lockCampaign(tx, id);
+      if (!locked || !['pending_review', 'active', 'paused'].includes(locked.status))
+        throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, `Campaign is ${locked?.status ?? 'missing'}`);
       await tx.campaign.update({
         where: { id },
         data: {
@@ -273,7 +277,7 @@ export class AdminReviewService {
           rejectionReason: reason.trim(),
         },
       });
-      await this.lifecycle.refundUnspent(tx, c, 'rejected');
+      await this.lifecycle.refundUnspent(tx, locked, 'rejected');
       await this.audit.record(
         {
           actorType: 'admin',
@@ -281,7 +285,7 @@ export class AdminReviewService {
           action: 'campaign.rejected',
           targetType: 'campaign',
           targetId: id,
-          before: { status: c.status, reserved: c.budgetReservedEtb },
+          before: { status: locked.status, reserved: locked.budgetReservedEtb, submissionSeq: locked.submissionSeq },
           after: { status: 'rejected', reason },
           ipAddress: actor.ip,
         },

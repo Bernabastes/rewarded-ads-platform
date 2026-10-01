@@ -11,7 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { LegalService } from '../legal/legal.service';
 import { MediaService } from '../media/media.service';
 import { WalletService } from '../wallet/wallet.module';
-import { computeRewardPerAction, rewardCoins } from './campaign.economics';
+import { computeRewardPerAction, reservationKey, rewardCoins } from './campaign.economics';
 import type { CreateAdDto, CreateCampaignDto, UpdateCampaignDto } from './dto/campaigns.dto';
 
 const campaignSummaryInclude = {
@@ -141,23 +141,38 @@ export class CampaignsService {
       dto.startDate ?? (c.startDate ? utcDayKey(c.startDate) : undefined),
       dto.endDate ?? (c.endDate ? utcDayKey(c.endDate) : undefined),
     );
+    // #1: a draft/rejected campaign may only change its budget once nothing is reserved for it any more
+    // (i.e. every earlier reservation has been refunded) - the next submit then funds the new budget from scratch.
+    if (dto.budgetEtb !== undefined && c.status !== 'paused' && !new Prisma.Decimal(dto.budgetEtb).equals(c.budgetEtb)) {
+      const net = await this.netReservedEtb(id);
+      if (!net.isZero()) {
+        throw AppException.conflict(
+          ErrorCode.CAMPAIGN_INVALID_STATE,
+          'The budget cannot change while funds are still reserved for this campaign',
+          { netReservedEtb: net.toNumber() },
+        );
+      }
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       if (c.status === 'paused' && dto.budgetEtb !== undefined) {
         const extra = new Prisma.Decimal(dto.budgetEtb).minus(c.budgetEtb);
         if (extra.greaterThan(0)) {
-          await this.wallet.applyEntry(
+          const write = await this.wallet.applyEntry(
             {
               advertiserId,
               amountEtb: extra.negated(),
               entryType: 'campaign_budget_reservation',
               referenceType: 'campaign',
               referenceId: id,
-              idempotencyKey: `campaign_budget_increase:${id}:${Date.now()}`,
+              idempotencyKey: `campaign_budget_increase:${id}:${c.submissionSeq}:${Date.now()}`,
               description: `Budget increase for "${c.title}"`,
             },
             tx,
           );
+          if (write.replayed) {
+            throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, 'Budget increase could not be recorded; retry');
+          }
           await tx.campaign.update({
             where: { id },
             data: {
@@ -222,7 +237,14 @@ export class CampaignsService {
 
   /* --------------------------- lifecycle --------------------------- */
 
-  /** draft -> pending_review. Reserves the full budget from the wallet (prepaid model). */
+  /**
+   * draft -> pending_review. Reserves the unspent budget from the wallet (prepaid model).
+   *
+   * Security (#1): the status flip and `submission_seq` increment are one atomic claim, the wallet entry is keyed
+   * `campaign_budget_reservation:<id>:<seq>` so an earlier (refunded) reservation can never be replayed, the wallet
+   * balance check runs under the advertiser row lock inside `WalletService.applyEntry`, and a replayed entry is
+   * treated as a hard failure (the transaction rolls back).
+   */
   async submit(advertiserId: string, id: string) {
     const advertiser = await this.prisma.advertiser.findUniqueOrThrow({
       where: { id: advertiserId },
@@ -251,27 +273,44 @@ export class CampaignsService {
         'Add at least one ad creative before submitting',
       );
     }
+    // A campaign that already spent part of an earlier reservation only needs the remainder funded again.
+    const reserveEtb = c.budgetEtb.minus(c.spentEtb);
+    if (reserveEtb.lessThanOrEqualTo(0)) {
+      throw AppException.conflict(ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED, 'Increase the budget before resubmitting');
+    }
     const updated = await this.prisma.$transaction(async (tx) => {
-      await this.wallet.applyEntry(
+      // Atomic claim: only ONE submit of a draft can win, and it owns a fresh submission sequence number.
+      const claimed = await tx.campaign.updateMany({
+        where: { id, advertiserId, status: 'draft' },
+        data: { status: 'pending_review', submittedAt: new Date(), rejectionReason: null, submissionSeq: { increment: 1 } },
+      });
+      if (claimed.count === 0) {
+        throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, 'Only draft campaigns can be submitted');
+      }
+      const { submissionSeq } = await tx.campaign.findUniqueOrThrow({ where: { id }, select: { submissionSeq: true } });
+      const write = await this.wallet.applyEntry(
         {
           advertiserId,
-          amountEtb: c.budgetEtb.negated(),
+          amountEtb: reserveEtb.negated(),
           entryType: 'campaign_budget_reservation',
           referenceType: 'campaign',
           referenceId: id,
-          idempotencyKey: `campaign_budget_reservation:${id}`,
-          description: `Budget reservation for "${c.title}"`,
+          idempotencyKey: reservationKey(id, submissionSeq),
+          description: `Budget reservation for "${c.title}" (submission ${submissionSeq})`,
         },
         tx,
       );
+      if (write.replayed || !new Prisma.Decimal(write.entry.amountEtb).equals(reserveEtb.negated())) {
+        // A replay here means the wallet was NOT debited for this submission: never let the campaign go live on it.
+        this.logger.error(`Campaign ${id} submission ${submissionSeq}: wallet reservation replayed - aborting`);
+        throw AppException.conflict(
+          ErrorCode.CAMPAIGN_INVALID_STATE,
+          'Budget reservation could not be recorded; please retry the submission',
+        );
+      }
       return tx.campaign.update({
         where: { id },
-        data: {
-          status: 'pending_review',
-          submittedAt: new Date(),
-          budgetReservedEtb: c.budgetEtb,
-          rejectionReason: null,
-        },
+        data: { budgetReservedEtb: c.budgetEtb },
         include: campaignSummaryInclude,
       });
     });
@@ -282,7 +321,7 @@ export class CampaignsService {
       targetType: 'campaign',
       targetId: id,
       before: { status: c.status },
-      after: { status: updated.status, reservedEtb: c.budgetEtb },
+      after: { status: updated.status, reservedEtb: reserveEtb, submissionSeq: updated.submissionSeq },
     });
     return this.toSummary(updated);
   }
@@ -590,6 +629,22 @@ export class CampaignsService {
 
   /* ------------------------------ helpers ------------------------------ */
 
+  /**
+   * Net ETB currently reserved for a campaign according to the wallet ledger (reservations are negative wallet
+   * entries, refunds positive). Zero once every reservation has been refunded.
+   */
+  async netReservedEtb(campaignId: string): Promise<Prisma.Decimal> {
+    const agg = await this.prisma.advertiserWalletLedger.aggregate({
+      where: {
+        referenceType: 'campaign',
+        referenceId: campaignId,
+        entryType: { in: ['campaign_budget_reservation', 'campaign_budget_refund'] },
+      },
+      _sum: { amountEtb: true },
+    });
+    return new Prisma.Decimal(agg._sum.amountEtb ?? 0).negated();
+  }
+
   private async owned<I extends Prisma.CampaignInclude>(advertiserId: string, id: string, include: I) {
     const c = await this.prisma.campaign.findFirst({ where: { id, advertiserId }, include });
     if (!c) throw AppException.notFound('Campaign not found');
@@ -658,6 +713,8 @@ export class CampaignsService {
       approvedAdsCount: c.ads?.filter((a) => a.reviewStatus === 'approved').length ?? 0,
       rawCompletions: c.completionCounts?.raw ?? 0,
       validCompletions: c.completionCounts?.valid ?? 0,
+      budgetReservedEtb: c.budgetReservedEtb,
+      submissionSeq: c.submissionSeq ?? 0,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
       ...(c.advertiser ? { advertiser: c.advertiser } : {}),

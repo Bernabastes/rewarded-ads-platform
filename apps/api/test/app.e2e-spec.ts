@@ -329,6 +329,88 @@ describe('API e2e smoke (user money flow)', () => {
     expect(audit.body.meta.total).toBeGreaterThanOrEqual(2);
   }, 60_000);
 
+  /**
+   * Security audit #1 (CRITICAL) - the exact exploit sequence: submit (wallet debited) -> admin rejects (refund)
+   * -> advertiser edits the rejected campaign (status -> draft) with a budget x2000 -> resubmits. Before the fix the
+   * second reservation replayed the first idempotency key: no debit, no balance check, `budget_reserved_etb` set to
+   * the unfunded budget. Now every submission is keyed by `submission_seq` and the wallet balance is asserted under
+   * the row lock, so the resubmission must either debit the FULL new budget or fail with INSUFFICIENT_WALLET_BALANCE.
+   */
+  it('REGRESSION #1: reject -> edit budget x2000 -> resubmit cannot replay the budget reservation', async () => {
+    if (skipIfUnreachable()) return;
+    const login = await http
+      .post('/api/v1/auth/advertiser/login')
+      .send({ email: 'growth@addisfintech.et', password: 'Advertiser123!' })
+      .expect(201);
+    const adv = { Authorization: `Bearer ${login.body.tokens.accessToken}` };
+    const advertiserId = login.body.advertiser.id as string;
+
+    // make sure the wallet can afford exactly one small budget (top-up through the mock checkout)
+    const topup = await http
+      .post('/api/v1/billing/topups')
+      .set(adv)
+      .send({ amountEtb: 300, returnUrl: 'http://localhost:5173/billing/return' })
+      .expect(201);
+    await http.post(`/api/v1/billing/mock-checkout/${topup.body.txRef}/pay`).send({ outcome: 'success' }).expect(201);
+    const balance0 = Number((await http.get('/api/v1/billing/balance').set(adv).expect(200)).body.balanceEtb);
+    expect(balance0).toBeGreaterThanOrEqual(300);
+
+    const budget = 100;
+    const campaign = await http
+      .post('/api/v1/campaigns')
+      .set(adv)
+      .send({ title: `Replay regression ${Date.now()}`, budgetEtb: budget, costPerActionEtb: 2, targetActionType: 'video_view', attentionCheckEnabled: false })
+      .expect(201);
+    const campaignId = campaign.body.id as string;
+    // test env: the media pipeline is disabled, so the creative is `ready` immediately (storageKey must be the
+    // advertiser's own creatives prefix - security audit #2)
+    await http
+      .post(`/api/v1/campaigns/${campaignId}/ads`)
+      .set(adv)
+      .send({ title: 'Replay creative', storageKey: `creatives/${advertiserId}/2026-10-01/replay.mp4`, mediaType: 'video', durationSeconds: 15 })
+      .expect(201);
+
+    const submitted = await http.post(`/api/v1/campaigns/${campaignId}/submit`).set(adv).expect(201);
+    expect(submitted.body.status).toBe('pending_review');
+    expect(submitted.body.submissionSeq).toBe(1);
+    const balance1 = Number((await http.get('/api/v1/billing/balance').set(adv).expect(200)).body.balanceEtb);
+    expect(balance1).toBeCloseTo(balance0 - budget, 2);
+
+    // admin rejects -> refund
+    const reviewer = await http.post('/api/v1/auth/admin/login').send({ email: 'reviewer@rap.et', password: 'Admin123!' }).expect(201);
+    const rev = { Authorization: `Bearer ${reviewer.body.tokens.accessToken}` };
+    await http.post(`/api/v1/admin/campaigns/${campaignId}/reject`).set(rev).send({ reason: 'Regression test rejection' }).expect(201);
+    const balance2 = Number((await http.get('/api/v1/billing/balance').set(adv).expect(200)).body.balanceEtb);
+    expect(balance2).toBeCloseTo(balance0, 2);
+
+    // advertiser edits the rejected campaign: budget x2000 -> status back to draft
+    const edited = await http.patch(`/api/v1/campaigns/${campaignId}`).set(adv).send({ budgetEtb: budget * 2000 }).expect(200);
+    expect(edited.body.status).toBe('draft');
+    expect(Number(edited.body.budgetEtb)).toBe(budget * 2000);
+
+    // THE EXPLOIT: resubmit. Must NOT replay the refunded reservation.
+    const replay = await http.post(`/api/v1/campaigns/${campaignId}/submit`).set(adv);
+    expect(replay.status).toBe(422);
+    expect(replay.body.code).toBe('INSUFFICIENT_WALLET_BALANCE');
+    const after = await http.get(`/api/v1/campaigns/${campaignId}`).set(adv).expect(200);
+    expect(after.body.status).toBe('draft'); // the transaction rolled back the status claim
+    expect(Number(after.body.budgetReservedEtb)).toBe(0);
+    const balance3 = Number((await http.get('/api/v1/billing/balance').set(adv).expect(200)).body.balanceEtb);
+    expect(balance3).toBeCloseTo(balance0, 2);
+
+    // a budget the wallet can afford is debited again in full under a NEW key (seq 2)
+    await http.patch(`/api/v1/campaigns/${campaignId}`).set(adv).send({ budgetEtb: budget }).expect(200);
+    const resubmitted = await http.post(`/api/v1/campaigns/${campaignId}/submit`).set(adv).expect(201);
+    expect(resubmitted.body.submissionSeq).toBe(2);
+    expect(Number(resubmitted.body.budgetReservedEtb)).toBe(budget);
+    const balance4 = Number((await http.get('/api/v1/billing/balance').set(adv).expect(200)).body.balanceEtb);
+    expect(balance4).toBeCloseTo(balance0 - budget, 2);
+    // clean up: reject again so the regression campaign does not stay in the review queue (refund keyed by seq 2)
+    await http.post(`/api/v1/admin/campaigns/${campaignId}/reject`).set(rev).send({ reason: 'Regression test cleanup' }).expect(201);
+    const balance5 = Number((await http.get('/api/v1/billing/balance').set(adv).expect(200)).body.balanceEtb);
+    expect(balance5).toBeCloseTo(balance0, 2);
+  }, 60_000);
+
   it('refresh token rotation detects reuse', async () => {
     if (skipIfUnreachable()) return;
     const login = await http

@@ -455,6 +455,7 @@ async function main() {
               : dec(
                   data.status === 'completed' || data.status === 'rejected' ? (data.spent ?? 0) : data.budget,
                 ),
+        submissionSeq: data.status === 'draft' ? 0 : 1,
         createdAt: daysAgo(data.createdDaysAgo),
       },
     });
@@ -472,8 +473,8 @@ async function main() {
             entryType: 'campaign_budget_reservation',
             referenceType: 'campaign',
             referenceId: c.id,
-            idempotencyKey: `campaign_budget_reservation:${c.id}`,
-            description: `Budget reservation for "${data.title}"`,
+            idempotencyKey: `campaign_budget_reservation:${c.id}:1`,
+            description: `Budget reservation for "${data.title}" (submission 1)`,
             createdAt: daysAgo(data.createdDaysAgo - 1),
           },
         });
@@ -489,7 +490,7 @@ async function main() {
                 entryType: 'campaign_budget_refund',
                 referenceType: 'campaign',
                 referenceId: c.id,
-                idempotencyKey: `campaign_budget_refund:${c.id}:seed`,
+                idempotencyKey: `campaign_budget_refund:${c.id}:1:${data.status === 'rejected' ? 'rejected' : 'end_date_reached'}`,
                 description: `Unspent budget released for "${data.title}"`,
                 createdAt: daysAgo(3),
               },
@@ -1059,8 +1060,8 @@ async function main() {
             entryType: 'campaign_budget_refund',
             referenceType: 'campaign',
             referenceId: cOld.id,
-            idempotencyKey: `campaign_budget_refund:${cOld.id}:seed`,
-            description: `Unspent budget released for "${cOld.title}"`,
+            idempotencyKey: `campaign_budget_refund:${cOld.id}:1:end_date_reached`,
+            description: `Unspent budget released (end_date_reached) for "${cOld.title}"`,
             createdAt: daysAgo(3),
           },
         });

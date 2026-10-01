@@ -182,6 +182,9 @@ enum WithdrawalStatus {
   failed
   flagged_for_review
   rejected
+  /// Provider outcome unknown after a timeout / 5xx / exhausted polling: money may be in flight, so coins stay
+  /// held until finance confirms the partner result (admin marks completed or failed with a reason).
+  needs_manual_review
 }
 
 enum ApprovalDecision {
@@ -402,15 +405,23 @@ model RefreshToken {
 }
 
 model AdminUser {
-  id           String    @id @default(uuid()) @db.Uuid
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  fullName     String    @map("full_name")
-  role         AdminRole
-  active       Boolean   @default(true)
-  lastLoginAt  DateTime? @map("last_login_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid()) @db.Uuid
+  email              String    @unique
+  passwordHash       String    @map("password_hash")
+  fullName           String    @map("full_name")
+  role               AdminRole
+  active             Boolean   @default(true)
+  lastLoginAt        DateTime? @map("last_login_at")
+  /// TOTP secret (AES-256-GCM encrypted at rest with MFA_ENCRYPTION_KEY / derived from JWT_ACCESS_SECRET).
+  mfaSecret          String?   @map("mfa_secret")
+  /// Set once the admin confirmed a valid code; null = MFA not enabled.
+  mfaEnabledAt       DateTime? @map("mfa_enabled_at")
+  /// Accounts created / reset by a super_admin start with a temporary password that must be changed first.
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  passwordChangedAt  DateTime? @map("password_changed_at")
+  createdBy          String?   @map("created_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   reviewedAds          Ad[]                    @relation("AdReviewer")
   withdrawalApprovals  WithdrawalApproval[]
@@ -564,6 +575,9 @@ model Campaign {
   pausedReason              String?          @map("paused_reason")
   completedAt               DateTime?        @map("completed_at")
   budgetReservedEtb         Decimal          @default(0) @map("budget_reserved_etb") @db.Decimal(12, 2)
+  /// Incremented in the same transaction as every submit; keys the wallet reservation/refund entries so a
+  /// rejected -> edited -> resubmitted campaign can never replay an earlier (already refunded) reservation.
+  submissionSeq             Int              @default(0) @map("submission_seq")
   createdAt                 DateTime         @default(now()) @map("created_at")
   updatedAt                 DateTime         @updatedAt @map("updated_at")
 
@@ -656,6 +670,9 @@ model AdWatchSession {
   userAgent               String?            @map("user_agent")
   status                  WatchSessionStatus @default(active)
   attentionQuestionId     String?            @map("attention_question_id") @db.Uuid
+  /// Per-session shuffle of the attention options: optionOrder[i] = original index shown at position i. The
+  /// client answers with a POSITION; the server maps it back (A3a: no fixed answer position to brute-force).
+  attentionOptionOrder    Json?              @map("attention_option_order")
   completedAt             DateTime?          @map("completed_at")
   rejectionCode           String?            @map("rejection_code")
   createdAt               DateTime           @default(now()) @map("created_at")

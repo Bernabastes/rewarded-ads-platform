@@ -5,6 +5,7 @@ import { AppConfig } from '../../config/app-config';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { WalletService } from '../wallet/wallet.module';
+import { refundKey } from './campaign.economics';
 
 /**
  * Campaign end-of-life handling shared by admin moderation and the scheduler:
@@ -21,7 +22,10 @@ export class CampaignLifecycleService {
     private readonly config: AppConfig,
   ) {}
 
-  /** Refund reserved-but-unspent budget (idempotent per campaign + reason). */
+  /**
+   * Refund reserved-but-unspent budget (idempotent per campaign + submission cycle + reason). `campaign` must be
+   * the row as read INSIDE the caller's transaction (ideally under `FOR UPDATE`) so `spentEtb` is current.
+   */
   async refundUnspent(tx: Prisma.TransactionClient, campaign: Campaign, reason: string) {
     const unspent = new Prisma.Decimal(campaign.budgetReservedEtb).minus(campaign.spentEtb);
     if (unspent.lessThanOrEqualTo(0)) return null;
@@ -32,7 +36,7 @@ export class CampaignLifecycleService {
         entryType: 'campaign_budget_refund',
         referenceType: 'campaign',
         referenceId: campaign.id,
-        idempotencyKey: `campaign_budget_refund:${campaign.id}:${reason}`,
+        idempotencyKey: refundKey(campaign.id, campaign.submissionSeq, reason),
         description: `Unspent budget released (${reason}) for "${campaign.title}"`,
       },
       tx,
@@ -41,9 +45,16 @@ export class CampaignLifecycleService {
     return write;
   }
 
+  /** Locks the campaign row so a concurrent `chargeCampaign` cannot change `spent_etb` under a refund (#15). */
+  async lockCampaign(tx: Prisma.TransactionClient, campaignId: string): Promise<Campaign | null> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM campaigns WHERE id = ${campaignId}::uuid FOR UPDATE`;
+    if (rows.length === 0) return null;
+    return tx.campaign.findUnique({ where: { id: campaignId } });
+  }
+
   async complete(campaignId: string, reason: 'end_date_reached' | 'admin_completed', actorId?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const c = await tx.campaign.findUnique({ where: { id: campaignId } });
+      const c = await this.lockCampaign(tx, campaignId);
       if (!c || !['active', 'paused'].includes(c.status)) return c;
       const updated = await tx.campaign.update({
         where: { id: campaignId },

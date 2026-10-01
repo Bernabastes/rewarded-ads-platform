@@ -48,3 +48,12 @@ export function isBudgetExhausted(
 ): boolean {
   return budgetEtb.minus(spentEtb).lessThan(costPerActionEtb);
 }
+
+/**
+ * Wallet idempotency keys for a campaign's budget lifecycle. Every submission cycle has its own `seq`
+ * (`campaigns.submission_seq`, incremented atomically on submit), so a reservation that was refunded after a
+ * rejection can never be replayed by a later resubmission (security audit #1).
+ */
+export const reservationKey = (campaignId: string, seq: number) => `campaign_budget_reservation:${campaignId}:${seq}`;
+export const refundKey = (campaignId: string, seq: number, reason: string) =>
+  `campaign_budget_refund:${campaignId}:${seq}:${reason}`;
