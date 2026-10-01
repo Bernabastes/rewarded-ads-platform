@@ -331,7 +331,7 @@
       "reasons": {
         "WATCH_DURATION_INSUFFICIENT": "ማስታወቂያው በቂ ጊዜ አልታየም።",
         "HEARTBEAT_CONTINUITY_FAILED": "በመጫወት ወቅት ግንኙነቱ ተቋርጦ ስለነበር እይታውን ማረጋገጥ አልተቻለም።",
-        "ATTENTION_CHECK_FAILED": "የትኩረት ጥያቄው መልስ ትክክል አልነበረም።",
+        "ATTENTION_CHECK_FAILED": "የትኩረት ጥያቄው መልስ ትክክል አልነበረም። ይህ ማስታወቂያ ዛሬ እንደገና አይገኝም፤ ሌላ ይሞክሩ።",
         "ATTENTION_ANSWER_REQUIRED": "የትኩረት ጥያቄው አልተመለሰም።",
         "WATCH_SESSION_EXPIRED": "የመመልከት ክፍለ ጊዜው በጣም ረዝሞ አብቅቷል።",
         "WATCH_DURATION_EXCESSIVE": "ክፍለ ጊዜው ለማረጋገጥ ከሚቻለው በላይ ረጅም ጊዜ ክፍት ነበር።",

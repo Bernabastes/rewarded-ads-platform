@@ -38,6 +38,25 @@ type AdWithCampaign = Prisma.AdGetPayload<{ include: typeof adInclude }>;
 
 class SessionAlreadyClaimed extends Error {}
 
+/** Fisher-Yates permutation of [0..n) using crypto randomness (pentest A3a: per-session option order). */
+export function shuffledOrder(n: number): number[] {
+  const order = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    const j = randomInt(0, i + 1);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+/** Maps the position the client picked in the shuffled list back to the question's original option index. */
+export function unshuffleAnswer(answerIndex: number | undefined, storedOrder: unknown): number | undefined {
+  if (answerIndex === undefined || answerIndex === null) return undefined;
+  if (!Array.isArray(storedOrder)) return answerIndex;
+  const original = storedOrder[answerIndex];
+  // an out-of-range position is a wrong answer, never an accidental match
+  return typeof original === 'number' ? original : -1;
+}
+
 @Injectable()
 export class AdsService {
   private readonly logger = new Logger(AdsService.name);
@@ -154,6 +173,9 @@ export class AdsService {
     });
     const askQuestion = ad.campaign.attentionCheckEnabled && ad.attentionQuestions.length > 0;
     const question = askQuestion ? ad.attentionQuestions[randomInt(0, ad.attentionQuestions.length)] : null;
+    // Pentest A3a: options are shown in a fresh random order per session so a wrong guess teaches nothing
+    // about the next attempt; the order is stored and the answer index is mapped back on completion.
+    const optionOrder = question ? shuffledOrder((question.options as string[]).length) : null;
 
     const session = await this.prisma.$transaction(async (tx) => {
       // one active session per user: abandon the others so a stale tab cannot be completed later
@@ -173,6 +195,7 @@ export class AdsService {
           ipAddress: meta.ip,
           userAgent: meta.userAgent?.slice(0, 300),
           attentionQuestionId: question?.id,
+          attentionOptionOrder: optionOrder ?? undefined,
         },
       });
     });
@@ -198,7 +221,7 @@ export class AdsService {
             id: question.id,
             prompt: question.prompt,
             promptAm: question.promptAm,
-            options: question.options as string[],
+            options: (optionOrder ?? []).map((originalIndex) => (question.options as string[])[originalIndex]),
           }
         : null,
     };
@@ -266,7 +289,8 @@ export class AdsService {
         attentionQuestion: session.attentionQuestion
           ? { correctIndex: session.attentionQuestion.correctIndex }
           : null,
-        attentionAnswerIndex: input.attentionAnswerIndex,
+        // A3a: the client answers with a position in the shuffled list; map it back to the original index
+        attentionAnswerIndex: unshuffleAnswer(input.attentionAnswerIndex, session.attentionOptionOrder),
         todayCompletions,
       },
       {
@@ -690,6 +714,10 @@ export class AdsService {
         AND NOT EXISTS (
           SELECT 1 FROM ad_completions ac
           WHERE ac.ad_id = a.id AND ac.user_id = ${userId}::uuid AND ac.status IN ('valid', 'flagged'))
+        AND NOT EXISTS (
+          SELECT 1 FROM ad_completions af
+          WHERE af.ad_id = a.id AND af.user_id = ${userId}::uuid AND af.status = 'rejected'
+            AND af.rejection_code = ${ErrorCode.ATTENTION_CHECK_FAILED} AND af.completed_at >= ${startOfUtcDay()})
         ${caps}`;
   }
 

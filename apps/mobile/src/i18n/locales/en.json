@@ -334,7 +334,7 @@
       "reasons": {
         "WATCH_DURATION_INSUFFICIENT": "The ad was not watched long enough.",
         "HEARTBEAT_CONTINUITY_FAILED": "The connection dropped during playback and the watch could not be verified.",
-        "ATTENTION_CHECK_FAILED": "The answer to the attention question was not correct.",
+        "ATTENTION_CHECK_FAILED": "The answer to the attention question was not correct. This ad is not available again today - try another one.",
         "ATTENTION_ANSWER_REQUIRED": "The attention question was not answered.",
         "WATCH_SESSION_EXPIRED": "The watch session took too long and expired.",
         "WATCH_DURATION_EXCESSIVE": "The session was open for too long to be verified.",

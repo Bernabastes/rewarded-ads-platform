@@ -104,20 +104,29 @@ $session = Call POST "/ads/$($ad.id)/watch-sessions" @{ deviceFingerprint = $fp;
 Assert ($session.sessionId) "session $($session.sessionId): minWatch=$($session.minWatchSeconds)s heartbeat every $($session.heartbeatIntervalSeconds)s"
 
 Step "Look up the correct attention answer through the admin API (reviewer role)"
+# Pentest A3a: every session shows the options in a fresh random order (and may pick a different question), so the
+# answer is the POSITION of the correct option text in THAT session's list.
+$adminAd = $null
+function AnswerFor($s) {
+  if (-not $s.attentionQuestion) { return $null }
+  $q = $adminAd.attentionQuestions | Where-Object { $_.id -eq $s.attentionQuestion.id }
+  $correctText = $q.options[$q.correctIndex]
+  return [array]::IndexOf([string[]]$s.attentionQuestion.options, [string]$correctText)
+}
 $answerIndex = $null
 if ($session.attentionQuestion) {
   $reviewer = Call POST '/auth/admin/login' @{ email = 'reviewer@rap.et'; password = $AdminPassword }
   $adminAd = Call GET "/admin/ads/$($ad.id)" $null $reviewer.tokens.accessToken
-  $q = $adminAd.attentionQuestions | Where-Object { $_.id -eq $session.attentionQuestion.id }
-  $answerIndex = $q.correctIndex
-  Ok "question '$($session.attentionQuestion.prompt)' -> option #$answerIndex"
+  $answerIndex = AnswerFor $session
+  Assert ($answerIndex -ge 0) "question '$($session.attentionQuestion.prompt)' -> shuffled position #$answerIndex"
 } else { Ok 'no attention question for this ad' }
 
 Step "Premature completion must be rejected (WATCH_DURATION_INSUFFICIENT) - using a second session"
 # a second session for the same ad is allowed (retry budget) - the first one is abandoned by the server
 $early = Call POST "/ads/$($ad.id)/watch-sessions" @{ deviceFingerprint = $fp } $userToken
 $earlyBody = @{}
-if ($null -ne $answerIndex) { $earlyBody['attentionAnswerIndex'] = $answerIndex }
+$earlyAnswer = AnswerFor $early
+if ($null -ne $earlyAnswer) { $earlyBody['attentionAnswerIndex'] = $earlyAnswer }
 $earlyResult = Call POST "/ads/watch-sessions/$($early.sessionId)/complete" $earlyBody $userToken
 Assert ($earlyResult.status -eq 'rejected' -and $earlyResult.reasonCode -eq 'WATCH_DURATION_INSUFFICIENT') "rejected with $($earlyResult.reasonCode), coins=$($earlyResult.coinReward)"
 
@@ -134,6 +143,7 @@ while ($elapsed -lt ($session.minWatchSeconds + 1)) {
 
 Step "Complete the watch session"
 $body = @{}
+$answerIndex = AnswerFor $session
 if ($null -ne $answerIndex) { $body['attentionAnswerIndex'] = $answerIndex }
 $result = Call POST "/ads/watch-sessions/$($session.sessionId)/complete" $body $userToken
 Assert ($result.status -in @('valid', 'flagged')) "status=$($result.status) coins=$($result.coinReward) watched=$($result.watchDurationSeconds)s flags=[$($result.fraudFlags -join ',')]"

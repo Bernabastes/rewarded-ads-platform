@@ -11,13 +11,24 @@ import {
 } from '../../testing/test-utils';
 import { LedgerService } from '../ledger/ledger.service';
 import { FraudService } from '../fraud/fraud.service';
-import { AdsService } from './ads.service';
+import { AdsService, shuffledOrder, unshuffleAnswer } from './ads.service';
 
 const USER = uuid(1);
 const AD = uuid(2);
 const CAMPAIGN = uuid(3);
 const SESSION = uuid(4);
 const T0 = new Date('2026-09-24T10:00:00Z');
+
+/** Flattens a tagged `$queryRaw` call (incl. nested `Prisma.sql` fragments) into inspectable text. */
+function rawSqlText(strings: TemplateStringsArray, values: unknown[]): string {
+  const parts = [strings.join('?')];
+  for (const v of values) {
+    const sql = v as { sql?: string; strings?: string[] } | null;
+    if (sql && typeof sql === 'object' && typeof sql.sql === 'string') parts.push(sql.sql);
+    else if (sql && typeof sql === 'object' && Array.isArray(sql.strings)) parts.push(sql.strings.join('?'));
+  }
+  return parts.join(' ');
+}
 
 function buildSession(over: Record<string, unknown> = {}) {
   return {
@@ -251,6 +262,80 @@ describe('AdsService.completeWatchSession', () => {
     expect(result.reasonCode).toBe(ErrorCode.ATTENTION_CHECK_FAILED);
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: USER }, data: { trustScore: 58 } });
     expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+  });
+
+  describe('attention-check guessing (pentest A3a)', () => {
+    it('shuffledOrder is a permutation and unshuffleAnswer maps positions back (out of range -> wrong)', () => {
+      for (let n = 1; n <= 6; n++) {
+        const order = shuffledOrder(n);
+        expect([...order].sort((a, b) => a - b)).toEqual(Array.from({ length: n }, (_, i) => i));
+      }
+      expect(unshuffleAnswer(0, [2, 0, 1])).toBe(2);
+      expect(unshuffleAnswer(2, [2, 0, 1])).toBe(1);
+      expect(unshuffleAnswer(5, [2, 0, 1])).toBe(-1);
+      expect(unshuffleAnswer(undefined, [2, 0, 1])).toBeUndefined();
+      expect(unshuffleAnswer(1, null)).toBe(1); // legacy sessions without a stored order
+      // over many shuffles the first position is not always the original first option
+      const firsts = new Set(Array.from({ length: 50 }, () => shuffledOrder(3)[0]));
+      expect(firsts.size).toBeGreaterThan(1);
+    });
+
+    it('startWatchSession stores the per-session option order and returns the options in that order', async () => {
+      prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) =>
+        rawSqlText(strings, values).includes('FROM ads a') ? [{ id: AD }] : [],
+      );
+      prisma.adWatchSession.count.mockResolvedValue(0);
+      prisma.ad.findUniqueOrThrow.mockResolvedValue({
+        id: AD,
+        durationSeconds: 30,
+        campaign: { attentionCheckEnabled: true, rewardPerActionEtb: D('1.00'), advertiser: { businessName: 'x' } },
+        attentionQuestions: [{ id: uuid(8), prompt: 'Which product?', promptAm: null, options: ['Coffee', 'Tea', 'Water'], correctIndex: 0 }],
+        _count: { attentionQuestions: 1 },
+      });
+      prisma.adWatchSession.create.mockImplementation(async ({ data }: any) => ({ id: SESSION, ...data }));
+      const res = await service.startWatchSession(USER, AD, { deviceFingerprint: 'fp' }, { ip: '10.0.0.1' });
+      const stored = prisma.adWatchSession.create.mock.calls[0][0].data.attentionOptionOrder as number[];
+      expect([...stored].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+      expect(res.attentionQuestion?.options).toEqual(stored.map((i) => ['Coffee', 'Tea', 'Water'][i]));
+    });
+
+    it('completion maps the shuffled position back before comparing with correctIndex', async () => {
+      // stored order [2,0,1]: shown list is [opt2, opt0, opt1]; the correct option (index 0) sits at position 1
+      prisma.adWatchSession.findUnique.mockResolvedValue(
+        buildSession({ attentionQuestion: { id: uuid(8), correctIndex: 0 }, attentionOptionOrder: [2, 0, 1] }),
+      );
+      prisma.user.findUnique.mockResolvedValue({ trustScore: 60 });
+      const wrong = await service.completeWatchSession(USER, SESSION, { attentionAnswerIndex: 0 }, { ip: '10.0.0.1' });
+      expect(wrong.reasonCode).toBe(ErrorCode.ATTENTION_CHECK_FAILED);
+      jest.clearAllMocks();
+      prisma.adWatchSession.findUnique.mockResolvedValue(
+        buildSession({ attentionQuestion: { id: uuid(8), correctIndex: 0 }, attentionOptionOrder: [2, 0, 1] }),
+      );
+      prisma.adCompletion.create.mockImplementation(async ({ data }: any) => ({ id: uuid(5), ...data }));
+      prisma.coinLedger.create.mockImplementation(async ({ data }: any) => ({ id: uuid(6), createdAt: T0, ...data }));
+      prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+        const sql = strings.join('?');
+        if (sql.includes('FOR UPDATE') && sql.includes('coin_balance')) return [{ coin_balance: 250 }];
+        if (sql.includes('UPDATE campaigns')) return [{ spent_etb: D('100'), budget_etb: D('5000') }];
+        return [];
+      });
+      const right = await service.completeWatchSession(USER, SESSION, { attentionAnswerIndex: 1 }, { ip: '10.0.0.1' });
+      expect(right.status).toBe('valid');
+    });
+
+    it('a wrong answer consumes the ad for the rest of the day: the eligibility SQL excludes it (AD_NOT_AVAILABLE on retry)', async () => {
+      let eligibilitySql = '';
+      prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        eligibilitySql = rawSqlText(strings, values);
+        return []; // the DB finds no eligible row once the rejected ATTENTION_CHECK_FAILED completion exists
+      });
+      await expect(service.startWatchSession(USER, AD, { deviceFingerprint: 'fp' }, { ip: '10.0.0.1' })).rejects.toMatchObject({
+        code: ErrorCode.AD_NOT_AVAILABLE,
+      });
+      expect(eligibilitySql).toMatch(/af\.status = 'rejected'/);
+      expect(eligibilitySql).toMatch(/af\.rejection_code = \?/);
+      expect(prisma.adWatchSession.create).not.toHaveBeenCalled();
+    });
   });
 
   it('enforces the daily cap', async () => {

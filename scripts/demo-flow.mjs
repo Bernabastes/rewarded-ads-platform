@@ -318,9 +318,15 @@ async function main() {
     });
     log(`heartbeat #${hb.body.heartbeatCount} at ${hb.body.elapsedSeconds}s`);
   }
+  // Pentest A3a: the options arrive in a per-session random order - answer with the position of the right text
+  const answerIndex = session.body.attentionQuestion ? session.body.attentionQuestion.options.indexOf('Dabo (bread)') : undefined;
+  assert(
+    answerIndex === undefined || answerIndex >= 0,
+    `attention options shuffled per session: ${JSON.stringify(session.body.attentionQuestion?.options)} -> correct at position ${answerIndex}`,
+  );
   const done = await call('POST', `/ads/watch-sessions/${session.body.sessionId}/complete`, {
     token: userToken,
-    body: { attentionAnswerIndex: 0 },
+    body: { attentionAnswerIndex: answerIndex },
   });
   assert(
     done.body.status === 'valid' && done.body.coinReward === 100,
@@ -328,7 +334,7 @@ async function main() {
   );
   const replay = await call('POST', `/ads/watch-sessions/${session.body.sessionId}/complete`, {
     token: userToken,
-    body: { attentionAnswerIndex: 0 },
+    body: { attentionAnswerIndex: answerIndex },
   });
   assert(
     replay.body.replayed === true &&

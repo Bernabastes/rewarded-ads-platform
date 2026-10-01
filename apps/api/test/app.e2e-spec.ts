@@ -169,9 +169,11 @@ describe('API e2e smoke (user money flow)', () => {
         .get(`/api/v1/admin/ads/${ad.id}`)
         .set({ Authorization: `Bearer ${admin.body.tokens.accessToken}` })
         .expect(200);
-      attentionAnswerIndex = adminAd.body.attentionQuestions.find(
-        (q: { id: string }) => q.id === session.body.attentionQuestion.id,
-      ).correctIndex;
+      const question = adminAd.body.attentionQuestions.find((q: { id: string }) => q.id === session.body.attentionQuestion.id);
+      // Pentest A3a: options are shuffled per session - answer with the POSITION of the correct option text
+      const correctText = question.options[question.correctIndex];
+      attentionAnswerIndex = (session.body.attentionQuestion.options as string[]).indexOf(correctText);
+      expect(attentionAnswerIndex).toBeGreaterThanOrEqual(0);
     }
 
     await sleep((session.body.minWatchSeconds + 0.3) * 1000);
