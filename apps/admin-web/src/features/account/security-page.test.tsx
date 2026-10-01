@@ -39,14 +39,19 @@ describe('SecurityPage (Phase 5 #5)', () => {
     await waitFor(() => expect(authStore.getState().status).toBe('anonymous'));
   });
 
-  it('enrols TOTP: setup shows the manual key, a wrong code is rejected inline, a right code enables and refreshes the profile', async () => {
+  it('enrols TOTP: setup asks for the password (New-7), shows the manual key, a wrong code is rejected inline, a right code enables and refreshes the profile', async () => {
     const user = userEvent.setup();
+    let setupBody: unknown;
     let enableBody: unknown;
     let me = { ...adminFinance, mfaSetupRequired: true };
     server.use(
-      http.post(`${BASE}/admin/me/mfa/setup`, () =>
-        HttpResponse.json({ secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/Gize%20Admin:finance%40rap.et?secret=JBSWY3DPEHPK3PXP&issuer=Gize%20Admin', issuer: 'Gize Admin', account: 'finance@rap.et' }),
-      ),
+      http.post(`${BASE}/admin/me/mfa/setup`, async ({ request }) => {
+        setupBody = await request.json();
+        if ((setupBody as { password: string }).password !== 'Admin123!') {
+          return HttpResponse.json({ statusCode: 401, code: 'INVALID_CREDENTIALS', message: 'x' }, { status: 401 });
+        }
+        return HttpResponse.json({ secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/Gize%20Admin:finance%40rap.et?secret=JBSWY3DPEHPK3PXP&issuer=Gize%20Admin', issuer: 'Gize Admin', account: 'finance@rap.et' });
+      }),
       http.post(`${BASE}/admin/me/mfa/enable`, async ({ request }) => {
         enableBody = await request.json();
         if ((enableBody as { code: string }).code !== '135790') return HttpResponse.json({ statusCode: 400, code: 'MFA_CODE_INVALID', message: 'bad' }, { status: 400 });
@@ -58,6 +63,15 @@ describe('SecurityPage (Phase 5 #5)', () => {
     renderWithProviders(<SecurityPage />, { admin: me, route: '/account/security' });
     expect(await screen.findByTestId('pending-security-banner')).toHaveTextContent(/mandatory for the Finance role/i);
     await user.click(screen.getByTestId('mfa-start'));
+    // the password prompt: a wrong password is rejected inline, nothing is enrolled
+    await user.type(await screen.findByTestId('mfa-password'), 'wrong');
+    await user.click(screen.getByTestId('mfa-start-confirm'));
+    expect(await screen.findByText('Password is incorrect.')).toBeInTheDocument();
+    expect(screen.queryByTestId('mfa-secret')).not.toBeInTheDocument();
+    await user.clear(screen.getByTestId('mfa-password'));
+    await user.type(screen.getByTestId('mfa-password'), 'Admin123!');
+    await user.click(screen.getByTestId('mfa-start-confirm'));
+    await waitFor(() => expect(setupBody).toEqual({ password: 'Admin123!' }));
     expect(await screen.findByTestId('mfa-secret')).toHaveTextContent('JBSW Y3DP EHPK 3PXP');
     expect(screen.getByRole('link', { name: /open in authenticator app/i })).toHaveAttribute('href', expect.stringContaining('otpauth://totp/'));
 
@@ -68,7 +82,7 @@ describe('SecurityPage (Phase 5 #5)', () => {
     await user.clear(screen.getByTestId('mfa-code'));
     await user.type(screen.getByTestId('mfa-code'), '135790');
     await user.click(screen.getByTestId('mfa-enable'));
-    await waitFor(() => expect(enableBody).toEqual({ code: '135790' }));
+    await waitFor(() => expect(enableBody).toEqual({ code: '135790', password: 'Admin123!' }));
     expect(await screen.findByText('Two-factor authentication enabled')).toBeInTheDocument();
     await waitFor(() => expect(authStore.getState().admin?.mfaEnabled).toBe(true));
     expect(screen.queryByTestId('pending-security-banner')).not.toBeInTheDocument();

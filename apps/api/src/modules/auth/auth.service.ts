@@ -29,7 +29,7 @@ import { MfaService } from './mfa.service';
 import { OtpVerifier } from './otp.verifier';
 import { TokenService } from './token.service';
 
-const BCRYPT_ROUNDS = 10;
+import { BCRYPT_ROUNDS, passwordMatches } from './password';
 
 export const DEFAULT_ADVERTISER_NOTIFICATION_PREFS = {
   campaignReviews: true,
@@ -403,7 +403,8 @@ export class AuthService {
     const account = email.trim().toLowerCase();
     await this.loginThrottle.assertAllowed('advertiser', account, meta.ip);
     const advertiser = await this.prisma.advertiser.findUnique({ where: { contactEmail: account } });
-    if (!advertiser || !(await bcrypt.compare(password, advertiser.passwordHash))) {
+    const advertiserPasswordOk = await passwordMatches(password, advertiser?.passwordHash); // constant work (New-7)
+    if (!advertiserPasswordOk || !advertiser) {
       this.security.warn('auth.invalid_credentials', { subjectType: 'advertiser', email, ip: meta.ip });
       await this.loginThrottle.recordFailure('advertiser', account, meta.ip, advertiser?.id);
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
@@ -424,7 +425,8 @@ export class AuthService {
     const account = email.trim().toLowerCase();
     await this.loginThrottle.assertAllowed('admin', account, meta.ip);
     const admin = await this.prisma.adminUser.findUnique({ where: { email: account } });
-    if (!admin || !(await bcrypt.compare(password, admin.passwordHash))) {
+    const adminPasswordOk = await passwordMatches(password, admin?.passwordHash); // constant work (New-7)
+    if (!adminPasswordOk || !admin) {
       this.security.warn('auth.invalid_credentials', { subjectType: 'admin', email, ip: meta.ip });
       await this.loginThrottle.recordFailure('admin', account, meta.ip, admin?.id);
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
@@ -477,13 +479,8 @@ export class AuthService {
     if (used) {
       throw AppException.unauthorized(ErrorCode.MFA_TOKEN_INVALID, 'This verification challenge was already used');
     }
-    await this.loginThrottle.assertAllowed('admin', admin.email, meta.ip);
-    try {
-      await this.mfa.verifyForAdmin(admin, code, meta.ip, 'login');
-    } catch (err) {
-      await this.loginThrottle.recordFailure('admin', admin.email, meta.ip, admin.id);
-      throw err;
-    }
+    // New-7: verifyForAdmin throttles the attempt and counts a wrong code toward the lockout itself.
+    await this.mfa.verifyForAdmin(admin, code, meta.ip, 'login');
     const ttl = Math.max(1, (claims.exp ?? 0) - Math.floor(Date.now() / 1000));
     await this.redis.client.set(mfaTokenUsedKey(claims.jti), '1', 'EX', ttl).catch(() => undefined);
     await this.loginThrottle.recordSuccess('admin', admin.email);

@@ -9,7 +9,7 @@ import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { TokenService } from '../../auth/token.service';
 
-const BCRYPT_ROUNDS = 12;
+import { BCRYPT_ROUNDS } from '../../auth/password';
 const TEMP_PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 
 export interface AdminActor {

@@ -94,8 +94,9 @@ export const authApi = {
 export const accountApi = {
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<AdminChangePasswordResponse>(API_ROUTES.admin.meChangePassword, { currentPassword, newPassword }),
-  mfaSetup: () => api.post<MfaSetupResponse>(API_ROUTES.admin.meMfaSetup, {}),
-  mfaEnable: (code: string) => api.post<MfaStatusResponse>(API_ROUTES.admin.meMfaEnable, { code }),
+  // Phase 5b New-7: enrolment re-authenticates with the current password (setup AND enable).
+  mfaSetup: (password: string) => api.post<MfaSetupResponse>(API_ROUTES.admin.meMfaSetup, { password }),
+  mfaEnable: (code: string, password: string) => api.post<MfaStatusResponse>(API_ROUTES.admin.meMfaEnable, { code, password }),
   mfaDisable: (code: string, password: string) => api.post<MfaStatusResponse>(API_ROUTES.admin.meMfaDisable, { code, password }),
 };
 

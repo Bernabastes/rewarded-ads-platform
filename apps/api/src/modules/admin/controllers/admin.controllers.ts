@@ -43,7 +43,7 @@ import { AdminUsersService } from '../services/admin-users.service';
 import { CoinAdjustmentsService } from '../services/coin-adjustments.service';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { AuthService, toAdminProfile } from '../../auth/auth.service';
-import { ChangePasswordDto, MfaDisableDto, MfaEnableDto } from '../../auth/dto/auth.dto';
+import { ChangePasswordDto, MfaDisableDto, MfaEnableDto, MfaSetupDto } from '../../auth/dto/auth.dto';
 import { MfaService } from '../../auth/mfa.service';
 
 const actorOf = (auth: AuthContext, ip: string) => ({ adminId: auth.subjectId, ip });
@@ -88,26 +88,35 @@ export class AdminHomeController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Start TOTP enrolment: returns the secret + otpauth URI (MFA is active only after /enable)',
+    description: 'Phase 5b New-7: requires the current password; attempts are throttled and count toward the account lockout.',
   })
+  @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS (password)' })
   @ApiResponse({ status: 409, description: 'MFA_ALREADY_ENABLED' })
-  mfaSetup(@CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
-    return this.mfa.setup(auth.subjectId, ip);
+  @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED' })
+  @ApiResponse({ status: 429, description: 'LOGIN_RATE_LIMITED' })
+  mfaSetup(@Body() dto: MfaSetupDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
+    return this.mfa.setup(auth.subjectId, dto.password, ip);
   }
 
   @Post('me/mfa/enable')
   @AllowPendingSecuritySetup()
   @HttpCode(200)
-  @ApiOperation({ summary: 'Confirm a code from the authenticator app and switch MFA on' })
+  @ApiOperation({ summary: 'Confirm a code from the authenticator app (plus the current password) and switch MFA on' })
   @ApiResponse({ status: 400, description: 'MFA_CODE_INVALID | MFA_NOT_ENABLED (setup not started)' })
+  @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS (password)' })
+  @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED' })
+  @ApiResponse({ status: 429, description: 'LOGIN_RATE_LIMITED' })
   mfaEnable(@Body() dto: MfaEnableDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
-    return this.mfa.enable(auth.subjectId, dto.code, ip);
+    return this.mfa.enable(auth.subjectId, dto.code, dto.password, ip);
   }
 
   @Post('me/mfa/disable')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Switch MFA off (requires a current code AND the password)' })
+  @ApiOperation({ summary: 'Switch MFA off (requires a current code AND the password; throttled like a login)' })
   @ApiResponse({ status: 400, description: 'MFA_CODE_INVALID | MFA_NOT_ENABLED' })
   @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
+  @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED' })
+  @ApiResponse({ status: 429, description: 'LOGIN_RATE_LIMITED' })
   mfaDisable(@Body() dto: MfaDisableDto, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
     return this.mfa.disable(auth.subjectId, dto.code, dto.password, ip);
   }

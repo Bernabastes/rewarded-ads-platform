@@ -210,7 +210,16 @@ export class AdminMfaLoginDto {
   code: string;
 }
 
-export class MfaEnableDto {
+/** Phase 5b New-7: starting (and finishing) TOTP enrolment re-authenticates with the current password. */
+export class MfaSetupDto {
+  @ApiProperty({ description: 'Current password (re-authentication; a hijacked session cannot enrol an authenticator)' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  password: string;
+}
+
+export class MfaEnableDto extends MfaSetupDto {
   @ApiProperty({ example: '123456' })
   @IsString()
   @Length(6, 6)
@@ -218,10 +227,4 @@ export class MfaEnableDto {
   code: string;
 }
 
-export class MfaDisableDto extends MfaEnableDto {
-  @ApiProperty()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(128)
-  password: string;
-}
+export class MfaDisableDto extends MfaEnableDto {}

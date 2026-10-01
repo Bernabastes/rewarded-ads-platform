@@ -53,7 +53,8 @@ describe('AuthService admin login (security audit #5)', () => {
       revokeAllForSubject: jest.fn(),
     };
     const audit = mockAudit();
-    mfa = new MfaService(prisma, config, redis, security, audit);
+    const throttle = new LoginThrottle(redis, config, security, audit);
+    mfa = new MfaService(prisma, config, redis, security, audit, throttle);
     service = new AuthService(
       prisma,
       redis,
@@ -64,7 +65,7 @@ describe('AuthService admin login (security audit #5)', () => {
       { advertiserConsentState: jest.fn() } as never,
       {} as never,
       {} as never,
-      new LoginThrottle(redis, config, security, audit),
+      throttle,
       mfa,
       jwt,
       { send: jest.fn() } as never,

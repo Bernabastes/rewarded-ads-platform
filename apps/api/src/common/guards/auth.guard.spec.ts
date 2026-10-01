@@ -61,6 +61,13 @@ describe('AuthGuard (Phase 4A: denylist, impersonation, deleted accounts)', () =
     await expect(guard.canActivate(ctx(token))).rejects.toMatchObject({ code: ErrorCode.INVALID_TOKEN });
   });
 
+  it('REGRESSION New-7: an MFA challenge token (typ=mfa) presented as a Bearer token is rejected, even for the admin routes', async () => {
+    const mfaToken = await sign({ typ: 'mfa' }, ADMIN);
+    await expect(guard.canActivate(ctx(mfaToken, 'GET', '/api/v1/admin/me'))).rejects.toMatchObject({ code: ErrorCode.INVALID_TOKEN, status: 401 });
+    await expect(guard.canActivate(ctx(mfaToken, 'POST', '/api/v1/admin/me/mfa/enable'))).rejects.toMatchObject({ code: ErrorCode.INVALID_TOKEN, status: 401 });
+    expect(prisma.adminUser.findUnique).not.toHaveBeenCalled();
+  });
+
   describe('impersonation tokens', () => {
     it('act as the user for GET requests and audit every use', async () => {
       const token = await sign({ typ: 'impersonation', actorAdminId: ADMIN }, USER);

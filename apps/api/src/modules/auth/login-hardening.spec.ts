@@ -80,14 +80,20 @@ describe('MfaService (security audit #5)', () => {
   let redis: any;
   let security: any;
   let audit: any;
+  let throttle: LoginThrottle;
   let mfa: MfaService;
+  let passwordHash: string;
+
+  beforeAll(async () => {
+    passwordHash = await (await import('bcryptjs')).hash('Admin123!', 4);
+  });
 
   const admin = (over: Record<string, unknown> = {}) => ({
     id: ADMIN,
     email: 'finance@rap.et',
     role: 'finance',
     active: true,
-    passwordHash: '$2a$04$invalidhashforunittestsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    passwordHash,
     mfaSecret: null,
     mfaEnabledAt: null,
     ...over,
@@ -98,7 +104,8 @@ describe('MfaService (security audit #5)', () => {
     redis = mockRedis();
     security = mockSecurity();
     audit = mockAudit();
-    mfa = new MfaService(prisma, config, redis, security, audit);
+    throttle = new LoginThrottle(redis, config, security, audit);
+    mfa = new MfaService(prisma, config, redis, security, audit, throttle);
   });
 
   it('encrypts secrets at rest (AES-256-GCM, never the raw base32) and round-trips them', () => {
@@ -112,7 +119,7 @@ describe('MfaService (security audit #5)', () => {
   it('setup stores a PENDING secret and returns the otpauth URI; enable needs a valid code; wrong codes are rejected', async () => {
     prisma.adminUser.findUniqueOrThrow.mockResolvedValue(admin());
     prisma.adminUser.update.mockResolvedValue(admin());
-    const setup = await mfa.setup(ADMIN, '1.1.1.1');
+    const setup = await mfa.setup(ADMIN, 'Admin123!', '1.1.1.1');
     expect(setup.otpauthUri).toContain('otpauth://totp/Gize%20Admin:finance%40rap.et');
     expect(setup.otpauthUri).toContain(`secret=${setup.secret}`);
     const storedSecret = prisma.adminUser.update.mock.calls[0][0].data.mfaSecret as string;
@@ -120,12 +127,12 @@ describe('MfaService (security audit #5)', () => {
     expect(prisma.adminUser.update.mock.calls[0][0].data.mfaEnabledAt).toBeNull();
 
     prisma.adminUser.findUniqueOrThrow.mockResolvedValue(admin({ mfaSecret: storedSecret }));
-    await expect(mfa.enable(ADMIN, '000000', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.MFA_CODE_INVALID, status: 400 });
+    await expect(mfa.enable(ADMIN, '000000', 'Admin123!', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.MFA_CODE_INVALID, status: 400 });
     expect(security.warn).toHaveBeenCalledWith('auth.mfa_failed', expect.objectContaining({ context: 'enable' }));
 
     const now = new Date();
     prisma.adminUser.update.mockResolvedValue(admin({ mfaSecret: storedSecret, mfaEnabledAt: now }));
-    const res = await mfa.enable(ADMIN, authenticator.generate(setup.secret), '1.1.1.1');
+    const res = await mfa.enable(ADMIN, authenticator.generate(setup.secret), 'Admin123!', '1.1.1.1');
     expect(res.mfaEnabled).toBe(true);
     expect(prisma.adminUser.update.mock.calls[1][0].data.mfaEnabledAt).toBeInstanceOf(Date);
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'admin.mfa_enabled' }));
@@ -146,8 +153,33 @@ describe('MfaService (security audit #5)', () => {
     redis.client.set.mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(mfa.verifyForAdmin(a, authenticator.generate(secret), '1.1.1.1', 'login')).resolves.toBeUndefined();
     expect(security.error).toHaveBeenCalledWith('auth.denylist_unavailable', expect.objectContaining({ scope: 'mfa_replay_guard', failMode: 'open' }));
-    const closed = new MfaService(prisma, testConfig({ ADMIN_MFA_REQUIRED: true, MFA_ENCRYPTION_KEY: 'unit-test-mfa-key', SECURITY_REDIS_FAIL_MODE: 'closed' }), redis, security, audit);
+    const closed = new MfaService(prisma, testConfig({ ADMIN_MFA_REQUIRED: true, MFA_ENCRYPTION_KEY: 'unit-test-mfa-key', SECURITY_REDIS_FAIL_MODE: 'closed' }), redis, security, audit, throttle);
     await expect(closed.verifyForAdmin(a, authenticator.generate(secret), '1.1.1.1', 'login')).rejects.toMatchObject({ code: ErrorCode.SERVICE_UNAVAILABLE, status: 503 });
+  });
+
+  it('New-7: setup and enable require the current password (401), wrong passwords count toward the lockout', async () => {
+    prisma.adminUser.findUniqueOrThrow.mockResolvedValue(admin());
+    await expect(mfa.setup(ADMIN, 'wrong-password', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.INVALID_CREDENTIALS, status: 401 });
+    expect(prisma.adminUser.update).not.toHaveBeenCalled();
+    expect(security.warn).toHaveBeenCalledWith('auth.invalid_credentials', expect.objectContaining({ action: 'mfa_setup' }));
+    const secret = authenticator.generateSecret();
+    prisma.adminUser.findUniqueOrThrow.mockResolvedValue(admin({ mfaSecret: mfa.encrypt(secret) }));
+    await expect(mfa.enable(ADMIN, authenticator.generate(secret), 'wrong-password', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.INVALID_CREDENTIALS });
+    // 5 password failures across the MFA endpoints lock the account like 5 failed logins would
+    for (let i = 0; i < 3; i++) await expect(mfa.setup(ADMIN, 'wrong-password', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.INVALID_CREDENTIALS });
+    await expect(mfa.setup(ADMIN, 'Admin123!', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.ACCOUNT_LOCKED, status: 423 });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'admin.login_locked', targetId: ADMIN }));
+  });
+
+  it('REGRESSION New-7: TOTP codes on enable / disable are throttled - 5 wrong codes lock the account (no 6-digit brute force)', async () => {
+    const secret = authenticator.generateSecret();
+    prisma.adminUser.findUniqueOrThrow.mockResolvedValue(admin({ mfaSecret: mfa.encrypt(secret) }));
+    for (let i = 0; i < 5; i++) {
+      await expect(mfa.enable(ADMIN, '000000', 'Admin123!', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.MFA_CODE_INVALID });
+    }
+    await expect(mfa.enable(ADMIN, authenticator.generate(secret), 'Admin123!', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.ACCOUNT_LOCKED, status: 423 });
+    expect(prisma.adminUser.update).not.toHaveBeenCalled();
+    expect(security.warn).toHaveBeenCalledWith('auth.account_locked', expect.objectContaining({ account: 'finance@rap.et' }));
   });
 
   it('disable requires MFA to be on, the password AND a valid code', async () => {
@@ -168,7 +200,7 @@ describe('MfaService (security audit #5)', () => {
     expect(mfa.setupRequiredFor({ role: 'super_admin', mfaEnabledAt: null })).toBe(true);
     expect(mfa.setupRequiredFor({ role: 'support', mfaEnabledAt: null })).toBe(false);
     expect(mfa.setupRequiredFor({ role: 'finance', mfaEnabledAt: new Date() })).toBe(false);
-    const off = new MfaService(prisma, testConfig({ ADMIN_MFA_REQUIRED: false }), redis, security, audit);
+    const off = new MfaService(prisma, testConfig({ ADMIN_MFA_REQUIRED: false }), redis, security, audit, throttle);
     expect(off.setupRequiredFor({ role: 'super_admin', mfaEnabledAt: null })).toBe(false);
   });
 });

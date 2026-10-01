@@ -256,8 +256,15 @@ export interface MfaSetupResponse {
   account: string;
 }
 
+/** Phase 5b New-7: starting enrolment re-authenticates with the current password (401 INVALID_CREDENTIALS). */
+export interface MfaSetupDto {
+  password: string;
+}
+
+/** Phase 5b New-7: `code` + the current password; attempts are throttled / lockout-counted like a login. */
 export interface MfaEnableDto {
   code: string;
+  password: string;
 }
 
 export interface MfaDisableDto {

@@ -272,8 +272,8 @@ async function main() {
       `[seed] could not upload demo media to ${S3_ENDPOINT} (${(err as Error).message}); ads will still reference ${S3_PUBLIC_URL}`,
     );
   }
-  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
-  const advertiserHash = await bcrypt.hash(ADVERTISER_PASSWORD, 10);
+  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+  const advertiserHash = await bcrypt.hash(ADVERTISER_PASSWORD, 12);
 
   /* admins */
   const [superAdmin, reviewer, support, finance, finance2] = await Promise.all(

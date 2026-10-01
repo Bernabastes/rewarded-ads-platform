@@ -122,27 +122,52 @@ function MfaCard({ enabled, required, onChanged }: { enabled: boolean; required:
   const [codeError, setCodeError] = useState<string | null>(null);
   const [disableOpen, setDisableOpen] = useState(false);
   const [disablePassword, setDisablePassword] = useState('');
+  // Phase 5b New-7: enrolment re-authenticates - the password is asked once before setup and sent again on enable.
+  const [startOpen, setStartOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const start = useMutation({
-    mutationFn: () => accountApi.mfaSetup(),
+    mutationFn: (pw: string) => accountApi.mfaSetup(pw),
     onSuccess: (res) => {
       setSetup(res);
+      setStartOpen(false);
+      setPasswordError(null);
       setCode('');
       setCodeError(null);
     },
-    onError: (err) => toast.error('Could not start setup', { description: describeError(err) }),
+    onError: (err) => {
+      if (isApiError(err) && err.code === ErrorCode.INVALID_CREDENTIALS) {
+        setPasswordError('Password is incorrect.');
+        return;
+      }
+      if (isApiError(err) && err.code === ErrorCode.ACCOUNT_LOCKED) {
+        setPasswordError('Too many failed attempts - this account is temporarily locked.');
+        return;
+      }
+      toast.error('Could not start setup', { description: describeError(err) });
+    },
   });
   const enable = useMutation({
-    mutationFn: (c: string) => accountApi.mfaEnable(c),
+    mutationFn: (c: string) => accountApi.mfaEnable(c, password),
     onSuccess: async () => {
       toast.success('Two-factor authentication enabled', { description: 'From now on sign-in asks for a code from your authenticator app.' });
       setSetup(null);
       setCode('');
+      setPassword('');
       await onChanged();
     },
     onError: (err) => {
       if (isApiError(err) && err.code === ErrorCode.MFA_CODE_INVALID) {
         setCodeError('That code is not valid. Check the clock on your phone and try the next code.');
+        return;
+      }
+      if (isApiError(err) && err.code === ErrorCode.INVALID_CREDENTIALS) {
+        setCodeError('Your password changed since setup started. Cancel and start again.');
+        return;
+      }
+      if (isApiError(err) && err.code === ErrorCode.ACCOUNT_LOCKED) {
+        setCodeError('Too many wrong codes - this account is temporarily locked. Try again later.');
         return;
       }
       toast.error('Could not enable', { description: describeError(err) });
@@ -203,12 +228,56 @@ function MfaCard({ enabled, required, onChanged }: { enabled: boolean; required:
               <ShieldOff className="size-3.5" /> Disable
             </Button>
           ) : !setup ? (
-            <Button size="sm" onClick={() => start.mutate()} loading={start.isPending} data-testid="mfa-start">
+            <Button size="sm" onClick={() => setStartOpen(true)} data-testid="mfa-start">
               <ShieldCheck className="size-3.5" /> Set up
             </Button>
           ) : null
         }
       />
+      <Dialog
+        open={startOpen}
+        onOpenChange={(o) => {
+          setStartOpen(o);
+          if (!o) setPasswordError(null);
+        }}
+        title="Confirm your password"
+        description="Enrolling an authenticator re-checks your password so a hijacked session cannot add one."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setStartOpen(false)} disabled={start.isPending}>
+              Cancel
+            </Button>
+            <Button
+              loading={start.isPending}
+              onClick={() => {
+                if (!password) {
+                  setPasswordError('Enter your current password.');
+                  return;
+                }
+                setPasswordError(null);
+                start.mutate(password);
+              }}
+              data-testid="mfa-start-confirm"
+            >
+              Continue
+            </Button>
+          </>
+        }
+      >
+        <Field label="Current password" required error={passwordError ?? undefined}>
+          {(id) => (
+            <Input
+              id={id}
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              invalid={Boolean(passwordError)}
+              data-testid="mfa-password"
+            />
+          )}
+        </Field>
+      </Dialog>
       {setup ? (
         <CardBody className="space-y-4" data-testid="mfa-setup">
           <ol className="list-decimal space-y-2 pl-5 text-sm text-fg">

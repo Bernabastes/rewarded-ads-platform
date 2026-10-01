@@ -9,6 +9,7 @@ import { SecurityLogger } from '../../infra/logger/logger.module';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { AuditService } from '../audit/audit.service';
+import { LoginThrottle } from './login-throttle';
 
 export const MFA_ISSUER = 'Gize Admin';
 /** Roles that must have TOTP enabled when ADMIN_MFA_REQUIRED=true. */
@@ -38,6 +39,7 @@ export class MfaService {
     private readonly redis: RedisService,
     private readonly security: SecurityLogger,
     private readonly audit: AuditService,
+    private readonly throttle: LoginThrottle,
   ) {
     authenticator.options = { step: TOTP_STEP_SECONDS, window: TOTP_WINDOW };
   }
@@ -47,11 +49,13 @@ export class MfaService {
     return this.config.env.ADMIN_MFA_REQUIRED && MFA_REQUIRED_ROLES.includes(admin.role) && !admin.mfaEnabledAt;
   }
 
-  async setup(adminId: string, ip: string) {
+  /** Phase 5b New-7: setup needs the current password (a hijacked session alone cannot enrol a new authenticator). */
+  async setup(adminId: string, password: string, ip: string) {
     const admin = await this.prisma.adminUser.findUniqueOrThrow({ where: { id: adminId } });
     if (admin.mfaEnabledAt) {
       throw AppException.conflict(ErrorCode.MFA_ALREADY_ENABLED, 'MFA is already enabled; disable it first to rotate the secret');
     }
+    await this.assertPassword(admin, password, ip, 'mfa_setup');
     const secret = authenticator.generateSecret(20);
     await this.prisma.adminUser.update({
       where: { id: adminId },
@@ -66,12 +70,13 @@ export class MfaService {
     };
   }
 
-  async enable(adminId: string, code: string, ip: string) {
+  async enable(adminId: string, code: string, password: string, ip: string) {
     const admin = await this.prisma.adminUser.findUniqueOrThrow({ where: { id: adminId } });
     if (admin.mfaEnabledAt) throw AppException.conflict(ErrorCode.MFA_ALREADY_ENABLED, 'MFA is already enabled');
     if (!admin.mfaSecret) {
       throw AppException.badRequest(ErrorCode.MFA_NOT_ENABLED, 'Call POST /admin/me/mfa/setup first');
     }
+    await this.assertPassword(admin, password, ip, 'mfa_enable');
     await this.verifyForAdmin(admin, code, ip, 'enable');
     const updated = await this.prisma.adminUser.update({ where: { id: adminId }, data: { mfaEnabledAt: new Date() } });
     this.security.info('auth.mfa_enabled', { adminId, ip });
@@ -91,10 +96,7 @@ export class MfaService {
     if (!admin.mfaEnabledAt || !admin.mfaSecret) {
       throw AppException.badRequest(ErrorCode.MFA_NOT_ENABLED, 'MFA is not enabled');
     }
-    if (!(await bcrypt.compare(password, admin.passwordHash))) {
-      this.security.warn('auth.invalid_credentials', { subjectType: 'admin', adminId, ip, action: 'mfa_disable' });
-      throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
-    }
+    await this.assertPassword(admin, password, ip, 'mfa_disable');
     await this.verifyForAdmin(admin, code, ip, 'disable');
     await this.prisma.adminUser.update({ where: { id: adminId }, data: { mfaSecret: null, mfaEnabledAt: null } });
     this.security.warn('auth.mfa_disabled', { adminId, ip });
@@ -111,19 +113,23 @@ export class MfaService {
 
   /**
    * Verifies a TOTP code against the admin's stored secret (pending or active). Throws 400 MFA_CODE_INVALID on a
-   * wrong or replayed code. Callers are responsible for attempt throttling (LoginThrottle per account).
+   * wrong or replayed code. Phase 5b New-7: every call (login step 2, enable, disable) is throttled per account /
+   * IP through the LoginThrottle and a wrong code counts toward the lockout, so the 6-digit space cannot be
+   * brute-forced through any of the three entry points.
    */
   async verifyForAdmin(
-    admin: { id: string; mfaSecret: string | null },
+    admin: { id: string; email: string; mfaSecret: string | null },
     code: string,
     ip: string,
     context: 'login' | 'enable' | 'disable',
   ): Promise<void> {
+    await this.throttle.assertAllowed('admin', admin.email, ip);
     const normalized = (code ?? '').replace(/\s+/g, '');
     const ok =
       Boolean(admin.mfaSecret) && /^\d{6}$/.test(normalized) && this.checkCode(this.decrypt(admin.mfaSecret as string), normalized);
     if (!ok) {
       this.security.warn('auth.mfa_failed', { adminId: admin.id, ip, context });
+      await this.throttle.recordFailure('admin', admin.email, ip, admin.id);
       throw AppException.badRequest(ErrorCode.MFA_CODE_INVALID, 'The verification code is invalid');
     }
     // Replay guard: a code accepted once is dead for the rest of its skew window. Phase 5b New-5: when Redis is
@@ -155,6 +161,21 @@ export class MfaService {
       if (expected.length === code.length && timingSafeEqual(Buffer.from(expected), Buffer.from(code))) matched = true;
     }
     return matched;
+  }
+
+  /** New-7: password re-authentication for MFA changes, throttled and lockout-counted like a login. */
+  private async assertPassword(
+    admin: { id: string; email: string; passwordHash: string },
+    password: string,
+    ip: string,
+    action: 'mfa_setup' | 'mfa_enable' | 'mfa_disable',
+  ) {
+    await this.throttle.assertAllowed('admin', admin.email, ip);
+    if (!(await bcrypt.compare(password ?? '', admin.passwordHash))) {
+      this.security.warn('auth.invalid_credentials', { subjectType: 'admin', adminId: admin.id, ip, action });
+      await this.throttle.recordFailure('admin', admin.email, ip, admin.id);
+      throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
+    }
   }
 
   /* ------------------------------- secret at rest ------------------------------- */
