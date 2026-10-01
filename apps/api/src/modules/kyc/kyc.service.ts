@@ -46,9 +46,9 @@ export class KycService {
   /* ------------------------------ threshold rule ------------------------------ */
 
   /** Completed + in-flight payouts (ETB) requested in the rolling 30-day window. */
-  async monthlyPayoutTotalEtb(userId: string, now = new Date()): Promise<Prisma.Decimal> {
+  async monthlyPayoutTotalEtb(userId: string, now = new Date(), tx?: Prisma.TransactionClient): Promise<Prisma.Decimal> {
     const since = new Date(now.getTime() - 30 * 86_400_000);
-    const agg = await this.prisma.withdrawal.aggregate({
+    const agg = await (tx ?? this.prisma).withdrawal.aggregate({
       where: { userId, status: { in: [...MONTHLY_PAYOUT_STATUSES] }, requestedAt: { gte: since } },
       _sum: { amountEtb: true },
     });
@@ -80,8 +80,17 @@ export class KycService {
     };
   }
 
-  async assertWithinTier(userId: string, kycTier: 'phone_only' | 'id_verified', newAmountEtb: Prisma.Decimal) {
-    const monthly = await this.monthlyPayoutTotalEtb(userId);
+  /**
+   * Throws 422 KYC_REQUIRED when the rolling-30-day total incl. this request reaches the threshold. Pass the
+   * withdrawal transaction (`tx`) so the aggregate runs under the caller's `users FOR UPDATE` lock (audit #12).
+   */
+  async assertWithinTier(
+    userId: string,
+    kycTier: 'phone_only' | 'id_verified',
+    newAmountEtb: Prisma.Decimal,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const monthly = await this.monthlyPayoutTotalEtb(userId, new Date(), tx);
     const violation = this.evaluateThreshold({ kycTier, monthlyTotalEtb: monthly, newAmountEtb });
     if (violation) {
       this.security.warn('kyc.required', { userId, ...violation });

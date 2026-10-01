@@ -35,6 +35,16 @@ const adminInclude = {
 
 type WithdrawalForAdmin = Prisma.WithdrawalGetPayload<{ include: typeof adminInclude }>;
 
+/** Partial unique index from migration 20261001080100 (one in-flight withdrawal per user) - the DB backstop for #12. */
+export const ONE_IN_FLIGHT_INDEX = 'withdrawals_one_in_flight_per_user';
+
+export function isOneInFlightViolation(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const meta = err.meta as { target?: unknown; constraint?: unknown } | undefined;
+  const target = JSON.stringify(meta?.target ?? meta?.constraint ?? '');
+  return target.includes(ONE_IN_FLIGHT_INDEX) || err.message.includes(ONE_IN_FLIGHT_INDEX);
+}
+
 export interface WithdrawalDecisionContext {
   adminId: string;
   role: 'super_admin' | 'ad_reviewer' | 'support' | 'finance';
@@ -142,97 +152,118 @@ export class WithdrawalsService {
       );
     }
 
-    const [inFlight, completedCount, user] = await Promise.all([
-      this.prisma.withdrawal.count({
-        where: { userId, status: { in: [...IN_FLIGHT_WITHDRAWAL_STATUSES] } },
-      }),
-      this.prisma.withdrawal.count({ where: { userId, status: 'completed' } }),
-      this.prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { trustScore: true, coinBalance: true, kycTier: true },
-      }),
-    ]);
-    if (inFlight > 0)
-      throw AppException.conflict(
-        ErrorCode.WITHDRAWAL_PENDING_EXISTS,
-        'You already have a withdrawal in progress',
-      );
-    if (user.coinBalance < coinAmount) {
+    // Fail-fast balance read (the authoritative check happens under the row lock inside the transaction).
+    const preview = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { coinBalance: true },
+    });
+    if (preview.coinBalance < coinAmount) {
       throw AppException.unprocessable(ErrorCode.INSUFFICIENT_BALANCE, 'Insufficient coin balance', {
-        coinBalance: user.coinBalance,
+        coinBalance: preview.coinBalance,
         required: coinAmount,
       });
     }
-    // KYC tier rule (rolling 30 days incl. this request) -> 422 KYC_REQUIRED
-    await this.kyc.assertWithinTier(userId, user.kycTier, amountEtb);
-    // Destination verification: known destinations pass; NEW ones need a fresh partner lookup + OTP re-check.
-    const verifiedDestination =
-      known ??
-      (await this.destinations.assertVerifiedForRequest(userId, {
-        payoutMethod: dto.payoutMethod,
-        destination,
-        bankCode,
-      }));
-
-    const reviewReasons = this.reviewReasons({
-      isFirst: completedCount === 0,
-      amountEtb,
-      trustScore: user.trustScore,
-    });
     const requiresDualApproval = amountEtb.greaterThanOrEqualTo(p.largeWithdrawalThresholdEtb);
-    const status: WithdrawalStatus = reviewReasons.length ? 'flagged_for_review' : 'pending';
 
-    const withdrawal = await this.prisma.$transaction(async (tx) => {
-      const w = await tx.withdrawal.create({
-        data: {
-          userId,
+    /**
+     * Security audit #12 (TOCTOU): one-in-flight, first-withdrawal and the KYC monthly cap are evaluated INSIDE the
+     * transaction after locking the user row, so two concurrent requests serialise on the lock and the second one
+     * sees the first. The partial unique index `withdrawals_one_in_flight_per_user` is the DB-level backstop.
+     */
+    const result = await this.prisma
+      .$transaction(async (tx) => {
+        const [locked] = await tx.$queryRaw<
+          Array<{ trust_score: number; coin_balance: number; kyc_tier: 'phone_only' | 'id_verified' }>
+        >`SELECT trust_score, coin_balance, kyc_tier FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
+        if (!locked) throw AppException.notFound('User not found');
+        const [inFlight, completedCount] = await Promise.all([
+          tx.withdrawal.count({ where: { userId, status: { in: [...IN_FLIGHT_WITHDRAWAL_STATUSES] } } }),
+          tx.withdrawal.count({ where: { userId, status: 'completed' } }),
+        ]);
+        if (inFlight > 0) {
+          throw AppException.conflict(ErrorCode.WITHDRAWAL_PENDING_EXISTS, 'You already have a withdrawal in progress');
+        }
+        if (locked.coin_balance < coinAmount) {
+          throw AppException.unprocessable(ErrorCode.INSUFFICIENT_BALANCE, 'Insufficient coin balance', {
+            coinBalance: locked.coin_balance,
+            required: coinAmount,
+          });
+        }
+        // KYC tier rule (rolling 30 days incl. this request) -> 422 KYC_REQUIRED, under the same lock
+        await this.kyc.assertWithinTier(userId, locked.kyc_tier, amountEtb, tx);
+        // Destination verification: known destinations pass; NEW ones need a fresh partner lookup + OTP re-check.
+        const verifiedDestination =
+          known ??
+          (await this.destinations.assertVerifiedForRequest(userId, {
+            payoutMethod: dto.payoutMethod,
+            destination,
+            bankCode,
+          }));
+
+        const reviewReasons = this.reviewReasons({
+          isFirst: completedCount === 0,
           amountEtb,
-          coinAmount,
-          payoutMethod: dto.payoutMethod,
-          payoutDestination: destination,
-          destinationName: dto.destinationName?.trim() ?? verifiedDestination.accountName ?? undefined,
-          bankCode: bankCode ?? verifiedDestination.bankCode ?? undefined,
-          destinationAccountName: verifiedDestination.accountName,
-          destinationVerifiedAt: verifiedDestination.verifiedAt,
-          payoutDestinationId: verifiedDestination.id,
-          status,
-          reviewReasons,
-          isFirstWithdrawal: completedCount === 0,
-          requiresDualApproval,
-        },
+          trustScore: locked.trust_score,
+        });
+        const status: WithdrawalStatus = reviewReasons.length ? 'flagged_for_review' : 'pending';
+
+        const w = await tx.withdrawal.create({
+          data: {
+            userId,
+            amountEtb,
+            coinAmount,
+            payoutMethod: dto.payoutMethod,
+            payoutDestination: destination,
+            destinationName: dto.destinationName?.trim() ?? verifiedDestination.accountName ?? undefined,
+            bankCode: bankCode ?? verifiedDestination.bankCode ?? undefined,
+            destinationAccountName: verifiedDestination.accountName,
+            destinationVerifiedAt: verifiedDestination.verifiedAt,
+            payoutDestinationId: verifiedDestination.id,
+            status,
+            reviewReasons,
+            isFirstWithdrawal: completedCount === 0,
+            requiresDualApproval,
+          },
+        });
+        // Hold the coins immediately, atomically with the request (throws INSUFFICIENT_BALANCE -> rollback).
+        const hold = await this.ledger.applyEntry(
+          {
+            userId,
+            amount: -coinAmount,
+            sourceType: 'withdrawal',
+            sourceId: w.id,
+            idempotencyKey: `withdrawal_hold:${w.id}`,
+            description: `Withdrawal ${amountEtb.toFixed(2)} ETB via ${dto.payoutMethod}`,
+          },
+          tx,
+        );
+        const updated = await tx.withdrawal.update({
+          where: { id: w.id },
+          data: { ledgerHoldEntryId: hold.entry.id },
+        });
+        // the destination is now "known": no lookup / OTP re-check needed for future requests to it
+        await this.destinations.markUsed(verifiedDestination.id, tx);
+        await this.audit.record(
+          {
+            actorType: 'user',
+            actorId: userId,
+            action: 'withdrawal.requested',
+            targetType: 'withdrawal',
+            targetId: w.id,
+            after: { status, amountEtb, coinAmount, reviewReasons, requiresDualApproval },
+            ipAddress: ip,
+          },
+          tx,
+        );
+        return { withdrawal: updated, status, reviewReasons };
+      })
+      .catch((err: unknown) => {
+        if (isOneInFlightViolation(err)) {
+          throw AppException.conflict(ErrorCode.WITHDRAWAL_PENDING_EXISTS, 'You already have a withdrawal in progress');
+        }
+        throw err;
       });
-      // Hold the coins immediately, atomically with the request (throws INSUFFICIENT_BALANCE -> rollback).
-      const hold = await this.ledger.applyEntry(
-        {
-          userId,
-          amount: -coinAmount,
-          sourceType: 'withdrawal',
-          sourceId: w.id,
-          idempotencyKey: `withdrawal_hold:${w.id}`,
-          description: `Withdrawal ${amountEtb.toFixed(2)} ETB via ${dto.payoutMethod}`,
-        },
-        tx,
-      );
-      const updated = await tx.withdrawal.update({
-        where: { id: w.id },
-        data: { ledgerHoldEntryId: hold.entry.id },
-      });
-      // the destination is now "known": no lookup / OTP re-check needed for future requests to it
-      await this.destinations.markUsed(verifiedDestination.id, tx);
-      await this.audit.record(
-        {
-          actorType: 'user',
-          actorId: userId,
-          action: 'withdrawal.requested',
-          targetType: 'withdrawal',
-          targetId: w.id,
-          after: { status, amountEtb, coinAmount, reviewReasons, requiresDualApproval },
-          ipAddress: ip,
-        },
-        tx,
-      );
-      return updated;
-    });
+    const { withdrawal, status, reviewReasons } = result;
 
     if (status === 'flagged_for_review') {
       this.security.warn('withdrawal.flagged_for_review', {

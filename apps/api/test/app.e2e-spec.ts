@@ -412,6 +412,77 @@ describe('API e2e smoke (user money flow)', () => {
     expect(balance5).toBeCloseTo(balance0, 2);
   }, 60_000);
 
+  /**
+   * Security audit #12 (TOCTOU): before the fix the one-in-flight / KYC checks ran outside the transaction, so two
+   * concurrent requests could both pass and double-hold (or bypass the KYC cap). Now they run under
+   * `SELECT ... FROM users FOR UPDATE` and the partial unique index is the DB backstop: of N concurrent requests
+   * exactly one is accepted and the hold is taken once.
+   */
+  it('REGRESSION #12: concurrent withdrawal requests -> exactly one succeeds, coins held once, KYC gate holds', async () => {
+    if (skipIfUnreachable()) return;
+    const bearer = (token: string) => ({ Authorization: 'Bearer ' + token });
+    const phone = `+2517${Math.floor(10_000_000 + Math.random() * 89_999_999)}`;
+    const otp = await http.post('/api/v1/auth/otp/request').send({ phoneNumber: phone }).expect(201);
+    const verify = await http.post('/api/v1/auth/otp/verify').send({ phoneNumber: phone, code: otp.body.devCode }).expect(201);
+    const user = bearer(verify.body.tokens.accessToken);
+    const userId = verify.body.user.id as string;
+    const profile = await http
+      .post('/api/v1/auth/users/complete-profile')
+      .set(user)
+      .send({ fullName: 'Race Tester', dateOfBirth: '1990-01-01' })
+      .expect(201);
+    for (const kind of profile.body.requiresConsent as string[]) {
+      const state = profile.body.consents.find((c: { kind: string }) => c.kind === kind);
+      await http.post('/api/v1/users/me/consents').set(user).send({ kind, version: state.currentVersion }).expect(200);
+    }
+    // fund 2 500 ETB worth of coins through the two-step adjustment
+    const finance = await http.post('/api/v1/auth/admin/login').send({ email: 'finance@rap.et', password: 'Admin123!' }).expect(201);
+    const superAdmin = await http.post('/api/v1/auth/admin/login').send({ email: 'super@rap.et', password: 'Admin123!' }).expect(201);
+    const fin = bearer(finance.body.tokens.accessToken);
+    const sup = bearer(superAdmin.body.tokens.accessToken);
+    const adj = await http.post('/api/v1/admin/coin-adjustments').set(fin).send({ userId, amount: 250_000, reason: 'e2e #12 funding' }).expect(201);
+    await http.post(`/api/v1/admin/coin-adjustments/${adj.body.id}/approve`).set(sup).send({ note: 'ok' }).expect(201);
+    // verify the destination once (lookup + OTP)
+    const resolved = await http.post('/api/v1/withdrawals/destinations/resolve').set(user).send({ payoutMethod: 'telebirr', payoutDestination: phone }).expect(200);
+    const destOtp = await http.post('/api/v1/withdrawals/destinations/otp/request').set(user).expect(200);
+    await http
+      .post('/api/v1/withdrawals/destinations/otp/verify')
+      .set(user)
+      .send({ code: destOtp.body.devCode, payoutMethod: 'telebirr', payoutDestination: resolved.body.normalizedDestination })
+      .expect(200);
+
+    // THE RACE: 999 ETB is below the inclusive 1 000 ETB KYC cap alone, two of them are not.
+    // (3 = DAILY_WITHDRAWAL_REQUEST_LIMIT, so none of them is refused by the per-day rate limit.)
+    const body = { amountEtb: 999, payoutMethod: 'telebirr', payoutDestination: resolved.body.normalizedDestination };
+    const results = await Promise.all(Array.from({ length: 3 }, () => http.post('/api/v1/withdrawals').set(user).send(body)));
+    const accepted = results.filter((r) => r.status === 201);
+    const refused = results.filter((r) => r.status !== 201);
+    expect(accepted).toHaveLength(1);
+    expect(refused).toHaveLength(2);
+    for (const r of refused) {
+      expect([409, 422]).toContain(r.status);
+      expect(['WITHDRAWAL_PENDING_EXISTS', 'KYC_REQUIRED']).toContain(r.body.code);
+    }
+    const balance = await http.get('/api/v1/users/me/balance').set(user).expect(200);
+    expect(balance.body.coinBalance).toBe(250_000 - 99_900); // held exactly once
+    expect(balance.body.ledgerChecksum.consistent).toBe(true);
+    const wdId = accepted[0].body.id as string;
+    expect(accepted[0].body.status).toBe('flagged_for_review');
+
+    // a 4th request is stopped by the daily request limit, before any money logic
+    await http
+      .post('/api/v1/withdrawals')
+      .set(user)
+      .send(body)
+      .expect(429)
+      .expect((r) => expect(r.body.code).toBe('WITHDRAWAL_RATE_LIMITED'));
+
+    // clean up: reject -> coins back
+    await http.post(`/api/v1/admin/withdrawals/${wdId}/reject`).set(fin).send({ reason: 'e2e #12 cleanup' }).expect(201);
+    const after = await http.get('/api/v1/users/me/balance').set(user).expect(200);
+    expect(after.body.coinBalance).toBe(250_000);
+  }, 60_000);
+
   it('refresh token rotation detects reuse', async () => {
     if (skipIfUnreachable()) return;
     const login = await http

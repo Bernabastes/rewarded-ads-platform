@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { ErrorCode } from '@rap/shared';
 import {
   D,
@@ -26,6 +27,7 @@ describe('WithdrawalsService', () => {
   let notifications: any;
   let queue: any;
   let balance: number;
+  let trustScore: number;
   let kyc: any;
   let destinations: any;
 
@@ -36,6 +38,7 @@ describe('WithdrawalsService', () => {
     security = mockSecurity();
     notifications = mockNotifications();
     queue = mockQueue();
+    trustScore = 70;
     // KYC tier rule and destination verification are unit-tested in their own specs; here they pass by default.
     kyc = { assertWithinTier: jest.fn().mockResolvedValue(D(0)), monthlyPayoutTotalEtb: jest.fn().mockResolvedValue(D(0)) };
     destinations = {
@@ -78,7 +81,8 @@ describe('WithdrawalsService', () => {
     );
 
     balance = 10_000; // 100 ETB
-    prisma.$queryRaw.mockImplementation(async () => [{ coin_balance: balance }]);
+    // #12: the request transaction locks the user row (trust/balance/kyc) and the ledger re-reads the balance.
+    prisma.$queryRaw.mockImplementation(async () => [{ coin_balance: balance, trust_score: trustScore, kyc_tier: 'phone_only' }]);
     prisma.coinLedger.findUnique.mockResolvedValue(null);
     prisma.coinLedger.create.mockImplementation(async ({ data }: any) => ({
       id: uuid(30),
@@ -143,10 +147,62 @@ describe('WithdrawalsService', () => {
       Object.assign(new Error('kyc'), { code: ErrorCode.KYC_REQUIRED, status: 422 }),
     );
     await expect(service.request(USER, dto, 'ip')).rejects.toMatchObject({ code: ErrorCode.KYC_REQUIRED });
-    expect(kyc.assertWithinTier).toHaveBeenCalledWith(USER, 'phone_only', expect.anything());
+    // #12: evaluated inside the transaction (4th arg = tx) under the user row lock
+    expect(kyc.assertWithinTier).toHaveBeenCalledWith(USER, 'phone_only', expect.anything(), prisma);
     expect(destinations.assertVerifiedForRequest).not.toHaveBeenCalled();
     expect(prisma.withdrawal.create).not.toHaveBeenCalled();
     expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+  });
+
+  describe('TOCTOU hardening (security audit #12)', () => {
+    it('locks the user row FOR UPDATE and runs the one-in-flight / first-withdrawal / KYC checks inside the transaction', async () => {
+      const order: string[] = [];
+      prisma.$transaction.mockImplementation(async (fn: any) => {
+        order.push('tx:begin');
+        const r = await fn(prisma);
+        order.push('tx:end');
+        return r;
+      });
+      prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+        order.push(strings.join('?').includes('FOR UPDATE') ? 'lock' : 'raw');
+        return [{ coin_balance: balance, trust_score: trustScore, kyc_tier: 'phone_only' }];
+      });
+      prisma.withdrawal.count.mockImplementation(async () => {
+        order.push('count');
+        return 0;
+      });
+      kyc.assertWithinTier.mockImplementation(async () => {
+        order.push('kyc');
+        return D(0);
+      });
+      await service.request(USER, dto, 'ip');
+      expect(order.indexOf('tx:begin')).toBeLessThan(order.indexOf('lock'));
+      expect(order.indexOf('lock')).toBeLessThan(order.indexOf('count'));
+      expect(order.indexOf('count')).toBeLessThan(order.indexOf('kyc'));
+      expect(order.indexOf('kyc')).toBeLessThan(order.indexOf('tx:end'));
+      const lockSql = (prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+      expect(lockSql).toMatch(/FROM users WHERE id = \?::uuid FOR UPDATE/);
+    });
+
+    it('maps a race that slips past the lock to the partial unique index -> 409 WITHDRAWAL_PENDING_EXISTS', async () => {
+      prisma.withdrawal.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`user_id`)', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { target: 'withdrawals_one_in_flight_per_user' },
+        }),
+      );
+      await expect(service.request(USER, dto, 'ip')).rejects.toMatchObject({ code: ErrorCode.WITHDRAWAL_PENDING_EXISTS, status: 409 });
+      expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+    });
+
+    it('a stale pre-transaction balance cannot be spent twice: the locked balance is re-checked', async () => {
+      // outside the tx the user looks rich; by the time the lock is taken the coins are gone
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ coinBalance: 50_000 });
+      balance = 1_000;
+      await expect(service.request(USER, dto, 'ip')).rejects.toMatchObject({ code: ErrorCode.INSUFFICIENT_BALANCE });
+      expect(prisma.withdrawal.create).not.toHaveBeenCalled();
+    });
   });
 
   it('stops with DESTINATION_NOT_VERIFIED for a new destination without a fresh lookup (Phase 4A)', async () => {
@@ -231,7 +287,7 @@ describe('WithdrawalsService', () => {
     prisma.withdrawal.count.mockImplementation(async ({ where }: any) =>
       where.status === 'completed' ? 1 : 0,
     );
-    prisma.user.findUniqueOrThrow.mockImplementation(async () => ({ trustScore: 20, coinBalance: balance }));
+    trustScore = 20;
     const result = await service.request(USER, dto, 'ip');
     expect(result.reviewReasons).toEqual(['low_trust_score']);
   });
