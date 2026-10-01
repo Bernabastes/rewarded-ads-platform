@@ -22,6 +22,7 @@ import { LegalService } from '../legal/legal.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { toUserProfile } from '../users/user.mapper';
 import { permissionsFor } from './admin-permissions';
+import { OtpVerifier } from './otp.verifier';
 import { TokenService } from './token.service';
 
 const BCRYPT_ROUNDS = 10;
@@ -86,6 +87,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly legal: LegalService,
     private readonly referrals: ReferralsService,
+    private readonly otpVerifier: OtpVerifier,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
   ) {}
 
@@ -163,31 +165,14 @@ export class AuthService {
     const fixedCodeOk =
       Boolean(e.OTP_DEV_FIXED_CODE) && !this.config.isProduction && input.code === e.OTP_DEV_FIXED_CODE;
     if (!fixedCodeOk) {
-      const otp = await this.prisma.otpCode.findFirst({
-        where: { phoneNumber: phone, consumedAt: null, purpose: 'login' },
-        orderBy: { createdAt: 'desc' },
+      // Security audit #4: throttled, atomically claimed, constant-time, burned after OTP_MAX_ATTEMPTS.
+      await this.otpVerifier.verify({
+        phone,
+        purpose: 'login',
+        code: input.code,
+        hashInput: (code) => `${phone}:${code}`,
+        ip: meta.ip,
       });
-      if (!otp)
-        throw AppException.badRequest(
-          ErrorCode.OTP_INVALID,
-          'No pending verification code for this number',
-        );
-      if (otp.expiresAt < now)
-        throw AppException.badRequest(ErrorCode.OTP_EXPIRED, 'Verification code expired');
-      if (otp.attempts >= e.OTP_MAX_ATTEMPTS) {
-        this.security.warn('otp.too_many_attempts', { phone, ip: meta.ip });
-        throw AppException.rateLimited(
-          ErrorCode.OTP_TOO_MANY_ATTEMPTS,
-          'Too many incorrect attempts; request a new code',
-        );
-      }
-      if (otp.codeHash !== sha256(`${phone}:${input.code}`)) {
-        await this.prisma.otpCode.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
-        throw AppException.badRequest(ErrorCode.OTP_INVALID, 'Incorrect verification code', {
-          attemptsRemaining: e.OTP_MAX_ATTEMPTS - otp.attempts - 1,
-        });
-      }
-      await this.prisma.otpCode.update({ where: { id: otp.id }, data: { consumedAt: now } });
     }
 
     const existing = await this.prisma.user.findUnique({ where: { phoneNumber: phone } });

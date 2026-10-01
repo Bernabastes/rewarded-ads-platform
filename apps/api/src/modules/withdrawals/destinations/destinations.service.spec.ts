@@ -1,5 +1,6 @@
 import { ErrorCode } from '@rap/shared';
 import { mockAudit, mockPrisma, mockRedis, mockSecurity, testConfig, uuid } from '../../../testing/test-utils';
+import { OtpVerifier } from '../../auth/otp.verifier';
 import { DestinationNotFoundError, mockAccountName, mockDestinationExists } from '../providers/payout-provider';
 import { DestinationsService } from './destinations.service';
 
@@ -23,9 +24,19 @@ describe('DestinationsService (withdrawal destination verification)', () => {
         result: { accountName: 'Abebe Tesfaye', normalizedDestination: '+251911223344' },
       }),
     };
-    service = new DestinationsService(prisma, config, registry, mockRedis(), mockSecurity(), mockAudit(), {
-      sendOtp: jest.fn(),
-    } as any);
+    const redis = mockRedis();
+    service = new DestinationsService(
+      prisma,
+      config,
+      registry,
+      redis,
+      mockSecurity(),
+      mockAudit(),
+      new OtpVerifier(prisma, redis, config, mockSecurity()),
+      { sendOtp: jest.fn() } as any,
+    );
+    // atomic attempt claim / consume used by the OtpVerifier (the mocked table has a single row)
+    prisma.otpCode.updateMany.mockImplementation(async ({ where }: any) => ({ count: where.attempts?.gte !== undefined ? 0 : 1 }));
     prisma.payoutDestination.upsert.mockImplementation(async ({ create, update }: any) => ({
       id: uuid(5),
       userId: USER,

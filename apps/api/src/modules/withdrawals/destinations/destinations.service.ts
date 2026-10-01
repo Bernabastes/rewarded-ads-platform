@@ -10,6 +10,7 @@ import { RedisService } from '../../../infra/redis/redis.service';
 import { SMS_PROVIDER, type SmsProvider } from '../../../infra/sms/sms.module';
 import { Inject } from '@nestjs/common';
 import { AuditService } from '../../audit/audit.service';
+import { OtpVerifier } from '../../auth/otp.verifier';
 import { DestinationNotFoundError } from '../providers/payout-provider';
 import { PayoutProviderRegistry } from '../providers/payout-provider.registry';
 
@@ -40,6 +41,7 @@ export class DestinationsService {
     private readonly redis: RedisService,
     private readonly security: SecurityLogger,
     private readonly audit: AuditService,
+    private readonly otpVerifier: OtpVerifier,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
   ) {}
 
@@ -211,22 +213,14 @@ export class DestinationsService {
     const now = new Date();
     const fixedOk = Boolean(e.OTP_DEV_FIXED_CODE) && !this.config.isProduction && code === e.OTP_DEV_FIXED_CODE;
     if (!fixedOk) {
-      const otp = await this.prisma.otpCode.findFirst({
-        where: { phoneNumber: user.phoneNumber, purpose: 'destination_change', consumedAt: null },
-        orderBy: { createdAt: 'desc' },
+      // Security audit #4: same throttled / atomic / constant-time verifier as the login OTP.
+      await this.otpVerifier.verify({
+        phone: user.phoneNumber,
+        purpose: 'destination_change',
+        code,
+        hashInput: (c) => `${user.phoneNumber}:destination_change:${c}`,
+        ip,
       });
-      if (!otp) throw AppException.badRequest(ErrorCode.OTP_INVALID, 'No pending verification code');
-      if (otp.expiresAt < now) throw AppException.badRequest(ErrorCode.OTP_EXPIRED, 'Verification code expired');
-      if (otp.attempts >= e.OTP_MAX_ATTEMPTS) {
-        throw AppException.rateLimited(ErrorCode.OTP_TOO_MANY_ATTEMPTS, 'Too many incorrect attempts; request a new code');
-      }
-      if (otp.codeHash !== sha256(`${user.phoneNumber}:destination_change:${code}`)) {
-        await this.prisma.otpCode.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
-        throw AppException.badRequest(ErrorCode.OTP_INVALID, 'Incorrect verification code', {
-          attemptsRemaining: e.OTP_MAX_ATTEMPTS - otp.attempts - 1,
-        });
-      }
-      await this.prisma.otpCode.update({ where: { id: otp.id }, data: { consumedAt: now } });
     }
     const row = await this.prisma.payoutDestination.upsert({
       where: {

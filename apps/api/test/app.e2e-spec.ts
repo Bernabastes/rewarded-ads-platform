@@ -20,6 +20,7 @@ process.env.OTP_DEV_ECHO = 'true';
 process.env.MIN_WATCH_RATIO = '0.05';
 process.env.HEARTBEAT_INTERVAL_SECONDS = '1';
 process.env.OTP_RATE_LIMIT_PER_IP_PER_HOUR = '1000';
+process.env.OTP_VERIFY_LIMIT_PER_IP = '1000';
 process.env.LOG_LEVEL = 'silent';
 
 async function infraReachable(): Promise<boolean> {

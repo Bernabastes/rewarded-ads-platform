@@ -43,6 +43,10 @@ export const envSchema = z
     OTP_RESEND_AFTER_SECONDS: num(60),
     OTP_RATE_LIMIT_PER_PHONE_PER_HOUR: num(5),
     OTP_RATE_LIMIT_PER_IP_PER_HOUR: num(30),
+    /** Verify-side brute-force limits (security audit #4): attempts per phone / per IP within the window. */
+    OTP_VERIFY_LIMIT_PER_PHONE: num(10),
+    OTP_VERIFY_LIMIT_PER_IP: num(30),
+    OTP_VERIFY_WINDOW_SECONDS: num(900),
     /** Return the OTP in the API response (dev/demo only). */
     OTP_DEV_ECHO: bool.default(false),
     /** When set (non-production only), this code is accepted for any phone number. */

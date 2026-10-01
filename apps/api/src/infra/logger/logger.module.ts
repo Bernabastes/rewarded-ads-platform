@@ -57,7 +57,22 @@ export type SecurityEvent =
   | 'data_rights.deletion_requested'
   | 'data_rights.deletion_executed'
   | 'data_rights.deletion_cancelled'
-  | 'frequency_cap.reached';
+  | 'frequency_cap.reached'
+  // Phase 5 (security remediation)
+  | 'otp.verify_rate_limited'
+  | 'auth.login_rate_limited'
+  | 'auth.account_locked'
+  | 'auth.mfa_failed'
+  | 'auth.mfa_enabled'
+  | 'auth.mfa_disabled'
+  | 'admin.account_created'
+  | 'admin.role_changed'
+  | 'admin.password_reset'
+  | 'payout.outcome_unknown'
+  | 'payout.manual_review_decided'
+  | 'destination.lookup_rate_limited'
+  | 'attention.answer_wrong'
+  | 'security.production_gate';
 
 /**
  * Dedicated security/fraud log channel. It is a SEPARATE pino instance (own destination when
