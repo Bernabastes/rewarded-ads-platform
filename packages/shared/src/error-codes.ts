@@ -125,6 +125,11 @@ export const ErrorCode = {
   // Media processing (Phase 4A)
   /** Creative still processing or failed; cannot be approved yet. */
   MEDIA_NOT_READY: 'MEDIA_NOT_READY',
+  /**
+   * Phase 5 (#2): the creative must be an object under the advertiser's own `creatives/<advertiserId>/` prefix
+   * (from POST /campaigns/uploads/presign). Remote URLs and other prefixes are refused; nothing is fetched.
+   */
+  MEDIA_SOURCE_NOT_ALLOWED: 'MEDIA_SOURCE_NOT_ALLOWED',
 
   // Referrals (Phase 4A)
   REFERRAL_CODE_INVALID: 'REFERRAL_CODE_INVALID',

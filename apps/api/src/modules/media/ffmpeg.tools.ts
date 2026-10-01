@@ -50,6 +50,14 @@ export function resolveBinary(kind: 'ffmpeg' | 'ffprobe', explicit?: string): st
   return kind;
 }
 
+/**
+ * Hardening flags (security audit #2): the binaries only ever read the local temp file - playlists / manifests
+ * inside attacker-supplied bytes must not be able to pull in http/tcp/data/concat sources - and never block on
+ * stdin.
+ */
+const PROTOCOL_WHITELIST = ['-protocol_whitelist', 'file,pipe'];
+const FFMPEG_GLOBALS = ['-nostdin', '-hide_banner', '-loglevel', 'error', ...PROTOCOL_WHITELIST];
+
 @Injectable()
 export class FfmpegTools implements MediaTools {
   private readonly logger = new Logger(FfmpegTools.name);
@@ -67,59 +75,61 @@ export class FfmpegTools implements MediaTools {
   }
 
   async probe(inputPath: string, timeoutMs: number): Promise<ProbeResult> {
-    const stdout = await run(
-      this.ffprobe,
-      [
-        '-v',
-        'error',
-        '-show_entries',
-        'format=duration,format_name,bit_rate:stream=codec_type,codec_name,width,height',
-        '-of',
-        'json',
-        inputPath,
-      ],
-      timeoutMs,
-    );
+    const stdout = await run(this.ffprobe, probeArgs(inputPath), timeoutMs);
     return parseProbe(stdout);
   }
 
   async transcode(inputPath: string, outputPath: string, targetHeight: number, timeoutMs: number) {
-    // Inputs without an audio stream are fine: ffmpeg simply emits no audio track.
-    await run(
-      this.ffmpeg,
-      [
-        '-y',
-        '-i',
-        inputPath,
-        '-vf',
-        `scale=-2:'min(${targetHeight},ih)'`,
-        '-c:v',
-        'libx264',
-        '-preset',
-        'veryfast',
-        '-crf',
-        '23',
-        '-pix_fmt',
-        'yuv420p',
-        '-movflags',
-        '+faststart',
-        '-c:a',
-        'aac',
-        '-b:a',
-        '128k',
-        outputPath,
-      ],
-      timeoutMs,
-    );
+    await run(this.ffmpeg, transcodeArgs(inputPath, outputPath, targetHeight), timeoutMs);
   }
 
   async poster(inputPath: string, outputPath: string, timeoutMs: number) {
-    await run(
-      this.ffmpeg,
-      ['-y', '-ss', '1', '-i', inputPath, '-frames:v', '1', '-vf', "scale=-2:'min(720,ih)'", outputPath],
-      timeoutMs,
-    );
+    await run(this.ffmpeg, posterArgs(inputPath, outputPath), timeoutMs);
   }
+}
+
+export function probeArgs(inputPath: string): string[] {
+  return [
+    '-v',
+    'error',
+    ...PROTOCOL_WHITELIST,
+    '-show_entries',
+    'format=duration,format_name,bit_rate:stream=codec_type,codec_name,width,height',
+    '-of',
+    'json',
+    inputPath,
+  ];
+}
+
+export function transcodeArgs(inputPath: string, outputPath: string, targetHeight: number): string[] {
+  // Inputs without an audio stream are fine: ffmpeg simply emits no audio track.
+  return [
+    ...FFMPEG_GLOBALS,
+    '-y',
+    '-i',
+    inputPath,
+    '-vf',
+    `scale=-2:'min(${targetHeight},ih)'`,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-crf',
+    '23',
+    '-pix_fmt',
+    'yuv420p',
+    '-movflags',
+    '+faststart',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '128k',
+    outputPath,
+  ];
+}
+
+export function posterArgs(inputPath: string, outputPath: string): string[] {
+  return [...FFMPEG_GLOBALS, '-y', '-ss', '1', '-i', inputPath, '-frames:v', '1', '-vf', "scale=-2:'min(720,ih)'", outputPath];
 }
 
 /** Parses `ffprobe -of json` output into a compact ProbeResult. */

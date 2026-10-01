@@ -1,6 +1,7 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { type MediaStatus, Prisma } from '@prisma/client';
+import { UPLOAD_LIMITS } from '@rap/shared';
 import { type Job, Queue } from 'bullmq';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,12 @@ import { AppConfig } from '../../config/app-config';
 import { SecurityLogger } from '../../infra/logger/logger.module';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_MEDIA } from '../../infra/queue/queue.module';
-import { StorageService } from '../../infra/storage/storage.service';
+import {
+  creativesPrefixFor,
+  isReadableCreativeKey,
+  StorageDownloadLimitError,
+  StorageService,
+} from '../../infra/storage/storage.service';
 import { AuditService } from '../audit/audit.service';
 import { MEDIA_TOOLS, type MediaTools, type ProbeResult } from './ffmpeg.tools';
 
@@ -104,15 +110,17 @@ export class MediaService {
     const input = join(workDir, 'input');
     const output = join(workDir, 'transcoded.mp4');
     const poster = join(workDir, 'poster.png');
+    const advertiserId = ad.campaign.advertiserId;
     try {
-      await this.fetchSource(ad, input);
+      await this.fetchSource(ad, advertiserId, input, remaining());
       const probe = await this.tools.probe(input, remaining());
       const probed = Math.round(probe.durationSeconds);
       const declared = ad.durationDeclaredSeconds ?? ad.durationSeconds;
       const corrected = Math.abs(probe.durationSeconds - declared) > m.durationToleranceSeconds;
 
       await this.tools.transcode(input, output, m.targetHeight, remaining());
-      const baseKey = this.processedKeyPrefix(ad.storageKey, ad.campaign.advertiserId, ad.id);
+      // Output ALWAYS lands under the advertiser's own prefix, never under a client-chosen directory (#2).
+      const baseKey = `${creativesPrefixFor(advertiserId)}processed/${ad.id}`;
       const transcodedKey = `${baseKey}/transcoded.mp4`;
       await this.storage.upload(transcodedKey, await readFile(output), 'video/mp4');
 
@@ -176,7 +184,10 @@ export class MediaService {
         ...(corrected ? { durationCorrected: { declared, probed } } : {}),
       };
     } catch (err) {
-      const message = (err as Error).message.slice(0, 500);
+      // Advertisers (and the review queue) only ever see a generic category; the raw ffmpeg/S3 detail stays in the
+      // server-side security log (#2: no internal host/port/status oracle through `mediaError`).
+      const detail = (err as Error).message.slice(0, 500);
+      const message = publicMediaError(err);
       await this.prisma.ad.update({
         where: { id: adId },
         data: { mediaStatus: 'failed', mediaError: message, mediaProcessedAt: new Date() },
@@ -188,32 +199,57 @@ export class MediaService {
         targetId: adId,
         after: { error: message },
       });
-      this.security.warn('media.processing_failed', { adId, error: message });
+      this.security.warn('media.processing_failed', { adId, advertiserId, storageKey: ad.storageKey, error: message, detail });
       return { adId, status: 'failed', error: message };
     } finally {
       await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 
-  private async fetchSource(ad: { storageKey: string | null; mediaUrl: string }, target: string) {
-    if (ad.storageKey && (await this.storage.exists(ad.storageKey))) {
-      await this.storage.downloadToFile(ad.storageKey, target);
-      return;
+  /**
+   * The ONLY media source is an object in our bucket under the advertiser's own creatives prefix (or the
+   * platform's seed assets). No remote URL is ever fetched (#2), the download is bounded in size and time.
+   */
+  private async fetchSource(
+    ad: { storageKey: string | null; mediaUrl: string },
+    advertiserId: string,
+    target: string,
+    timeoutMs: number,
+  ) {
+    const key = ad.storageKey ?? this.storage.storageKeyFromPublicUrl(ad.mediaUrl);
+    if (!key || !isReadableCreativeKey(advertiserId, key)) {
+      throw new MediaSourceError(`storage key "${key ?? ad.mediaUrl}" is outside creatives/${advertiserId}/`);
     }
-    const res = await fetch(ad.mediaUrl);
-    if (!res.ok) throw new Error(`Could not download media (${res.status})`);
-    const { writeFile } = await import('node:fs/promises');
-    await writeFile(target, Buffer.from(await res.arrayBuffer()));
-  }
-
-  private processedKeyPrefix(storageKey: string | null, advertiserId: string, adId: string): string {
-    const dir = storageKey?.includes('/') ? storageKey.slice(0, storageKey.lastIndexOf('/')) : null;
-    return `${dir ?? `creatives/${advertiserId}`}/processed/${adId}`;
+    if (!(await this.storage.exists(key))) throw new MediaSourceError(`object ${key} does not exist`);
+    await this.storage.downloadToFile(key, target, { maxBytes: UPLOAD_LIMITS.video.maxBytes, timeoutMs });
   }
 
   describeTools() {
     return this.tools.describe();
   }
+}
+
+export class MediaSourceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MediaSourceError';
+  }
+}
+
+/** Safe, category-level message stored in `ads.media_error` and shown to advertisers/reviewers. */
+export function publicMediaError(err: unknown): string {
+  if (err instanceof MediaSourceError) return 'The creative could not be read from storage. Upload it again through the campaign wizard.';
+  if (err instanceof StorageDownloadLimitError) return `The creative exceeds the ${Math.round(UPLOAD_LIMITS.video.maxBytes / 1_048_576)} MB limit.`;
+  const message = err instanceof Error ? err.message : String(err);
+  if (/timed out/i.test(message)) return 'Processing timed out. Try a shorter or smaller video.';
+  if (/ffprobe|no duration/i.test(message)) {
+    return 'The file is not a readable video (ffprobe could not determine its duration or codec).';
+  }
+  if (/ffmpeg/i.test(message)) return 'The video could not be transcoded to 720p H.264. Re-export it as an MP4 (H.264/AAC) and upload again.';
+  if (/Invalid data|moov atom|could not find codec/i.test(message)) {
+    return 'The file is not a readable video (ffprobe could not determine its duration or codec).';
+  }
+  return 'Media processing failed. Re-upload the creative or ask support to reprocess it.';
 }
 
 @Processor(QUEUE_MEDIA, { concurrency: 1 })

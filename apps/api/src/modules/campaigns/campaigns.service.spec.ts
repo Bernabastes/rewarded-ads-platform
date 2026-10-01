@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { ErrorCode } from '@rap/shared';
 import { AppException } from '../../common/errors/app.exception';
+import { StorageService } from '../../infra/storage/storage.service';
 import { D, mockAudit, mockPrisma, testConfig, uuid } from '../../testing/test-utils';
 import type { WalletWriteInput } from '../wallet/wallet.module';
 import { refundKey, reservationKey } from './campaign.economics';
@@ -75,6 +76,58 @@ function campaignRow(overrides: Partial<Record<string, unknown>> = {}) {
     ...overrides,
   };
 }
+
+describe('CampaignsService.addAd creative source (security audit #2: no SSRF, advertiser prefix only)', () => {
+  let prisma: any;
+  let service: CampaignsService;
+  let media: { isEnabled: jest.Mock; enqueue: jest.Mock };
+  const storage = new StorageService(testConfig({ S3_PUBLIC_URL: 'http://localhost:9000', S3_BUCKET: 'rap-media' }));
+  const base = { title: 'Probe', mediaType: 'video' as const, durationSeconds: 15 };
+
+  beforeEach(() => {
+    prisma = mockPrisma();
+    prisma.campaign.findFirst.mockResolvedValue(campaignRow({ status: 'draft' }));
+    prisma.ad.create.mockImplementation(async ({ data }: any) => ({ id: uuid(50), ...data, reviewStatus: 'pending', _count: { attentionQuestions: 0 }, createdAt: new Date() }));
+    media = { isEnabled: jest.fn(() => true), enqueue: jest.fn() };
+    service = new CampaignsService(prisma, testConfig(), storage, new FakeWallet(0) as never, mockAudit(), { missingConsents: jest.fn() } as never, media as never);
+  });
+
+  it('mediaUrl=http://127.0.0.1:3000/x -> 400 MEDIA_SOURCE_NOT_ALLOWED and nothing is created or enqueued', async () => {
+    await expect(service.addAd(ADVERTISER, CAMPAIGN, { ...base, mediaUrl: 'http://127.0.0.1:3000/ssrf-probe' })).rejects.toMatchObject({
+      code: ErrorCode.MEDIA_SOURCE_NOT_ALLOWED,
+      status: 400,
+    });
+    await expect(service.addAd(ADVERTISER, CAMPAIGN, { ...base, mediaUrl: 'http://169.254.169.254/latest/meta-data/' })).rejects.toMatchObject({ code: ErrorCode.MEDIA_SOURCE_NOT_ALLOWED });
+    expect(prisma.ad.create).not.toHaveBeenCalled();
+    expect(media.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('storageKey=private/kyc/... (or another advertiser\'s creatives) -> 400 MEDIA_SOURCE_NOT_ALLOWED', async () => {
+    for (const storageKey of ['private/kyc/other-user/front.jpg', `creatives/${uuid(9)}/2026-10-01/x.mp4`, `creatives/${ADVERTISER}/../private/exports/x.zip`]) {
+      await expect(service.addAd(ADVERTISER, CAMPAIGN, { ...base, storageKey })).rejects.toMatchObject({
+        code: ErrorCode.MEDIA_SOURCE_NOT_ALLOWED,
+        details: { requiredPrefix: `creatives/${ADVERTISER}/` },
+      });
+    }
+    expect(prisma.ad.create).not.toHaveBeenCalled();
+  });
+
+  it('a presigned key under creatives/<advertiserId>/ is accepted and the stored mediaUrl is derived server-side', async () => {
+    const storageKey = `creatives/${ADVERTISER}/2026-10-01/clip.mp4`;
+    const ad = await service.addAd(ADVERTISER, CAMPAIGN, { ...base, storageKey });
+    expect(ad.mediaUrl).toBe(`http://localhost:9000/rap-media/${storageKey}`);
+    expect(prisma.ad.create.mock.calls[0][0].data).toMatchObject({ storageKey, mediaUrl: `http://localhost:9000/rap-media/${storageKey}`, mediaStatus: 'processing' });
+    expect(media.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('a mediaUrl pointing into our own bucket under the advertiser prefix is mapped to its key (backwards compatibility)', async () => {
+    const storageKey = `creatives/${ADVERTISER}/2026-10-01/clip.mp4`;
+    await service.addAd(ADVERTISER, CAMPAIGN, { ...base, mediaUrl: `http://localhost:9000/rap-media/${storageKey}` });
+    expect(prisma.ad.create.mock.calls[0][0].data.storageKey).toBe(storageKey);
+    // same bucket, someone else's prefix -> refused
+    await expect(service.addAd(ADVERTISER, CAMPAIGN, { ...base, mediaUrl: `http://localhost:9000/rap-media/creatives/${uuid(9)}/x.mp4` })).rejects.toMatchObject({ code: ErrorCode.MEDIA_SOURCE_NOT_ALLOWED });
+  });
+});
 
 describe('CampaignsService budget reservation (security audit #1: reject -> edit -> resubmit must never replay)', () => {
   let prisma: any;

@@ -6,7 +6,7 @@ import { pageArgs, paginated } from '../../common/pagination';
 import { eachUtcDay, parseDateRange, utcDayKey } from '../../common/utils';
 import { AppConfig } from '../../config/app-config';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { StorageService } from '../../infra/storage/storage.service';
+import { creativesPrefixFor, isCreativeKeyOf, StorageService } from '../../infra/storage/storage.service';
 import { AuditService } from '../audit/audit.service';
 import { LegalService } from '../legal/legal.service';
 import { MediaService } from '../media/media.service';
@@ -405,7 +405,11 @@ export class CampaignsService {
       );
     }
     if (!dto.storageKey && !dto.mediaUrl)
-      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'storageKey or mediaUrl is required');
+      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'storageKey is required (upload through POST /campaigns/uploads/presign)');
+    // Security audit #2: the creative source is ALWAYS an object in our own bucket under this advertiser's prefix.
+    // `mediaUrl` is accepted only for backwards compatibility and only when it points at such an object; the
+    // media worker never fetches remote URLs.
+    const storageKey = this.resolveCreativeSource(advertiserId, dto);
     if (dto.attentionQuestions?.some((q) => q.correctIndex >= q.options.length)) {
       throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'correctIndex must reference an option');
     }
@@ -416,8 +420,8 @@ export class CampaignsService {
         campaignId,
         title: dto.title.trim(),
         description: dto.description?.trim(),
-        storageKey: dto.storageKey,
-        mediaUrl: dto.mediaUrl ?? this.storage.publicUrl(dto.storageKey!),
+        storageKey,
+        mediaUrl: this.storage.publicUrl(storageKey),
         thumbnailUrl: dto.thumbnailUrl,
         mediaType: dto.mediaType,
         durationSeconds: dto.durationSeconds,
@@ -628,6 +632,24 @@ export class CampaignsService {
   }
 
   /* ------------------------------ helpers ------------------------------ */
+
+  /**
+   * Maps the advertiser-supplied creative reference to a storage key inside `creatives/<advertiserId>/`.
+   * Anything else (other prefixes such as `private/kyc/...`, other buckets, other hosts, remote URLs) is refused
+   * with 400 MEDIA_SOURCE_NOT_ALLOWED - the server never fetches advertiser-controlled URLs.
+   */
+  resolveCreativeSource(advertiserId: string, dto: { storageKey?: string; mediaUrl?: string }): string {
+    const key = dto.storageKey ?? (dto.mediaUrl ? this.storage.storageKeyFromPublicUrl(dto.mediaUrl) : null);
+    if (!key || !isCreativeKeyOf(advertiserId, key)) {
+      this.logger.warn(`Advertiser ${advertiserId} referenced a disallowed creative source`);
+      throw AppException.badRequest(
+        ErrorCode.MEDIA_SOURCE_NOT_ALLOWED,
+        'Creatives must be uploaded through POST /campaigns/uploads/presign; only objects under your own creatives/ prefix can be used',
+        { requiredPrefix: creativesPrefixFor(advertiserId) },
+      );
+    }
+    return key;
+  }
 
   /**
    * Net ETB currently reserved for a campaign according to the wallet ledger (reservations are negative wallet

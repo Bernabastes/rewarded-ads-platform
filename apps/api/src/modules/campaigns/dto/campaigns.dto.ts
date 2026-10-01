@@ -186,23 +186,26 @@ export class CreateAdDto {
   @MaxLength(1000)
   description?: string;
 
-  /** Storage key returned by POST /campaigns/uploads/presign (preferred). */
-  @ApiPropertyOptional()
+  /** Storage key returned by POST /campaigns/uploads/presign (must be under `creatives/<advertiserId>/`). */
+  @ApiPropertyOptional({ description: 'Key from the presign endpoint; must start with creatives/<advertiserId>/ (else 400 MEDIA_SOURCE_NOT_ALLOWED)' })
   @IsOptional()
   @IsString()
   @MaxLength(300)
   storageKey?: string;
 
-  /** Alternatively a publicly reachable media URL. */
-  @ApiPropertyOptional()
+  /**
+   * Backwards-compatible alternative to `storageKey`: the public URL of an object in the platform bucket under the
+   * advertiser's own creatives/ prefix. Remote URLs are refused (400 MEDIA_SOURCE_NOT_ALLOWED); nothing is fetched.
+   */
+  @ApiPropertyOptional({ description: 'Public URL of an object under your own creatives/ prefix in the platform bucket (prefer storageKey)' })
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, require_protocol: true, protocols: ['http', 'https'] })
   @MaxLength(1000)
   mediaUrl?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, require_protocol: true, protocols: ['http', 'https'] })
   @MaxLength(1000)
   thumbnailUrl?: string;
 

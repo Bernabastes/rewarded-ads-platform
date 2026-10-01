@@ -64,8 +64,16 @@ export interface AttentionQuestionInput {
 export interface CreateAdDto {
   title: string;
   description?: string;
-  /** Storage key returned by the presign endpoint, OR a publicly reachable URL (mediaUrl). */
+  /**
+   * Storage key returned by POST /campaigns/uploads/presign - must be under `creatives/<advertiserId>/`.
+   * Required unless `mediaUrl` is given.
+   */
   storageKey?: string;
+  /**
+   * Backwards-compatible alternative: the public URL of an object in the platform bucket under the advertiser's
+   * own `creatives/<advertiserId>/` prefix. Any other URL is refused with 400 MEDIA_SOURCE_NOT_ALLOWED - the
+   * server never downloads remote media (Phase 5 security fix #2).
+   */
   mediaUrl?: string;
   thumbnailUrl?: string;
   mediaType: MediaType;
