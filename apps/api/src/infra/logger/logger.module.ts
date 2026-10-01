@@ -74,6 +74,22 @@ export type SecurityEvent =
   | 'attention.answer_wrong'
   | 'security.production_gate';
 
+/** Field names that must never appear in clear text in any log line (OTP codes, credentials, tokens). */
+export const SECRET_FIELDS = ['code', 'otp', 'devCode', 'password', 'newPassword', 'currentPassword', 'token', 'accessToken', 'refreshToken', 'mfaToken', 'secret'] as const;
+
+/** Deep-redacts SECRET_FIELDS (used in production in addition to pino's path-based redaction). */
+export function redactSecretFields<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => redactSecretFields(v)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = (SECRET_FIELDS as readonly string[]).includes(k) ? '[redacted]' : redactSecretFields(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 /**
  * Dedicated security/fraud log channel. It is a SEPARATE pino instance (own destination when
  * SECURITY_LOG_PATH is set, otherwise stdout) tagged with `channel: "security"` so SIEM/log
@@ -82,23 +98,27 @@ export type SecurityEvent =
 @Injectable()
 export class SecurityLogger {
   private readonly logger: PinoLogger;
+  private readonly redactSecrets: boolean;
 
   constructor(config: AppConfig) {
     const destination = config.env.SECURITY_LOG_PATH
       ? pino.destination({ dest: config.env.SECURITY_LOG_PATH, mkdir: true, sync: false })
       : pino.destination(1);
+    this.redactSecrets = config.isProduction;
     this.logger = pino(
       {
         level: config.isTest ? 'silent' : 'info',
         base: { channel: 'security', service: 'rap-api' },
         timestamp: pino.stdTimeFunctions.isoTime,
+        // Never let a one-time code / credential reach the security channel either (#9).
+        redact: { paths: [...SECRET_FIELDS, ...SECRET_FIELDS.map((f) => `*.${f}`)], censor: '[redacted]' },
       },
       destination,
     );
   }
 
   event(event: SecurityEvent, data: Record<string, unknown>, level: 'info' | 'warn' | 'error' = 'warn') {
-    this.logger[level]({ event, ...data }, event);
+    this.logger[level]({ event, ...(this.redactSecrets ? redactSecretFields(data) : data) }, event);
   }
 
   info(event: SecurityEvent, data: Record<string, unknown>) {

@@ -51,7 +51,12 @@ export const envSchema = z
     OTP_DEV_ECHO: bool.default(false),
     /** When set (non-production only), this code is accepted for any phone number. */
     OTP_DEV_FIXED_CODE: z.string().optional(),
-    SMS_PROVIDER: z.enum(['mock']).default('mock'),
+    SMS_PROVIDER: z.enum(['mock', 'http']).default('mock'),
+    /** Generic HTTP SMS gateway (SMS_PROVIDER=http): JSON POST { to, message, from? } with a bearer key. */
+    SMS_API_URL: z.string().url().optional(),
+    SMS_API_KEY: z.string().optional(),
+    SMS_SENDER_ID: z.string().optional(),
+    SMS_TIMEOUT_MS: num(8000),
 
     COINS_PER_ETB: num(100),
     MIN_WITHDRAWAL_ETB: num(50),
@@ -169,41 +174,76 @@ export const envSchema = z
     DATA_EXPORT_RETENTION_DAYS: num(7),
     IMPERSONATION_TTL_SECONDS: num(600),
     IDEMPOTENCY_TTL_HOURS: num(PLATFORM_DEFAULTS.IDEMPOTENCY_TTL_HOURS),
+
+    /* ---------- Phase 5 (security remediation) ---------- */
+    /** Interactive Swagger UI + /api/docs-json; always off in production (the env schema refuses true). */
+    SWAGGER_ENABLED: bool.default(true),
+    /** HMAC key for the KYC identity-number duplicate hash (#14). Required (>= 32 chars) in production. */
+    KYC_HASH_KEY: z.string().optional(),
+    /** AES-256-GCM key (any string, hashed) for admin TOTP secrets at rest; falls back to JWT_ACCESS_SECRET. */
+    MFA_ENCRYPTION_KEY: z.string().optional(),
+    /** finance / super_admin accounts must have TOTP enabled; until then every non-MFA admin route is 403 MFA_SETUP_REQUIRED. */
+    ADMIN_MFA_REQUIRED: bool.default(false),
+    /** Login throttling (#5): attempts per IP / per account inside LOGIN_WINDOW_SECONDS, lockout after LOGIN_LOCKOUT_THRESHOLD failures. */
+    LOGIN_RATE_LIMIT_PER_IP: num(10),
+    LOGIN_RATE_LIMIT_PER_ACCOUNT: num(10),
+    LOGIN_WINDOW_SECONDS: num(900),
+    LOGIN_LOCKOUT_THRESHOLD: num(5),
+    LOGIN_LOCKOUT_SECONDS: num(900),
+    /** Seeding is refused with NODE_ENV=production unless this is explicitly true. */
+    ALLOW_SEED_IN_PRODUCTION: bool.default(false),
+    /** Account-name lookups (destination verification) per user per UTC day (#11). */
+    DESTINATION_LOOKUPS_PER_DAY: num(5),
+    /** Alert rule: lookups per IP per hour above which an alert is raised (#11). */
+    ALERT_DESTINATION_LOOKUPS_PER_IP_PER_HOUR: num(30),
+    /** HTTP timeout for payout-partner calls (#7). */
+    PAYOUT_PROVIDER_TIMEOUT_MS: num(15_000),
+    /** Max status polls before a payout is parked for manual review instead of being refunded (#7). */
+    PAYOUT_MAX_POLLS: num(500),
+    /** Refresh-token cookie attributes for the web apps' cookie mode (#16). */
+    AUTH_COOKIE_DOMAIN: z.string().optional(),
+    AUTH_COOKIE_SECURE: bool.optional(),
   })
   .superRefine((env, ctx) => {
+    const issue = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
     if (env.NODE_ENV === 'production') {
-      if (env.JWT_ACCESS_SECRET.startsWith('dev-only')) {
-        ctx.addIssue({ code: 'custom', path: ['JWT_ACCESS_SECRET'], message: 'must be set in production' });
+      // Security audit #8 / #9: a production process must not be able to start with mock money paths,
+      // default infrastructure credentials, wildcard CORS, weak signing keys or OTPs in the logs.
+      if (env.JWT_ACCESS_SECRET.startsWith('dev-only')) issue('JWT_ACCESS_SECRET', 'must be set in production');
+      if (env.JWT_ACCESS_SECRET.length < 32) issue('JWT_ACCESS_SECRET', 'must be at least 32 characters (256-bit HS256 key) in production');
+      if (env.OTP_DEV_ECHO) issue('OTP_DEV_ECHO', 'must be false in production');
+      if (env.OTP_DEV_FIXED_CODE) issue('OTP_DEV_FIXED_CODE', 'must be unset in production');
+      if (!env.CHAPA_SECRET_KEY) issue('CHAPA_SECRET_KEY', 'required in production (the mock checkout credits wallets for free)');
+      if (!env.CHAPA_WEBHOOK_SECRET) issue('CHAPA_WEBHOOK_SECRET', 'required in production');
+      if (env.PAYOUTS_MOCK) issue('PAYOUTS_MOCK', 'must be false in production (mock payouts mark withdrawals completed without paying)');
+      if (!(env.TELEBIRR_APP_ID && env.TELEBIRR_APP_KEY && env.TELEBIRR_SHORT_CODE)) {
+        issue('TELEBIRR_APP_ID', 'telebirr payout credentials (TELEBIRR_APP_ID, TELEBIRR_APP_KEY, TELEBIRR_SHORT_CODE) are required in production');
       }
-      if (env.OTP_DEV_ECHO) {
-        ctx.addIssue({ code: 'custom', path: ['OTP_DEV_ECHO'], message: 'must be false in production' });
+      if (env.S3_ACCESS_KEY === 'minioadmin' || env.S3_SECRET_KEY === 'minioadmin' || env.S3_SECRET_KEY.length < 16) {
+        issue('S3_SECRET_KEY', 'non-default object storage credentials (secret >= 16 chars) are required in production');
       }
-      if (env.OTP_DEV_FIXED_CODE) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['OTP_DEV_FIXED_CODE'],
-          message: 'must be unset in production',
-        });
-      }
+      if (env.CORS_ORIGINS.split(',').some((o) => o.trim() === '*')) issue('CORS_ORIGINS', 'wildcard origins are not allowed in production (credentials: true)');
+      if (env.SMS_PROVIDER === 'mock') issue('SMS_PROVIDER', 'the mock SMS provider (OTPs in logs) is not allowed in production');
+      if (!env.KYC_HASH_KEY || env.KYC_HASH_KEY.length < 32) issue('KYC_HASH_KEY', 'a >= 32 character HMAC key for identity-number hashes is required in production');
+      if (env.SWAGGER_ENABLED) issue('SWAGGER_ENABLED', 'the interactive API docs must stay disabled in production');
+    }
+    if (env.SMS_PROVIDER === 'http' && !(env.SMS_API_URL && env.SMS_API_KEY)) {
+      issue('SMS_PROVIDER', 'http requires SMS_API_URL and SMS_API_KEY');
     }
     if (env.PLATFORM_TAKE_RATE < 0 || env.PLATFORM_TAKE_RATE >= 1) {
-      ctx.addIssue({ code: 'custom', path: ['PLATFORM_TAKE_RATE'], message: 'must be in [0,1)' });
+      issue('PLATFORM_TAKE_RATE', 'must be in [0,1)');
     }
     if (env.MIN_WATCH_RATIO <= 0 || env.MIN_WATCH_RATIO > 1) {
-      ctx.addIssue({ code: 'custom', path: ['MIN_WATCH_RATIO'], message: 'must be in (0,1]' });
+      issue('MIN_WATCH_RATIO', 'must be in (0,1]');
     }
     if (env.DEFAULT_FREQUENCY_CAP < 1 || env.DEFAULT_FREQUENCY_CAP > 5) {
-      ctx.addIssue({ code: 'custom', path: ['DEFAULT_FREQUENCY_CAP'], message: 'must be in [1,5]' });
+      issue('DEFAULT_FREQUENCY_CAP', 'must be in [1,5]');
     }
     if (env.ALERT_PAYOUT_FAILURE_RATE <= 0 || env.ALERT_PAYOUT_FAILURE_RATE > 1) {
-      ctx.addIssue({ code: 'custom', path: ['ALERT_PAYOUT_FAILURE_RATE'], message: 'must be in (0,1]' });
+      issue('ALERT_PAYOUT_FAILURE_RATE', 'must be in (0,1]');
     }
     if (env.ID_VERIFICATION_PROVIDER === 'fayda' && !(env.FAYDA_CLIENT_ID && env.FAYDA_CLIENT_SECRET)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['ID_VERIFICATION_PROVIDER'],
-        message: 'fayda requires FAYDA_CLIENT_ID and FAYDA_CLIENT_SECRET',
-      });
+      issue('ID_VERIFICATION_PROVIDER', 'fayda requires FAYDA_CLIENT_ID and FAYDA_CLIENT_SECRET');
     }
   });
 

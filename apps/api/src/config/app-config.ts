@@ -21,6 +21,10 @@ export class AppConfig {
     return this.env.NODE_ENV === 'test';
   }
 
+  get isDevelopment() {
+    return this.env.NODE_ENV === 'development';
+  }
+
   get corsOrigins(): string[] {
     return this.env.CORS_ORIGINS.split(',')
       .map((s) => s.trim())

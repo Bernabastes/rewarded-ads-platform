@@ -245,6 +245,11 @@ async function reset() {
 /* -------------------------------------- main -------------------------------------- */
 
 async function main() {
+  // Security audit #5: the seed RESETS the database and creates admins with a well-known password. It must never
+  // run against a production database by accident (e.g. RUN_SEED left on in a deployment).
+  if (process.env.NODE_ENV === 'production' && !['1', 'true', 'yes'].includes((process.env.ALLOW_SEED_IN_PRODUCTION ?? '').toLowerCase())) {
+    throw new Error('Refusing to seed with NODE_ENV=production (set ALLOW_SEED_IN_PRODUCTION=true to override - this wipes the database)');
+  }
   console.log('Seeding demo data...');
   await reset();
   try {

@@ -329,8 +329,12 @@ export class BillingService {
     });
   }
 
+  /**
+   * Mock checkout routes exist ONLY outside production and only while the gateway runs in mock mode (#8): in
+   * production the env schema already requires CHAPA_SECRET_KEY, and this gate makes the routes 404 regardless.
+   */
   private assertMock() {
-    if (!this.gateway.isMock) throw AppException.notFound('Not available');
+    if (this.config.isProduction || !this.gateway.isMock) throw AppException.notFound('Not available');
   }
 
   private readonly paymentSelect = {
