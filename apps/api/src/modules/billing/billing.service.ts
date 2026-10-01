@@ -118,7 +118,7 @@ export class BillingService {
     // Real gateway: opportunistically verify pending payments when the advertiser polls.
     if (payment.status === 'pending' && !this.gateway.isMock) {
       const v = await this.gateway.verify(payment.txRef).catch(() => null);
-      if (v?.status === 'success')
+      if (v?.status === 'success' && this.verifyMatchesPayment(payment, v, 'poll'))
         return this.settlePayment(payment.txRef, v.gatewayReference, v.raw, 'verify');
       if (v?.status === 'failed')
         await this.prisma.advertiserPayment.update({
@@ -130,7 +130,12 @@ export class BillingService {
   }
 
   /**
-   * Chapa webhook: signature-verified, idempotent (settling twice is a no-op) and cross-checked with the verify API.
+   * Chapa webhook (security audit #17): authenticated ONLY by the payload-bound `Chapa-Signature`, idempotent
+   * (settling twice is a no-op) and never trusted on its own - the verify API decides:
+   *  - "success" is settled only when verify() also says success AND the verified amount + currency equal the
+   *    payment we created (a forged / replayed body cannot credit a different amount);
+   *  - anything else marks the payment failed only when verify() confirms the failure; a still-pending
+   *    verification leaves the payment pending (the next poll / webhook decides).
    */
   async handleChapaWebhook(
     rawBody: Buffer | undefined,
@@ -141,33 +146,74 @@ export class BillingService {
     if (!this.config.env.CHAPA_WEBHOOK_SECRET) {
       throw new AppException(ErrorCode.SERVICE_UNAVAILABLE, 'Webhook secret not configured', 503);
     }
-    if (!this.gateway.verifyWebhookSignature(rawBody ?? JSON.stringify(body), headers)) {
-      this.security.warn('webhook.signature_invalid', { gateway: 'chapa', ip, txRef: body.tx_ref });
+    if (!rawBody || !this.gateway.verifyWebhookSignature(rawBody, headers)) {
+      this.security.warn('webhook.signature_invalid', { gateway: 'chapa', ip, txRef: body.tx_ref, rawBodyPresent: Boolean(rawBody) });
       throw AppException.unauthorized(ErrorCode.WEBHOOK_SIGNATURE_INVALID, 'Invalid webhook signature');
     }
     const txRef = String(body.tx_ref ?? body.trx_ref ?? '');
     const status = String(body.status ?? '');
     if (!txRef) throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'tx_ref missing');
+    const payment = await this.prisma.advertiserPayment.findUnique({ where: { txRef }, select: this.paymentSelect });
+    if (!payment) throw AppException.notFound('Payment not found', { code: ErrorCode.PAYMENT_NOT_FOUND });
+    if (payment.status !== 'pending') return { received: true, txRef, status: payment.status };
 
-    if (status !== 'success') {
+    if (this.gateway.isMock) {
+      // No real gateway to ask (dev/demo with a webhook secret set): the signed body is the only source.
+      if (status !== 'success') {
+        await this.prisma.advertiserPayment.updateMany({
+          where: { txRef, status: 'pending' },
+          data: { status: 'failed', rawWebhook: body as Prisma.InputJsonValue },
+        });
+        return { received: true, txRef, status: 'failed' };
+      }
+      const settled = await this.settlePayment(txRef, body.reference ? String(body.reference) : undefined, body, 'webhook');
+      return { received: true, txRef, status: settled.status };
+    }
+
+    const v = await this.gateway.verify(txRef);
+    if (v.status === 'success') {
+      if (!this.verifyMatchesPayment(payment, v, 'webhook', ip)) {
+        throw AppException.badRequest(
+          ErrorCode.PAYMENT_VERIFICATION_MISMATCH,
+          'Gateway verification does not match the payment amount / currency',
+        );
+      }
+      const settled = await this.settlePayment(txRef, v.gatewayReference ?? (body.reference ? String(body.reference) : undefined), { webhook: body, verify: v.raw }, 'webhook');
+      return { received: true, txRef, status: settled.status };
+    }
+    if (v.status === 'failed') {
       await this.prisma.advertiserPayment.updateMany({
         where: { txRef, status: 'pending' },
-        data: { status: 'failed', rawWebhook: body as Prisma.InputJsonValue },
+        data: { status: 'failed', rawWebhook: { webhook: body, verify: v.raw } as Prisma.InputJsonValue },
       });
       return { received: true, txRef, status: 'failed' };
     }
-    if (!this.gateway.isMock) {
-      const v = await this.gateway.verify(txRef);
-      if (v.status !== 'success')
-        throw AppException.badRequest(ErrorCode.PAYMENT_NOT_FOUND, 'Gateway did not confirm this payment');
-    }
-    const payment = await this.settlePayment(
-      txRef,
-      body.reference ? String(body.reference) : undefined,
-      body,
-      'webhook',
-    );
-    return { received: true, txRef, status: payment.status };
+    // verify() still pending: do not believe the webhook body either way
+    this.security.info('webhook.verification_pending', { gateway: 'chapa', txRef, webhookStatus: status, ip });
+    return { received: true, txRef, status: 'pending' };
+  }
+
+  /** The gateway's verified amount/currency must equal what we asked for before a payment is settled (#17). */
+  private verifyMatchesPayment(
+    payment: { id: string; txRef: string; amountEtb: Prisma.Decimal },
+    v: { amountEtb?: number; currency?: string },
+    via: 'webhook' | 'poll',
+    ip?: string,
+  ): boolean {
+    const amountOk = v.amountEtb !== undefined && new Prisma.Decimal(v.amountEtb).equals(payment.amountEtb);
+    const currencyOk = (v.currency ?? 'ETB').toUpperCase() === 'ETB';
+    if (amountOk && currencyOk) return true;
+    this.security.error('webhook.amount_mismatch', {
+      gateway: 'chapa',
+      via,
+      ip,
+      paymentId: payment.id,
+      txRef: payment.txRef,
+      expectedEtb: payment.amountEtb.toNumber(),
+      verifiedAmount: v.amountEtb,
+      verifiedCurrency: v.currency,
+    });
+    return false;
   }
 
   /** Credits the advertiser wallet exactly once per payment and issues an invoice. */

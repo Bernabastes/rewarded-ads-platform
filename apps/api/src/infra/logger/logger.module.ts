@@ -26,6 +26,8 @@ export type SecurityEvent =
   | 'adjustment.self_approval_blocked'
   | 'admin.moderation'
   | 'webhook.signature_invalid'
+  | 'webhook.amount_mismatch'
+  | 'webhook.verification_pending'
   | 'payout.provider_failover'
   // Phase 4A
   | 'auth.access_tokens_invalidated'

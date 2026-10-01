@@ -75,6 +75,8 @@ export function mockPrisma() {
     'dataExportRequest',
     'accountDeletionRequest',
     'attentionQuestion',
+    'advertiserPayment',
+    'invoice',
   ]) {
     prisma[m] = Object.fromEntries(MODEL_METHODS.map((name) => [name, jest.fn()]));
   }

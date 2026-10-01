@@ -117,10 +117,10 @@ export class ChapaGateway implements PaymentGateway {
   }
 
   /**
-   * Chapa signs webhooks with the dashboard "webhook secret":
-   *  - `Chapa-Signature`: HMAC-SHA256(secret, raw JSON payload)
-   *  - `x-chapa-signature`: HMAC-SHA256(secret, secret)
-   * Either valid header is accepted.
+   * Security audit #17: only the payload-bound `Chapa-Signature` (HMAC-SHA256 of the raw JSON body with the
+   * dashboard webhook secret) authenticates a webhook. The legacy `x-chapa-signature` header is a CONSTANT
+   * (HMAC of the secret itself) - anyone who ever saw one request could replay it with any body - so it is
+   * accepted only as an additional hint and never on its own.
    */
   verifyWebhookSignature(
     rawBody: Buffer | string,
@@ -133,10 +133,8 @@ export class ChapaGateway implements PaymentGateway {
       return Array.isArray(v) ? v[0] : v;
     };
     const payloadSig = header('Chapa-Signature');
-    const secretSig = header('x-chapa-signature');
     const expectedPayload = createHmac('sha256', secret).update(rawBody).digest('hex');
-    const expectedSecret = createHmac('sha256', secret).update(secret).digest('hex');
-    return safeEqual(payloadSig, expectedPayload) || safeEqual(secretSig, expectedSecret);
+    return safeEqual(payloadSig, expectedPayload);
   }
 }
 
