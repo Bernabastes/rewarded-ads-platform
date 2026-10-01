@@ -12,11 +12,23 @@ import type { IsoDate, IsoDateTime, Uuid } from './common';
 
 export interface AuthTokens {
   accessToken: string;
-  /** Opaque, single-use rotating refresh token. Store securely (Keychain/Keystore, never localStorage on web if avoidable). */
+  /**
+   * Opaque, single-use rotating refresh token (body mode - the mobile app). Store securely (Keychain/Keystore).
+   * Phase 5 (#16): in cookie mode (`X-Auth-Mode: cookie`, used by the web consoles) this field is OMITTED and the
+   * token travels only in the httpOnly `rap_refresh` cookie - see `CookieModeAuthTokens`.
+   */
   refreshToken: string;
   /** Seconds until the access token expires. */
   expiresIn: number;
   tokenType: 'Bearer';
+}
+
+/** Token payload returned to a client that requested cookie mode: no refresh token in the body. */
+export interface CookieModeAuthTokens {
+  accessToken: string;
+  expiresIn: number;
+  tokenType: 'Bearer';
+  authMode: 'cookie';
 }
 
 /** Decoded access-token claims (informational; verify server-side only). */

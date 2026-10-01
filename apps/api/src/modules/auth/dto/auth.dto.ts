@@ -161,17 +161,21 @@ export class EmailPasswordLoginDto {
 }
 
 export class RefreshTokenDto {
-  @ApiProperty()
+  /** Body mode. Omitted in cookie mode (`X-Auth-Mode: cookie`), where the `rap_refresh` cookie carries the token. */
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MinLength(20)
-  refreshToken: string;
+  refreshToken?: string;
 }
 
 export class LogoutDto {
-  @ApiProperty()
+  /** Body mode. Omitted in cookie mode (`X-Auth-Mode: cookie`). */
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MinLength(20)
-  refreshToken: string;
+  refreshToken?: string;
 }
 
 export class ChangePasswordDto {

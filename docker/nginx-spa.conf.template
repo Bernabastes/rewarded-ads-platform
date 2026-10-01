@@ -1,0 +1,51 @@
+# nginx config for the Vite single-page apps (advertiser-web, admin-web).
+#
+# This is an nginx *template*: the official image runs envsubst on /etc/nginx/templates/*.template at start-up and
+# writes the result to /etc/nginx/conf.d/. Only the environment variables below are substituted (nginx's own
+# $uri etc. are left alone):
+#   API_PUBLIC_URL      - the API origin the SPA talks to (connect-src)
+#   S3_PUBLIC_URL       - where creatives / posters are served from (img-src, media-src)
+#   S3_PUBLIC_ENDPOINT  - where presigned uploads are PUT to (connect-src)
+#
+# Security audit #16: strict CSP + classic hardening headers. nginx does NOT inherit add_header into a location
+# that declares its own add_header, so the header set is repeated in every location (always = also on errors).
+#   - script-src is 'self' only (Vite emits hashed bundles, no inline scripts);
+#   - style-src needs 'unsafe-inline' because sonner / radix inject <style> elements and inline style attributes -
+#     scripts stay strict, so this does not weaken XSS protection meaningfully;
+#   - frame-ancestors 'none' + X-Frame-Options DENY: the consoles must never be framed (clickjacking).
+
+map $sent_http_content_type $csp_policy {
+    default "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${S3_PUBLIC_URL}; media-src 'self' blob: ${S3_PUBLIC_URL}; font-src 'self' data:; connect-src 'self' ${API_PUBLIC_URL} ${S3_PUBLIC_URL} ${S3_PUBLIC_ENDPOINT}; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
+}
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml font/woff2;
+    gzip_min_length 1024;
+
+    # Hashed build assets can be cached forever; index.html must not be.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header Content-Security-Policy $csp_policy always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+        try_files $uri =404;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        add_header Content-Security-Policy $csp_policy always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

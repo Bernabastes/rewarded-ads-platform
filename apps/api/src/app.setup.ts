@@ -32,10 +32,12 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
   );
   app.use(urlencoded({ extended: true, limit: '1mb' }));
   app.enableCors({
+    // Security audit #16: `credentials: true` (needed for the httpOnly refresh cookie) is only safe with an explicit
+    // origin allow-list; the env schema rejects '*' in production and the wildcard here is development-only.
     origin: config.corsOrigins.includes('*') ? true : config.corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Device-Fingerprint', 'X-Device-Id', 'Idempotency-Key'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Device-Fingerprint', 'X-Device-Id', 'Idempotency-Key', 'X-Auth-Mode'],
     exposedHeaders: ['Idempotent-Replayed'],
   });
   app.setGlobalPrefix(GLOBAL_PREFIX, { exclude: ['health', 'health/ready'] });

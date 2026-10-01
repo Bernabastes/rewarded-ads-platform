@@ -51,6 +51,8 @@ COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
 COPY apps/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 WORKDIR /repo/apps/api
+# Security audit #16: never run the API as root (the image only needs to read its own files and write /tmp).
+USER node
 EXPOSE 3000
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/main.js"]

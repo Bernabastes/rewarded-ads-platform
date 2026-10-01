@@ -1,16 +1,20 @@
-import type { AuthTokens } from '@rap/shared';
+import type { AuthTokens, CookieModeAuthTokens } from '@rap/shared';
 import { STORAGE_PREFIX } from '../brand';
 
 export interface StoredTokens {
   accessToken: string;
-  refreshToken: string;
+  /**
+   * Phase 5 (#16): the console runs in cookie mode - the refresh token lives in the API's httpOnly `rap_refresh`
+   * cookie and is never in JS-readable storage. Kept optional only for sessions stored before the switch.
+   */
+  refreshToken?: string | null;
   /** Epoch ms when the access token expires (client clock). */
   expiresAt: number;
 }
 
 export interface TokenStore {
   get(): StoredTokens | null;
-  set(tokens: AuthTokens): StoredTokens;
+  set(tokens: AuthTokens | CookieModeAuthTokens): StoredTokens;
   clear(): void;
   subscribe(listener: () => void): () => void;
 }
@@ -23,16 +27,16 @@ function readStorage(storage: Storage | null): StoredTokens | null {
     const raw = storage.getItem(KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredTokens>;
-    if (typeof parsed.accessToken !== 'string' || typeof parsed.refreshToken !== 'string') return null;
-    return { accessToken: parsed.accessToken, refreshToken: parsed.refreshToken, expiresAt: Number(parsed.expiresAt) || 0 };
+    if (typeof parsed.accessToken !== 'string') return null;
+    return { accessToken: parsed.accessToken, refreshToken: null, expiresAt: Number(parsed.expiresAt) || 0 };
   } catch {
     return null;
   }
 }
 
 /**
- * Tokens live in memory and are mirrored to localStorage so a reload keeps the session.
- * (Internal tool trade-off; see README "Security notes".)
+ * Only the short-lived access token is kept in memory and mirrored to localStorage so a reload keeps the session
+ * until the next refresh; the long-lived refresh token is an httpOnly cookie owned by the API (security audit #16).
  */
 export function createTokenStore(storage: Storage | null = typeof localStorage !== 'undefined' ? localStorage : null): TokenStore {
   let current = readStorage(storage);
@@ -53,11 +57,11 @@ export function createTokenStore(storage: Storage | null = typeof localStorage !
     set: (tokens) => {
       current = {
         accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
+        refreshToken: null,
         expiresAt: Date.now() + Math.max(0, tokens.expiresIn) * 1000,
       };
       try {
-        storage?.setItem(KEY, JSON.stringify(current));
+        storage?.setItem(KEY, JSON.stringify({ accessToken: current.accessToken, expiresAt: current.expiresAt }));
       } catch {
         /* storage full / disabled - keep in memory */
       }

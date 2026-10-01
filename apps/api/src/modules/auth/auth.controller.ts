@@ -1,5 +1,7 @@
-import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Headers, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AUTH_MODE_HEADER, ErrorCode } from '@rap/shared';
+import type { Request, Response } from 'express';
 import {
   type AuthContext,
   ClientIp,
@@ -8,6 +10,9 @@ import {
   Subjects,
   UserAgent,
 } from '../../common/decorators/auth.decorators';
+import { AppException } from '../../common/errors/app.exception';
+import { AppConfig } from '../../config/app-config';
+import { clearRefreshCookie, deliverTokens, readRefreshCookie, wantsCookieMode } from './auth-cookies';
 import { AuthService } from './auth.service';
 import {
   AdminMfaLoginDto,
@@ -21,10 +26,20 @@ import {
   RefreshTokenDto,
 } from './dto/auth.dto';
 
+const COOKIE_MODE_DOC = {
+  name: AUTH_MODE_HEADER,
+  required: false,
+  description:
+    'Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).',
+};
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly config: AppConfig,
+  ) {}
 
   @Post('otp/request')
   @Public()
@@ -68,27 +83,35 @@ export class AuthController {
   @Post('advertiser/register')
   @Public()
   @ApiOperation({ summary: 'Register an advertiser business account (starts in pending verification)' })
+  @ApiHeader(COOKIE_MODE_DOC)
   @ApiResponse({ status: 409, description: 'EMAIL_ALREADY_REGISTERED' })
-  registerAdvertiser(
+  async registerAdvertiser(
     @Body() dto: AdvertiserRegisterDto,
     @ClientIp() ip: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @UserAgent() userAgent?: string,
   ) {
-    return this.auth.registerAdvertiser(dto, { ip, userAgent });
+    const result = await this.auth.registerAdvertiser(dto, { ip, userAgent });
+    return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
   }
 
   @Post('advertiser/login')
   @Public()
   @ApiOperation({ summary: 'Advertiser email + password login (throttled per IP / account; lockout after repeated failures)' })
+  @ApiHeader(COOKIE_MODE_DOC)
   @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
   @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED (details.retryAfterSeconds)' })
   @ApiResponse({ status: 429, description: 'LOGIN_RATE_LIMITED' })
-  loginAdvertiser(
+  async loginAdvertiser(
     @Body() dto: EmailPasswordLoginDto,
     @ClientIp() ip: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @UserAgent() userAgent?: string,
   ) {
-    return this.auth.loginAdvertiser(dto.email, dto.password, { ip, userAgent });
+    const result = await this.auth.loginAdvertiser(dto.email, dto.password, { ip, userAgent });
+    return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
   }
 
   @Post('admin/login')
@@ -99,11 +122,20 @@ export class AuthController {
       'Throttled per IP and per account (429 LOGIN_RATE_LIMITED) with lockout after repeated failures (423 ACCOUNT_LOCKED). ' +
       'When the admin has TOTP enabled the response is `{ mfaRequired: true, mfaToken, expiresIn }` and the session is only issued by POST /auth/admin/login/mfa.',
   })
+  @ApiHeader(COOKIE_MODE_DOC)
   @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
   @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED (details.retryAfterSeconds)' })
   @ApiResponse({ status: 429, description: 'LOGIN_RATE_LIMITED' })
-  loginAdmin(@Body() dto: EmailPasswordLoginDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
-    return this.auth.loginAdmin(dto.email, dto.password, { ip, userAgent });
+  async loginAdmin(
+    @Body() dto: EmailPasswordLoginDto,
+    @ClientIp() ip: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @UserAgent() userAgent?: string,
+  ) {
+    const result = await this.auth.loginAdmin(dto.email, dto.password, { ip, userAgent });
+    if ('mfaRequired' in result) return result;
+    return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
   }
 
   @Post('admin/login/mfa')
@@ -112,32 +144,73 @@ export class AuthController {
     summary: 'Admin login step 2: TOTP code + the single-use mfaToken from step 1',
     description: 'Wrong codes count toward the account lockout. Returns the same `{ tokens, admin }` payload as a password-only login.',
   })
+  @ApiHeader(COOKIE_MODE_DOC)
   @ApiResponse({ status: 400, description: 'MFA_CODE_INVALID' })
   @ApiResponse({ status: 401, description: 'MFA_TOKEN_INVALID (expired / already used)' })
   @ApiResponse({ status: 423, description: 'ACCOUNT_LOCKED' })
-  loginAdminMfa(@Body() dto: AdminMfaLoginDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
-    return this.auth.loginAdminMfa(dto.mfaToken, dto.code, { ip, userAgent });
+  async loginAdminMfa(
+    @Body() dto: AdminMfaLoginDto,
+    @ClientIp() ip: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @UserAgent() userAgent?: string,
+  ) {
+    const result = await this.auth.loginAdminMfa(dto.mfaToken, dto.code, { ip, userAgent });
+    return { ...result, tokens: deliverTokens(req, res, this.config, result.tokens) };
   }
 
   @Post('refresh')
   @Public()
-  @ApiOperation({ summary: 'Rotate a refresh token (single use; reuse revokes the whole token family)' })
+  @ApiOperation({
+    summary: 'Rotate a refresh token (single use; reuse revokes the whole token family)',
+    description:
+      'Body mode: `{ refreshToken }`. Cookie mode (`X-Auth-Mode: cookie`): the token is read from the httpOnly `rap_refresh` cookie, the rotated one is set as a new cookie and omitted from the body.',
+  })
+  @ApiHeader(COOKIE_MODE_DOC)
   @ApiResponse({ status: 401, description: 'INVALID_TOKEN | TOKEN_EXPIRED | REFRESH_TOKEN_REUSED' })
-  refresh(@Body() dto: RefreshTokenDto, @ClientIp() ip: string, @UserAgent() userAgent?: string) {
-    return this.auth.refresh(dto.refreshToken, { ip, userAgent });
+  async refresh(
+    @Body() dto: RefreshTokenDto,
+    @ClientIp() ip: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @UserAgent() userAgent?: string,
+  ) {
+    const cookieMode = wantsCookieMode(req);
+    const token = cookieMode ? readRefreshCookie(req) ?? dto.refreshToken : dto.refreshToken;
+    if (!token) {
+      if (cookieMode) throw AppException.unauthorized(ErrorCode.INVALID_TOKEN, 'Missing refresh cookie');
+      throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'refreshToken is required');
+    }
+    try {
+      const tokens = await this.auth.refresh(token, { ip, userAgent });
+      return deliverTokens(req, res, this.config, tokens);
+    } catch (err) {
+      // a dead / reused cookie must not keep being sent
+      if (cookieMode) clearRefreshCookie(res, this.config);
+      throw err;
+    }
   }
 
   @Post('logout')
   @Public()
   @HttpCode(204)
+  @ApiHeader(COOKIE_MODE_DOC)
   @ApiOperation({
     summary: 'Revoke a refresh token family (and immediately deny the presented access token)',
     description:
       'Send the refresh token in the body and the current access token as the Bearer header: the access token is denylisted for its remaining lifetime so it stops working right away on this device.',
   })
-  async logout(@Body() dto: LogoutDto, @Headers('authorization') authorization?: string) {
+  async logout(
+    @Body() dto: LogoutDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Headers('authorization') authorization?: string,
+  ) {
     const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
-    await this.auth.logout(dto.refreshToken, accessToken);
+    // cookie mode: the httpOnly cookie carries the token and is cleared regardless of the outcome
+    const token = wantsCookieMode(req) ? readRefreshCookie(req) ?? dto.refreshToken : dto.refreshToken;
+    if (wantsCookieMode(req)) clearRefreshCookie(res, this.config);
+    if (token) await this.auth.logout(token, accessToken);
   }
 
   @Post('advertiser/change-password')

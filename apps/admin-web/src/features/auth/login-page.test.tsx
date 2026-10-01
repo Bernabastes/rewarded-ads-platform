@@ -44,7 +44,9 @@ describe('LoginPage', () => {
     await waitFor(() => expect(authStore.getState().status).toBe('authenticated'));
     expect(authStore.getState().admin?.role).toBe('ad_reviewer');
     expect(authStore.getState().admin?.permissions).toContain('ads.review');
-    expect(tokenStore.get()?.refreshToken).toBe('refresh-login');
+    expect(tokenStore.get()?.accessToken).toBe('access-login');
+    // Security audit #16: the refresh token is an httpOnly cookie, never in JS-readable storage
+    expect(tokenStore.get()?.refreshToken ?? null).toBeNull();
   });
 
   it('explains why the previous session ended', async () => {
@@ -101,7 +103,8 @@ describe('LoginPage', () => {
       await user.click(screen.getByRole('button', { name: /verify & sign in/i }));
       await waitFor(() => expect(authStore.getState().status).toBe('authenticated'));
       expect(mfaBody).toEqual({ mfaToken: 'mfa-token-1', code: '246810' });
-      expect(tokenStore.get()?.refreshToken).toBe('refresh-mfa');
+      expect(tokenStore.get()?.accessToken).toBe('access-mfa');
+      expect(tokenStore.get()?.refreshToken ?? null).toBeNull();
       expect(authStore.getState().admin?.mfaEnabled).toBe(true);
     });
   });

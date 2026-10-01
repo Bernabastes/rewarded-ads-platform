@@ -27,7 +27,9 @@ ENV VITE_API_URL=$VITE_API_URL VITE_PUBLIC_URL=$VITE_PUBLIC_URL
 RUN node scripts/build-shared.mjs && cd apps/advertiser-web && pnpm exec vite build
 
 FROM nginx:1.27-alpine AS runtime
-COPY docker/nginx-spa.conf /etc/nginx/conf.d/default.conf
+# Security audit #16: rendered by the image's envsubst at start-up (CSP needs the API / media origins).
+COPY docker/nginx-spa.conf.template /etc/nginx/templates/default.conf.template
+ENV API_PUBLIC_URL=http://localhost:3000 S3_PUBLIC_URL=http://localhost:9000 S3_PUBLIC_ENDPOINT=http://localhost:9000
 COPY --from=build /repo/apps/advertiser-web/dist /usr/share/nginx/html
 EXPOSE 80
 HEALTHCHECK --interval=15s --timeout=3s CMD wget -q --spider http://127.0.0.1/ || exit 1

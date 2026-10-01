@@ -1,5 +1,7 @@
 import {
   API_ROUTES,
+  AUTH_MODE_COOKIE,
+  AUTH_MODE_HEADER,
   IDEMPOTENCY_KEY_HEADER,
   type AdFeedItem,
   type AdFeedMeta,
@@ -69,13 +71,21 @@ const q = (params: object | undefined): QueryParams => (params ?? {}) as QueryPa
 
 /* ------------------------------- auth ------------------------------- */
 
+/** Security audit #16: the console asks the API to keep the refresh token in an httpOnly cookie. */
+const COOKIE_MODE = { headers: { [AUTH_MODE_HEADER]: AUTH_MODE_COOKIE } };
+
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post<AdminLoginResponse>(API_ROUTES.auth.adminLogin, { email, password }, { anonymous: true }),
+    api.post<AdminLoginResponse>(API_ROUTES.auth.adminLogin, { email, password }, { anonymous: true, ...COOKIE_MODE }),
   /** Second login step for admins with TOTP enabled (Phase 5 #5). */
   loginMfa: (mfaToken: string, code: string) =>
-    api.post<AdminAuthResponse>(API_ROUTES.auth.adminLoginMfa, { mfaToken, code }, { anonymous: true }),
-  logout: (refreshToken: string) => api.post<void>(API_ROUTES.auth.logout, { refreshToken }, { anonymous: true }),
+    api.post<AdminAuthResponse>(API_ROUTES.auth.adminLoginMfa, { mfaToken, code }, { anonymous: true, ...COOKIE_MODE }),
+  /** The refresh cookie carries the token; the current access token is sent so its jti is denylisted at once. */
+  logout: (accessToken?: string) =>
+    api.post<void>(API_ROUTES.auth.logout, {}, {
+      anonymous: true,
+      headers: { ...COOKIE_MODE.headers, ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+    }),
   me: () => api.get<AdminMe>(API_ROUTES.admin.me),
 };
 

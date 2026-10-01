@@ -60,12 +60,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    const refreshToken = authStore.getTokens()?.refreshToken;
+    const accessToken = authStore.getTokens()?.accessToken;
     authStore.clear();
     queryClient.clear();
-    if (refreshToken) {
+    if (accessToken) {
       try {
-        await authApi.logout(refreshToken);
+        // cookie mode: the httpOnly refresh cookie is revoked + cleared server-side (security audit #16)
+        await authApi.logout(accessToken);
       } catch {
         // Best effort: the local session is already gone.
       }

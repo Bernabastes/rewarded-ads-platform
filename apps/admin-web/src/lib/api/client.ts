@@ -1,4 +1,4 @@
-import { API_ROUTES, type AuthTokens, ErrorCode } from '@rap/shared';
+import { API_ROUTES, AUTH_MODE_COOKIE, AUTH_MODE_HEADER, type CookieModeAuthTokens, ErrorCode } from '@rap/shared';
 import { ApiError } from './errors';
 import type { StoredTokens, TokenStore } from './token-store';
 
@@ -116,24 +116,26 @@ export class ApiClient {
   private async doRefresh(current: StoredTokens): Promise<StoredTokens | null> {
     let res: Response;
     try {
+      // Security audit #16: cookie mode - the httpOnly rap_refresh cookie carries the token, the body is empty.
       res = await this.fetchImpl(`${this.options.baseUrl}${API_ROUTES.auth.refresh}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ refreshToken: current.refreshToken }),
+        headers: { 'content-type': 'application/json', accept: 'application/json', [AUTH_MODE_HEADER]: AUTH_MODE_COOKIE },
+        credentials: 'include',
+        body: JSON.stringify({}),
       });
     } catch {
       // Network blip: keep the tokens; the original request will surface a network error.
       return null;
     }
     if (!res.ok) {
-      // Only give up if our refresh token is still the one that failed (a parallel tab may have rotated it).
-      if (this.options.tokens.get()?.refreshToken === current.refreshToken) {
+      // Only give up if our access token is still the one we tried to refresh (a parallel tab may have rotated it).
+      if (this.options.tokens.get()?.accessToken === current.accessToken) {
         this.options.tokens.clear();
         this.options.onAuthLost?.('refresh_failed');
       }
       return this.options.tokens.get();
     }
-    const tokens = (await res.json()) as AuthTokens;
+    const tokens = (await res.json()) as CookieModeAuthTokens;
     return this.options.tokens.set(tokens);
   }
 
@@ -148,6 +150,8 @@ export class ApiClient {
       res = await this.fetchImpl(`${this.options.baseUrl}${path}${buildQuery(options.query)}`, {
         method,
         headers,
+        // cookie-mode auth endpoints (login / logout) need the httpOnly refresh cookie to travel
+        credentials: 'include',
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: options.signal,
       });

@@ -1,7 +1,13 @@
-import type { AdvertiserProfile, AuthTokens } from '@rap/shared';
+import type { AdvertiserProfile, AuthTokens, CookieModeAuthTokens } from '@rap/shared';
+
+/**
+ * Security audit #16: the portal runs in cookie mode - the API keeps the refresh token in an httpOnly cookie, so
+ * only the short-lived access token ever reaches JS / storage.
+ */
+export type SessionTokens = AuthTokens | CookieModeAuthTokens;
 
 export interface AuthSession {
-  tokens: AuthTokens;
+  tokens: SessionTokens;
   profile: AdvertiserProfile;
   /** ms epoch when the access token expires (derived from the JWT `exp` claim or `expiresIn`). */
   accessTokenExpiresAt: number;
@@ -56,7 +62,8 @@ function persist(session: AuthSession | null) {
   const target = remember ? safeStorage('local') : safeStorage('session');
   safeStorage('local')?.removeItem(AUTH_STORAGE_KEY);
   safeStorage('session')?.removeItem(AUTH_STORAGE_KEY);
-  if (session) target?.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  // never persist a refresh token (legacy body-mode sessions) - the cookie is the only place it lives now
+  if (session) target?.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...session, tokens: { ...session.tokens, refreshToken: undefined } }));
 }
 
 /** Decode the `exp` claim of a JWT without verifying it (informational only). */
@@ -72,7 +79,7 @@ export function decodeJwtExpiry(token: string): number | null {
   }
 }
 
-export function computeExpiry(tokens: AuthTokens, now = Date.now()): number {
+export function computeExpiry(tokens: SessionTokens, now = Date.now()): number {
   return decodeJwtExpiry(tokens.accessToken) ?? now + tokens.expiresIn * 1000;
 }
 
@@ -91,14 +98,14 @@ export const authStore = {
   setRemember(remember: boolean) {
     safeStorage('local')?.setItem(REMEMBER_KEY, remember ? 'true' : 'false');
   },
-  signIn(tokens: AuthTokens, profile: AdvertiserProfile, remember = true) {
+  signIn(tokens: SessionTokens, profile: AdvertiserProfile, remember = true) {
     authStore.setRemember(remember);
     const session: AuthSession = { tokens, profile, accessTokenExpiresAt: computeExpiry(tokens) };
     state = { status: 'authenticated', session };
     persist(session);
     emit();
   },
-  setTokens(tokens: AuthTokens) {
+  setTokens(tokens: SessionTokens) {
     if (!state.session) return;
     const session: AuthSession = { ...state.session, tokens, accessTokenExpiresAt: computeExpiry(tokens) };
     state = { status: 'authenticated', session };
@@ -112,7 +119,7 @@ export const authStore = {
     persist(session);
     emit();
   },
-  getTokens(): AuthTokens | null {
+  getTokens(): SessionTokens | null {
     return state.session?.tokens ?? null;
   },
   clear() {

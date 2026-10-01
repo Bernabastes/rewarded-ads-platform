@@ -57,9 +57,10 @@ export function useAuth(): AuthApi {
       impersonationStore.end();
       authStore.setState({ status: 'anonymous', admin: null, lastLogoutReason: reason });
       queryClient.clear();
-      if (tokens?.refreshToken) {
+      if (tokens) {
         try {
-          await authApi.logout(tokens.refreshToken);
+          // cookie mode: the httpOnly refresh cookie is revoked + cleared server-side (security audit #16)
+          await authApi.logout(tokens.accessToken);
         } catch {
           /* best effort */
         }

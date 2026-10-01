@@ -1,6 +1,6 @@
 import { ErrorCode, type AuthTokens } from '@rap/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { ApiClient, buildQuery, type TokenStore } from './client';
+import { ApiClient, buildQuery, type SessionTokens, type TokenStore } from './client';
 import { ApiError, ClientErrorCode } from './errors';
 
 const BASE = 'http://api.test/api/v1';
@@ -22,7 +22,7 @@ function makeTokens(suffix: string): AuthTokens {
   };
 }
 
-function makeStore(initial: AuthTokens | null, expiry: number | null = null) {
+function makeStore(initial: SessionTokens | null, expiry: number | null = null) {
   let tokens = initial;
   const store: TokenStore & { expired: string[] } = {
     expired: [],
@@ -93,7 +93,10 @@ describe('ApiClient', () => {
       const auth = new Headers(init?.headers).get('Authorization');
       calls.push(`${init?.method} ${String(url).replace(BASE, '')} ${auth}`);
       if (String(url).endsWith('/auth/refresh')) {
-        expect(JSON.parse(String(init?.body))).toEqual({ refreshToken: 'refresh-old' });
+        // Security audit #16: cookie mode - no refresh token in the body, the httpOnly cookie travels instead
+        expect(JSON.parse(String(init?.body))).toEqual({});
+        expect(new Headers(init?.headers).get('X-Auth-Mode')).toBe('cookie');
+        expect(init?.credentials).toBe('include');
         return json(makeTokens('new'));
       }
       if (auth === 'Bearer access-old') return envelope(401, ErrorCode.TOKEN_EXPIRED);
@@ -153,13 +156,25 @@ describe('ApiClient', () => {
     expect(store.expired).toEqual([ErrorCode.REFRESH_TOKEN_REUSED]);
   });
 
-  it('logs out immediately when there is no refresh token to use', async () => {
-    const store = makeStore({ ...makeTokens('x'), refreshToken: '' });
+  it('logs out immediately when there is no session to refresh', async () => {
+    const store = makeStore(null);
     const fetchFn = vi.fn(async () => envelope(401, ErrorCode.UNAUTHORIZED));
     const client = new ApiClient({ baseUrl: BASE, tokens: store, fetchFn: fetchFn as typeof fetch });
     await expect(client.get('/campaigns')).rejects.toMatchObject({ code: ErrorCode.UNAUTHORIZED });
     expect(store.expired).toEqual([ErrorCode.UNAUTHORIZED]);
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('expires the session (cookie cleared server-side) when the cookie-mode refresh is refused', async () => {
+    const store = makeStore({ accessToken: 'access-cookie', expiresIn: 900, tokenType: 'Bearer', authMode: 'cookie' });
+    const fetchFn = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith('/auth/refresh')) return envelope(401, ErrorCode.INVALID_TOKEN);
+      return envelope(401, ErrorCode.TOKEN_EXPIRED);
+    });
+    const client = new ApiClient({ baseUrl: BASE, tokens: store, fetchFn: fetchFn as typeof fetch });
+    await expect(client.get('/campaigns')).rejects.toMatchObject({ code: ErrorCode.TOKEN_EXPIRED });
+    expect(store.expired).toEqual([ErrorCode.INVALID_TOKEN]);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it('refreshes proactively when the access token is about to expire', async () => {

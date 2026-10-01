@@ -76,9 +76,13 @@ describe('ApiClient', () => {
     const client = new ApiClient({ baseUrl: BASE, tokens: store, fetch: fetchImpl });
     await expect(client.get('/admin/me')).resolves.toEqual({ id: 'me' });
     expect(calls.map((c) => c.url)).toEqual([`${BASE}/admin/me`, `${BASE}/auth/refresh`, `${BASE}/admin/me`]);
-    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({ refreshToken: 'refresh-1' });
+    // Security audit #16: cookie mode - no refresh token in the body, the httpOnly cookie travels with credentials
+    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({});
+    expect((calls[1]!.init.headers as Record<string, string>)['X-Auth-Mode']).toBe('cookie');
+    expect(calls[1]!.init.credentials).toBe('include');
     expect(authHeader(calls[2]!.init)).toBe('Bearer access-2');
-    expect(store.get()?.refreshToken).toBe('refresh-2');
+    expect(store.get()?.accessToken).toBe('access-2');
+    expect(store.get()?.refreshToken ?? null).toBeNull();
   });
 
   it('shares a single in-flight refresh between concurrent 401s and queues the retries', async () => {

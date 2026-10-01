@@ -510,6 +510,48 @@ describe('API e2e smoke (user money flow)', () => {
     await http.post('/api/v1/auth/refresh').send({ refreshToken: rotated.body.refreshToken }).expect(401);
   }, 30_000);
 
+  /** Security audit #16: web clients keep the refresh token in an httpOnly cookie; the body never carries it. */
+  it('cookie mode: login sets rap_refresh (httpOnly, SameSite=Strict), refresh rotates it, logout clears it', async () => {
+    if (skipIfUnreachable()) return;
+    const login = await http
+      .post('/api/v1/auth/admin/login')
+      .set('X-Auth-Mode', 'cookie')
+      .send({ email: 'support@rap.et', password: 'Admin123!' })
+      .expect(201);
+    expect(login.body.tokens.refreshToken).toBeUndefined();
+    expect(login.body.tokens.authMode).toBe('cookie');
+    expect(login.body.tokens.accessToken).toBeTruthy();
+    const setCookie = (login.headers['set-cookie'] as unknown as string[]) ?? [];
+    const cookie = setCookie.find((c) => c.startsWith('rap_refresh='));
+    expect(cookie).toBeTruthy();
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/SameSite=Strict/i);
+    expect(cookie).toMatch(/Path=\/api\/v1\/auth/);
+    const cookieValue = cookie!.split(';')[0];
+
+    // body-mode refresh with no token is a validation error; cookie-mode refresh needs no body
+    await http.post('/api/v1/auth/refresh').send({}).expect(400);
+    const refreshed = await http.post('/api/v1/auth/refresh').set('X-Auth-Mode', 'cookie').set('Cookie', cookieValue).send({}).expect(201);
+    expect(refreshed.body.refreshToken).toBeUndefined();
+    expect(refreshed.body.authMode).toBe('cookie');
+    const rotatedCookie = ((refreshed.headers['set-cookie'] as unknown as string[]) ?? []).find((c) => c.startsWith('rap_refresh='));
+    expect(rotatedCookie).toBeTruthy();
+    expect(rotatedCookie!.split(';')[0]).not.toBe(cookieValue);
+
+    // replaying the OLD cookie = reuse -> 401 and the cookie is cleared
+    const reuse = await http.post('/api/v1/auth/refresh').set('X-Auth-Mode', 'cookie').set('Cookie', cookieValue).send({}).expect(401);
+    expect(reuse.body.code).toBe('REFRESH_TOKEN_REUSED');
+    const cleared = ((reuse.headers['set-cookie'] as unknown as string[]) ?? []).find((c) => c.startsWith('rap_refresh='));
+    expect(cleared).toMatch(/rap_refresh=;|Expires=Thu, 01 Jan 1970/);
+
+    // logout in cookie mode clears the cookie too
+    const again = await http.post('/api/v1/auth/admin/login').set('X-Auth-Mode', 'cookie').send({ email: 'support@rap.et', password: 'Admin123!' }).expect(201);
+    const c2 = ((again.headers['set-cookie'] as unknown as string[]) ?? []).find((c) => c.startsWith('rap_refresh='))!.split(';')[0];
+    const out = await http.post('/api/v1/auth/logout').set('X-Auth-Mode', 'cookie').set('Cookie', c2).send({}).expect(204);
+    expect(((out.headers['set-cookie'] as unknown as string[]) ?? []).some((c) => c.startsWith('rap_refresh=') && /Expires=Thu, 01 Jan 1970/.test(c))).toBe(true);
+    await http.post('/api/v1/auth/refresh').set('X-Auth-Mode', 'cookie').set('Cookie', c2).send({}).expect(401);
+  }, 30_000);
+
   it('serves the OpenAPI document', async () => {
     if (skipIfUnreachable()) return;
     const res = await http.get('/health').expect(200);

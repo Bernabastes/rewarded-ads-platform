@@ -1,5 +1,7 @@
 import {
   API_ROUTES,
+  AUTH_MODE_COOKIE,
+  AUTH_MODE_HEADER,
   IDEMPOTENCY_KEY_HEADER,
   type AcceptConsentDto,
   type AdvertiserAuthResponse,
@@ -8,7 +10,6 @@ import {
   type AdvertiserProfile,
   type AdvertiserRegisterDto,
   type AdSummary,
-  type AuthTokens,
   type CampaignAnalytics,
   type CampaignDetail,
   type CampaignStatus,
@@ -35,17 +36,20 @@ import {
 } from '@rap/shared';
 import { env } from '@/config/env';
 import { authStore } from './auth-store';
-import { ApiClient } from './client';
+import { ApiClient, type SessionTokens } from './client';
 
 export const apiClient = new ApiClient({
   baseUrl: env.apiBaseUrl,
   tokens: {
     get: () => authStore.getTokens(),
-    set: (tokens: AuthTokens) => authStore.setTokens(tokens),
+    set: (tokens: SessionTokens) => authStore.setTokens(tokens),
     expire: (reason) => authStore.expire(reason),
     getAccessTokenExpiry: () => authStore.getState().session?.accessTokenExpiresAt ?? null,
   },
 });
+
+/** Security audit #16: ask the API to keep the refresh token in an httpOnly cookie instead of the body. */
+const COOKIE_MODE = { headers: { [AUTH_MODE_HEADER]: AUTH_MODE_COOKIE } };
 
 export interface PageQuery {
   page?: number;
@@ -70,11 +74,15 @@ export interface AdvertiserConsentState {
 
 export const authApi = {
   login: (dto: EmailPasswordLoginDto) =>
-    apiClient.post<AdvertiserAuthResponse>(API_ROUTES.auth.advertiserLogin, dto, { auth: false }),
+    apiClient.post<AdvertiserAuthResponse>(API_ROUTES.auth.advertiserLogin, dto, { auth: false, ...COOKIE_MODE }),
   register: (dto: AdvertiserRegisterDto) =>
-    apiClient.post<AdvertiserAuthResponse>(API_ROUTES.auth.advertiserRegister, dto, { auth: false }),
-  logout: (refreshToken: string) =>
-    apiClient.post<void>(API_ROUTES.auth.logout, { refreshToken }, { auth: false }),
+    apiClient.post<AdvertiserAuthResponse>(API_ROUTES.auth.advertiserRegister, dto, { auth: false, ...COOKIE_MODE }),
+  /** The refresh cookie carries the token; the access token is sent so its jti is denylisted immediately. */
+  logout: (accessToken?: string) =>
+    apiClient.post<void>(API_ROUTES.auth.logout, {}, {
+      auth: false,
+      headers: { ...COOKIE_MODE.headers, ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+    }),
   changePassword: (dto: ChangePasswordDto) =>
     apiClient.post<ChangePasswordResponse>(API_ROUTES.auth.advertiserChangePassword, dto),
 };

@@ -1,5 +1,8 @@
-import { API_ROUTES, ErrorCode, type AuthTokens } from '@rap/shared';
+import { API_ROUTES, AUTH_MODE_COOKIE, AUTH_MODE_HEADER, ErrorCode, type AuthTokens, type CookieModeAuthTokens } from '@rap/shared';
 import { ApiError, ClientErrorCode, isApiErrorEnvelope } from './errors';
+
+/** Tokens as held by the web client: body mode (legacy) or cookie mode (security audit #16). */
+export type SessionTokens = AuthTokens | CookieModeAuthTokens;
 
 export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
@@ -19,8 +22,8 @@ export interface RequestOptions {
 }
 
 export interface TokenStore {
-  get(): AuthTokens | null;
-  set(tokens: AuthTokens): void;
+  get(): SessionTokens | null;
+  set(tokens: SessionTokens): void;
   /** Called once when the session cannot be recovered (refresh failed / reuse detected). */
   expire(reason: string): void;
   /** ms epoch when the current access token expires, if known. */
@@ -53,7 +56,7 @@ export function buildQuery(query?: QueryInput): string {
  * when the refresh itself fails (`REFRESH_TOKEN_REUSED`, expired refresh token…).
  */
 export class ApiClient {
-  private refreshPromise: Promise<AuthTokens | null> | null = null;
+  private refreshPromise: Promise<SessionTokens | null> | null = null;
   private readonly fetchFn: typeof fetch;
   private readonly now: () => number;
   private readonly refreshLeewayMs: number;
@@ -102,26 +105,28 @@ export class ApiClient {
   }
 
   /** Single-flight refresh: concurrent callers share one network call and one token rotation. */
-  refresh(triggerCode?: string): Promise<AuthTokens | null> {
+  refresh(triggerCode?: string): Promise<SessionTokens | null> {
     if (this.refreshPromise) return this.refreshPromise;
     const current = this.options.tokens.get();
-    if (!current?.refreshToken) {
+    if (!current) {
       this.options.tokens.expire(triggerCode ?? ErrorCode.UNAUTHORIZED);
       return Promise.resolve(null);
     }
     this.refreshPromise = (async () => {
       try {
+        // Security audit #16: cookie mode - the httpOnly rap_refresh cookie carries the token, the body is empty.
         const response = await this.fetchFn(`${this.options.baseUrl}${API_ROUTES.auth.refresh}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ refreshToken: current.refreshToken }),
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', [AUTH_MODE_HEADER]: AUTH_MODE_COOKIE },
+          credentials: 'include',
+          body: JSON.stringify({}),
         });
         if (!response.ok) {
           const error = await this.toError(response);
           this.options.tokens.expire(error.code);
           return null;
         }
-        const tokens = (await response.json()) as AuthTokens;
+        const tokens = (await response.json()) as CookieModeAuthTokens;
         this.options.tokens.set(tokens);
         return tokens;
       } catch (error) {
@@ -159,6 +164,8 @@ export class ApiClient {
       return await this.fetchFn(`${this.options.baseUrl}${path}${buildQuery(options.query)}`, {
         method: options.method ?? 'GET',
         headers,
+        // cookie-mode auth endpoints (login / logout) need the httpOnly refresh cookie to travel
+        credentials: 'include',
         body,
         signal: options.signal,
       });

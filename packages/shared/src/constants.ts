@@ -63,6 +63,17 @@ export const REFERRAL_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
 export const IDEMPOTENT_REPLAYED_HEADER = 'Idempotent-Replayed';
 
+/**
+ * Phase 5 (#16) - browser refresh-token mode. Send `X-Auth-Mode: cookie` (or `?mode=cookie`) on the login /
+ * register / refresh / logout endpoints and the API keeps the refresh token in an httpOnly, Secure,
+ * SameSite=Strict cookie (`rap_refresh`, path /api/v1/auth) instead of returning it in the body
+ * (`tokens.refreshToken` is omitted, `tokens.authMode === 'cookie'`). Requests must be made with
+ * `credentials: 'include'`. The mobile app keeps the default body mode.
+ */
+export const AUTH_MODE_HEADER = 'X-Auth-Mode';
+export const AUTH_MODE_COOKIE = 'cookie';
+export const REFRESH_COOKIE_NAME = 'rap_refresh';
+
 /** Endpoints that honour `Idempotency-Key` (relative to API_BASE_PATH). */
 export const IDEMPOTENT_ENDPOINTS = [
   'POST /withdrawals',
