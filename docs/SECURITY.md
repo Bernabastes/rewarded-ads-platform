@@ -129,7 +129,8 @@ Most of these are **enforced** by the env schema (`apps/api/src/config/env.ts`):
 refuses to start until they hold. The rest are operational.
 
 Enforced at boot:
-- [ ] `JWT_ACCESS_SECRET` ≥ 32 random chars (not the dev default); `KYC_HASH_KEY` ≥ 32 chars; `MFA_ENCRYPTION_KEY` set
+- [ ] `JWT_ACCESS_SECRET` ≥ 32 random chars (not the dev default); `KYC_HASH_KEY` ≥ 32 chars; `MFA_ENCRYPTION_KEY`
+      ≥ 32 chars and different from both (dedicated key for TOTP secrets at rest - New-4)
 - [ ] `CHAPA_SECRET_KEY` + `CHAPA_WEBHOOK_SECRET` (real gateway), `PAYOUTS_MOCK=false` with telebirr / Chapa payout credentials
 - [ ] `SMS_PROVIDER=http` (or another real provider) with `SMS_API_URL` / `SMS_API_KEY`
 - [ ] non-default `S3_ACCESS_KEY` / `S3_SECRET_KEY` (≥ 16 chars); `CORS_ORIGINS` is an explicit list (no `*`)

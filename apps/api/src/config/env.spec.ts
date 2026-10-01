@@ -20,6 +20,7 @@ describe('env schema production gates', () => {
     SMS_API_URL: 'https://sms.example.et/send',
     SMS_API_KEY: 'sms-key',
     KYC_HASH_KEY: 'k'.repeat(40),
+    MFA_ENCRYPTION_KEY: 'm'.repeat(40),
     SWAGGER_ENABLED: 'false',
     OTP_DEV_ECHO: 'false',
   };
@@ -48,6 +49,10 @@ describe('env schema production gates', () => {
     ['OTP echo', { OTP_DEV_ECHO: 'true' }, 'OTP_DEV_ECHO'],
     ['fixed OTP', { OTP_DEV_FIXED_CODE: '123456' }, 'OTP_DEV_FIXED_CODE'],
     ['missing KYC hash key', { KYC_HASH_KEY: '' }, 'KYC_HASH_KEY'],
+    ['missing MFA encryption key (New-4: TOTP secrets must not fall back to the JWT secret)', { MFA_ENCRYPTION_KEY: '' }, 'MFA_ENCRYPTION_KEY'],
+    ['short MFA encryption key', { MFA_ENCRYPTION_KEY: 'short-key' }, 'MFA_ENCRYPTION_KEY'],
+    ['MFA encryption key equal to the JWT secret', { MFA_ENCRYPTION_KEY: 'p'.repeat(48) }, 'MFA_ENCRYPTION_KEY'],
+    ['MFA encryption key equal to the KYC hash key', { MFA_ENCRYPTION_KEY: 'k'.repeat(40) }, 'MFA_ENCRYPTION_KEY'],
     ['Swagger enabled', { SWAGGER_ENABLED: 'true' }, 'SWAGGER_ENABLED'],
   ])('rejects %s', (_label, overrides, path) => {
     expect(issuesFor(overrides)).toContain(path);

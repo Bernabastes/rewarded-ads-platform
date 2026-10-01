@@ -22,8 +22,9 @@ export const mfaUsedCodeKey = (adminId: string, code: string) => `mfa:used:${adm
 /**
  * Security audit #5: admin TOTP (RFC 6238) second factor.
  *
- * - Secrets are AES-256-GCM encrypted at rest with a key derived (SHA-256) from MFA_ENCRYPTION_KEY
- *   (falls back to JWT_ACCESS_SECRET - production requires the dedicated key via the env schema).
+ * - Secrets are AES-256-GCM encrypted at rest with a key derived (SHA-256) from MFA_ENCRYPTION_KEY. Outside
+ *   production it falls back to JWT_ACCESS_SECRET for convenience; the env schema REQUIRES a dedicated
+ *   >= 32-character key that differs from the JWT / KYC keys in production (Phase 5b New-4).
  * - `setup` stores a PENDING secret (`mfaEnabledAt` null); only `enable` with a valid code activates it,
  *   so a half-finished setup never locks an admin out.
  * - Each accepted code is remembered in Redis for 2 steps so it cannot be replayed inside the skew window.

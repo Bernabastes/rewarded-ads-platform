@@ -180,7 +180,7 @@ export const envSchema = z
     SWAGGER_ENABLED: bool.default(true),
     /** HMAC key for the KYC identity-number duplicate hash (#14). Required (>= 32 chars) in production. */
     KYC_HASH_KEY: z.string().optional(),
-    /** AES-256-GCM key (any string, hashed) for admin TOTP secrets at rest; falls back to JWT_ACCESS_SECRET. */
+    /** AES-256-GCM key (any string, hashed) for admin TOTP secrets at rest. Production: required, >= 32 chars, != JWT secret (New-4). */
     MFA_ENCRYPTION_KEY: z.string().optional(),
     /** finance / super_admin accounts must have TOTP enabled; until then every non-MFA admin route is 403 MFA_SETUP_REQUIRED. */
     ADMIN_MFA_REQUIRED: bool.default(false),
@@ -233,6 +233,12 @@ export const envSchema = z
       if (env.CORS_ORIGINS.split(',').some((o) => o.trim() === '*')) issue('CORS_ORIGINS', 'wildcard origins are not allowed in production (credentials: true)');
       if (env.SMS_PROVIDER === 'mock') issue('SMS_PROVIDER', 'the mock SMS provider (OTPs in logs) is not allowed in production');
       if (!env.KYC_HASH_KEY || env.KYC_HASH_KEY.length < 32) issue('KYC_HASH_KEY', 'a >= 32 character HMAC key for identity-number hashes is required in production');
+      // Phase 5b New-4: TOTP secrets must not be protected by the token-signing key (one leak would expose both).
+      if (!env.MFA_ENCRYPTION_KEY || env.MFA_ENCRYPTION_KEY.length < 32) {
+        issue('MFA_ENCRYPTION_KEY', 'a dedicated >= 32 character key for admin TOTP secrets at rest is required in production');
+      } else if (env.MFA_ENCRYPTION_KEY === env.JWT_ACCESS_SECRET || env.MFA_ENCRYPTION_KEY === env.KYC_HASH_KEY) {
+        issue('MFA_ENCRYPTION_KEY', 'must differ from JWT_ACCESS_SECRET and KYC_HASH_KEY');
+      }
       if (env.SWAGGER_ENABLED) issue('SWAGGER_ENABLED', 'the interactive API docs must stay disabled in production');
     }
     if (env.SMS_PROVIDER === 'http' && !(env.SMS_API_URL && env.SMS_API_KEY)) {
