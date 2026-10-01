@@ -1273,7 +1273,7 @@ async function main() {
           amount: coinAmount,
           sourceType: 'withdrawal_reversal',
           sourceId: w.id,
-          idempotencyKey: `withdrawal_reversal:${w.id}:${status === 'failed' ? 1 : 0}`,
+          idempotencyKey: `withdrawal_reversal:${hold.entry.id}`,
           description:
             status === 'failed'
               ? `Payout failed: ${opts.failureReason}`

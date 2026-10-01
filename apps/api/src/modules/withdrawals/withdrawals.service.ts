@@ -607,18 +607,37 @@ export class WithdrawalsService {
     return reasons;
   }
 
+  /**
+   * Refund the CURRENTLY held coins. Keyed to the hold ledger entry being reversed (#6): after fail -> retry
+   * (new hold) -> reject, the second reversal has its own key instead of replaying the first one and leaving the
+   * user's coins held forever. A replay where a fresh reversal is expected aborts the transaction.
+   */
   private async reverseHold(tx: Prisma.TransactionClient, w: Withdrawal, description: string) {
+    const holdEntryId = w.ledgerHoldEntryId;
+    if (!holdEntryId) {
+      this.logger.error(`Withdrawal ${w.id} has no hold ledger entry to reverse`);
+      throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, 'Withdrawal has no hold to refund');
+    }
     const reversal = await this.ledger.applyEntry(
       {
         userId: w.userId,
         amount: w.coinAmount,
         sourceType: 'withdrawal_reversal',
         sourceId: w.id,
-        idempotencyKey: `withdrawal_reversal:${w.id}:${w.attempts}`,
+        idempotencyKey: `withdrawal_reversal:${holdEntryId}`,
         description,
       },
       tx,
     );
+    if (reversal.replayed) {
+      this.security.error('ledger.write', {
+        withdrawalId: w.id,
+        holdEntryId,
+        problem: 'reversal_replayed',
+        detail: 'a reversal for this hold already exists; refusing to mark the withdrawal reversed twice',
+      });
+      throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, 'This hold was already refunded');
+    }
     await tx.withdrawal.update({ where: { id: w.id }, data: { ledgerReversalEntryId: reversal.entry.id } });
   }
 

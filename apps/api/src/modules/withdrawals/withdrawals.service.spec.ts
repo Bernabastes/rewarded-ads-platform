@@ -312,20 +312,76 @@ describe('WithdrawalsService', () => {
       expect(prisma.withdrawal.update.mock.calls[0][0].data).toMatchObject({ status: 'pending' });
     });
 
-    it('rejection refunds the hold with a reversing ledger entry', async () => {
+    it('rejection refunds the hold with a reversing ledger entry keyed to the hold entry', async () => {
       prisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
       prisma.withdrawalApproval.upsert.mockResolvedValue({});
+      prisma.withdrawal.findUnique.mockImplementation(async ({ include }: any) =>
+        include?.user ? { ...held(), user: {}, approvals: [] } : held({ ledgerHoldEntryId: uuid(31) }),
+      );
       balance = 0;
       await service.reject(WD, finance(ADMIN_A), 'Destination mismatch');
       expect(prisma.coinLedger.create.mock.calls[0][0].data).toMatchObject({
         amount: 65_000,
         sourceType: 'withdrawal_reversal',
-        idempotencyKey: `withdrawal_reversal:${WD}:0`,
+        idempotencyKey: `withdrawal_reversal:${uuid(31)}`,
       });
       expect(balance).toBe(65_000);
       expect(notifications.notify).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'withdrawal_status' }),
       );
+    });
+
+    it('REGRESSION #6: fail -> retry -> reject refunds the RETRY hold instead of replaying the first reversal', async () => {
+      // In-memory ledger with real idempotency semantics (keys that exist are replayed, never re-credited).
+      const ledgerKeys = new Map<string, { id: string; amount: number }>();
+      let seq = 100;
+      prisma.coinLedger.findUnique.mockImplementation(async ({ where }: any) => ledgerKeys.get(where.idempotencyKey) ?? null);
+      prisma.coinLedger.create.mockImplementation(async ({ data }: any) => {
+        const entry = { id: uuid(seq++), createdAt: new Date(), ...data };
+        ledgerKeys.set(data.idempotencyKey, { id: entry.id, amount: data.amount });
+        return entry;
+      });
+      prisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
+      prisma.withdrawalApproval.upsert.mockResolvedValue({});
+      const row: Record<string, any> = held({ status: 'processing', attempts: 1, requiresDualApproval: false, ledgerHoldEntryId: uuid(31) });
+      ledgerKeys.set(`withdrawal_hold:${WD}`, { id: uuid(31), amount: -65_000 });
+      balance = 0; // coins are held
+      prisma.withdrawal.findUnique.mockImplementation(async ({ include }: any) => (include?.user ? { ...row, user: {}, approvals: [] } : { ...row }));
+      prisma.withdrawal.update.mockImplementation(async ({ data }: any) => {
+        Object.assign(row, data);
+        return { ...row };
+      });
+
+      // 1) the payout fails -> reversal of hold #1, coins back
+      await service.markFailed(WD, 'telebirr down');
+      expect(balance).toBe(65_000);
+      expect(ledgerKeys.has(`withdrawal_reversal:${uuid(31)}`)).toBe(true);
+
+      // 2) finance retries -> a NEW hold (#2), coins held again
+      await service.retry(WD, finance(ADMIN_A));
+      expect(balance).toBe(0);
+      expect(row.status).toBe('pending');
+      const retryHoldId = ledgerKeys.get(`withdrawal_hold:${WD}:retry2`)!.id;
+      expect(row.ledgerHoldEntryId).toBe(retryHoldId);
+
+      // 3) finance rejects the pending retry: the OLD code reused `withdrawal_reversal:<id>:<attempts>` (= :1, the
+      //    key of the first reversal) -> replayed, nothing credited, user permanently short 65,000 coins.
+      await service.reject(WD, finance(ADMIN_A), 'Changed my mind');
+      expect(ledgerKeys.has(`withdrawal_reversal:${retryHoldId}`)).toBe(true);
+      expect(balance).toBe(65_000);
+      expect(row.ledgerReversalEntryId).toBe(ledgerKeys.get(`withdrawal_reversal:${retryHoldId}`)!.id);
+    });
+
+    it('a replayed reversal where a fresh one is expected aborts instead of silently keeping the coins', async () => {
+      prisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
+      prisma.withdrawalApproval.upsert.mockResolvedValue({});
+      prisma.withdrawal.findUnique.mockImplementation(async ({ include }: any) =>
+        include?.user ? { ...held(), user: {}, approvals: [] } : held({ ledgerHoldEntryId: uuid(31) }),
+      );
+      prisma.coinLedger.findUnique.mockResolvedValue({ id: uuid(32), balanceAfter: 65_000, amount: 65_000 }); // already reversed
+      balance = 0;
+      await expect(service.reject(WD, finance(ADMIN_A), 'twice')).rejects.toMatchObject({ code: ErrorCode.WITHDRAWAL_NOT_REVIEWABLE });
+      expect(prisma.coinLedger.create).not.toHaveBeenCalled();
     });
 
     it('cannot approve a withdrawal that is not held for review', async () => {
@@ -347,6 +403,7 @@ describe('WithdrawalsService', () => {
         attempts: 1,
         providerName: 'telebirr',
         payoutMethod: 'telebirr',
+        ledgerHoldEntryId: uuid(31),
       });
       balance = 4000;
       await service.markFailed(WD, 'partner timeout');
@@ -354,7 +411,7 @@ describe('WithdrawalsService', () => {
       expect(prisma.coinLedger.create.mock.calls[0][0].data).toMatchObject({
         amount: 6000,
         sourceType: 'withdrawal_reversal',
-        idempotencyKey: `withdrawal_reversal:${WD}:1`,
+        idempotencyKey: `withdrawal_reversal:${uuid(31)}`,
       });
       expect(balance).toBe(10_000);
       expect(security.warn).toHaveBeenCalledWith('withdrawal.payout_failed', expect.anything());
