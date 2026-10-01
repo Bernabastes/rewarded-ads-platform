@@ -18,6 +18,8 @@ export const ALERT_TYPES = {
   otpSpike: 'OTP_SPIKE',
   /** Security audit #11: too many payout-destination partner lookups from one IP (enumeration attempt). */
   destinationLookupSpike: 'DESTINATION_LOOKUP_SPIKE',
+  /** Phase 5b New-2: a payout stayed `processing` without a partner for too long (worker crash) and was parked. */
+  payoutStuckProcessing: 'PAYOUT_STUCK_PROCESSING',
 } as const;
 
 /* ------------------------------ payout failure rate ------------------------------ */

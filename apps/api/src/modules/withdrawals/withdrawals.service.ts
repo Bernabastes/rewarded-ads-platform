@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { type PayoutMethod, Prisma, type Withdrawal, type WithdrawalStatus } from '@prisma/client';
 import { ErrorCode, IN_FLIGHT_WITHDRAWAL_STATUSES, normalizeEthiopianPhone, PAYOUT_METHOD_INFO } from '@rap/shared';
 import { Queue } from 'bullmq';
@@ -11,6 +12,8 @@ import { SecurityLogger } from '../../infra/logger/logger.module';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_PAYOUTS } from '../../infra/queue/queue.module';
 import { RedisService } from '../../infra/redis/redis.service';
+import { ALERT_TYPES } from '../alerts/alert.rules';
+import { AlertService } from '../alerts/alerts.service';
 import { AuditService } from '../audit/audit.service';
 import { KycService } from '../kyc/kyc.service';
 import { LedgerService } from '../ledger/ledger.service';
@@ -66,6 +69,7 @@ export class WithdrawalsService {
     private readonly notifications: NotificationService,
     private readonly kyc: KycService,
     private readonly destinations: DestinationsService,
+    private readonly alerts: AlertService,
     @InjectQueue(QUEUE_PAYOUTS) private readonly payoutQueue: Queue,
   ) {}
 
@@ -537,6 +541,49 @@ export class WithdrawalsService {
     return this.prisma.withdrawal.findUnique({ where: { id } });
   }
 
+  /** Phase 5b New-2: a `processing` row that never got a partner recorded = an initiation interrupted mid-way. */
+  async findProcessingWithoutProvider(id: string): Promise<Withdrawal | null> {
+    return this.prisma.withdrawal.findFirst({ where: { id, status: 'processing', providerName: null } });
+  }
+
+  /**
+   * Phase 5b New-2 sweeper (every 10 min): withdrawals stuck in `processing` without a partner for longer than
+   * PAYOUT_STUCK_PROCESSING_MINUTES (worker died between the claim and setProvider, retries exhausted) are parked
+   * for manual review with the coins still held, and finance is alerted. Never refunds.
+   */
+  @Cron('*/10 * * * *')
+  async sweepStuckProcessing(now = new Date()) {
+    if (this.config.isTest || !this.config.env.QUEUES_ENABLED) return 0;
+    const cutoff = new Date(now.getTime() - this.config.env.PAYOUT_STUCK_PROCESSING_MINUTES * 60_000);
+    let stuck: Array<Pick<Withdrawal, 'id' | 'userId' | 'amountEtb' | 'updatedAt'>>;
+    try {
+      stuck = await this.prisma.withdrawal.findMany({
+        where: { status: 'processing', providerName: null, updatedAt: { lt: cutoff } },
+        select: { id: true, userId: true, amountEtb: true, updatedAt: true },
+      });
+    } catch (err) {
+      this.logger.warn(`Stuck-payout sweep failed: ${(err as Error).message}`);
+      return 0;
+    }
+    for (const w of stuck) {
+      await this.markNeedsManualReview(
+        w.id,
+        `Payout initiation did not complete within ${this.config.env.PAYOUT_STUCK_PROCESSING_MINUTES} minutes (no partner recorded since ${w.updatedAt.toISOString()}); confirm with the partners before resolving`,
+      );
+      await this.alerts
+        .raise({
+          type: ALERT_TYPES.payoutStuckProcessing,
+          severity: 'critical',
+          title: `Withdrawal ${w.id} stuck in processing without a partner - parked for manual review`,
+          payload: { withdrawalId: w.id, userId: w.userId, amountEtb: w.amountEtb.toNumber(), processingSince: w.updatedAt.toISOString() },
+          dedupeKey: `payout_stuck:${w.id}`,
+        })
+        .catch((err: Error) => this.logger.warn(`Could not raise stuck-payout alert: ${err.message}`));
+    }
+    if (stuck.length) this.logger.warn(`Stuck-payout sweep parked ${stuck.length} withdrawal(s) for manual review`);
+    return stuck.length;
+  }
+
   async markCompleted(id: string, raw: unknown) {
     const w = await this.prisma.withdrawal.findUnique({ where: { id } });
     if (!w || w.status !== 'processing') return;
@@ -771,7 +818,12 @@ export class WithdrawalsService {
       await this.payoutQueue.add(
         'initiate',
         { withdrawalId },
-        { jobId: `initiate-${withdrawalId}-${Date.now()}` },
+        {
+          jobId: `initiate-${withdrawalId}-${Date.now()}`,
+          // Phase 5b New-2: a crashed initiation is retried; the retry resumes safely (partner lookup first).
+          attempts: this.config.env.PAYOUT_INITIATE_ATTEMPTS,
+          backoff: { type: 'exponential', delay: 30_000 },
+        },
       );
     } catch (err) {
       this.logger.error(`Could not enqueue payout for ${withdrawalId}: ${(err as Error).message}`);

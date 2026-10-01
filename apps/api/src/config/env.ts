@@ -204,6 +204,10 @@ export const envSchema = z
     PAYOUT_PROVIDER_TIMEOUT_MS: num(15_000),
     /** Max status polls before a payout is parked for manual review instead of being refunded (#7). */
     PAYOUT_MAX_POLLS: num(500),
+    /** BullMQ attempts for the payout `initiate` job; a retry resumes safely via partner lookup (Phase 5b New-2). */
+    PAYOUT_INITIATE_ATTEMPTS: num(3),
+    /** A payout `processing` without a partner for longer than this is parked for manual review + alert (New-2). */
+    PAYOUT_STUCK_PROCESSING_MINUTES: num(15),
     /** Refresh-token cookie attributes for the web apps' cookie mode (#16). */
     AUTH_COOKIE_DOMAIN: z.string().optional(),
     AUTH_COOKIE_SECURE: bool.optional(),

@@ -1,9 +1,10 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import type { Withdrawal } from '@prisma/client';
 import { type Job, Queue } from 'bullmq';
 import { AppConfig } from '../../config/app-config';
 import { QUEUE_PAYOUTS } from '../../infra/queue/queue.module';
-import { PayoutOutcomeUnknownError, type PayoutStatus } from './providers/payout-provider';
+import { PayoutOutcomeUnknownError, PayoutProviderError, type PayoutResult, type PayoutStatus } from './providers/payout-provider';
 import { PayoutProviderRegistry } from './providers/payout-provider.registry';
 import { WithdrawalsService } from './withdrawals.service';
 
@@ -41,10 +42,34 @@ export class PayoutProcessor extends WorkerHost {
 
   async initiate(job: Job<InitiateJob>) {
     const w = await this.withdrawals.markProcessing(job.data.withdrawalId);
-    if (!w) {
+    if (w) return this.send(w);
+    // Phase 5b New-2: a retried job (BullMQ attempts) may find the row already `processing` without a partner -
+    // the previous attempt crashed somewhere between the claim and setProvider and MAY have sent the transfer.
+    const stuck = await this.withdrawals.findProcessingWithoutProvider(job.data.withdrawalId);
+    if (!stuck) {
       this.logger.debug(`Withdrawal ${job.data.withdrawalId} is not pending; skipping`);
       return;
     }
+    this.logger.warn(`Withdrawal ${stuck.id}: resuming an interrupted initiation (attempt ${job.attemptsMade + 1})`);
+    try {
+      const existing = await this.registry.findExisting(stuck.payoutMethod, stuck.id);
+      if (existing) return this.adopt(stuck, existing.provider.name, existing.result);
+    } catch (err) {
+      if (err instanceof PayoutOutcomeUnknownError) {
+        await this.withdrawals.setProvider(stuck.id, err.providerName, stuck.id, { outcomeUnknown: true, error: err.cause.message });
+        return this.withdrawals.markNeedsManualReview(
+          stuck.id,
+          `Initiation was interrupted and partner ${err.providerName} could not confirm whether a transfer exists (${err.cause.message})`,
+        );
+      }
+      return this.withdrawals.markNeedsManualReview(stuck.id, `Initiation was interrupted and the recovery lookup failed: ${(err as Error).message}`);
+    }
+    // every partner explicitly answered "no such order": safe to send now
+    return this.send(stuck);
+  }
+
+  /** Sends through the registry and records the outcome. Only a DEFINITIVE failure of every provider refunds. */
+  private async send(w: Pick<Withdrawal, 'id' | 'userId' | 'payoutMethod' | 'amountEtb' | 'payoutDestination' | 'destinationName' | 'bankCode'>) {
     try {
       const { provider, result } = await this.registry.initiateWithFailover(
         w.payoutMethod,
@@ -57,20 +82,7 @@ export class PayoutProcessor extends WorkerHost {
           bankCode: w.bankCode ?? undefined,
         },
       );
-      await this.withdrawals.setProvider(w.id, provider.name, result.providerPayoutId, result.raw ?? {});
-      if (result.status === 'completed') return this.withdrawals.markCompleted(w.id, result.raw);
-      if (result.status === 'failed')
-        return this.withdrawals.markFailed(
-          w.id,
-          result.message ?? 'Provider rejected the payout',
-          result.raw,
-        );
-      await this.schedulePoll({
-        withdrawalId: w.id,
-        providerName: provider.name,
-        payoutId: result.providerPayoutId,
-        polls: 0,
-      });
+      return await this.adopt(w, provider.name, result);
     } catch (err) {
       if (err instanceof PayoutOutcomeUnknownError) {
         await this.withdrawals.setProvider(w.id, err.providerName, w.id, { outcomeUnknown: true, error: err.cause.message });
@@ -79,9 +91,24 @@ export class PayoutProcessor extends WorkerHost {
           `Partner ${err.providerName} did not confirm whether the transfer was accepted (${err.cause.message})`,
         );
       }
-      // Every provider failed DEFINITIVELY (nothing was sent) -> safe to refund.
-      await this.withdrawals.markFailed(w.id, `All payout providers failed: ${(err as Error).message}`);
+      if (err instanceof PayoutProviderError && err.kind === 'definitive') {
+        // Every provider failed DEFINITIVELY (nothing was sent) -> safe to refund.
+        return this.withdrawals.markFailed(w.id, `All payout providers failed: ${err.message}`);
+      }
+      // Anything else (ambiguous provider error, bug, infrastructure failure) is NOT evidence that no money moved.
+      this.logger.error(`Withdrawal ${w.id}: unexpected error during payout initiation: ${(err as Error).message}`);
+      return this.withdrawals.markNeedsManualReview(w.id, `Payout initiation hit an unexpected error: ${(err as Error).message}`);
     }
+  }
+
+  /** Records the partner + transfer id and moves the withdrawal to its next state. */
+  private async adopt(w: Pick<Withdrawal, 'id'>, providerName: string, result: PayoutResult) {
+    await this.withdrawals.setProvider(w.id, providerName, result.providerPayoutId, result.raw ?? {});
+    if (result.status === 'completed') return this.withdrawals.markCompleted(w.id, result.raw);
+    if (result.status === 'failed') {
+      return this.withdrawals.markFailed(w.id, result.message ?? 'Provider rejected the payout', result.raw);
+    }
+    await this.schedulePoll({ withdrawalId: w.id, providerName, payoutId: result.providerPayoutId, polls: 0 });
   }
 
   async poll(job: Job<PollJob>) {

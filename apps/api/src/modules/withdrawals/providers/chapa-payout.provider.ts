@@ -21,6 +21,21 @@ import {
 const CHAPA_WALLET_BANK_CODES: Partial<Record<PayoutMethod, string>> = { telebirr: '855', cbe_birr: '128' };
 
 /**
+ * Chapa has no numeric business codes: its documented "unknown reference" reply is `{ status: "failed", message:
+ * "<one of these>", data: null }` (Transfers API reference). Only that exact shape means "never accepted".
+ */
+export const CHAPA_TRANSFER_NOT_FOUND_MESSAGES: readonly RegExp[] = [/^transfer not found$/i, /^transaction not found$/i, /^invalid transfer reference$/i];
+
+export function isChapaTransferNotFound(json: { status?: string; message?: string; data?: unknown }): boolean {
+  return (
+    json.status === 'failed' &&
+    (json.data === null || json.data === undefined) &&
+    typeof json.message === 'string' &&
+    CHAPA_TRANSFER_NOT_FOUND_MESSAGES.some((re) => re.test(json.message!.trim()))
+  );
+}
+
+/**
  * Chapa Transfers API provider (https://developer.chapa.co/transfers) — pays out to bank accounts and to
  * telebirr / CBE Birr wallets, which makes it the failover partner for telebirr withdrawals.
  * REAL mode when CHAPA_SECRET_KEY is set and PAYOUTS_MOCK=false; otherwise clearly labelled MOCK mode.
@@ -105,14 +120,20 @@ export class ChapaPayoutProvider implements PayoutProvider {
     };
   }
 
-  /** Chapa addresses transfers by our reference: a 404 from verify means the transfer was never accepted. */
+  /**
+   * Chapa addresses transfers by our reference. Phase 5b New-2: only Chapa's documented "not found" business reply
+   * (`status: "failed"` + one of CHAPA_TRANSFER_NOT_FOUND_MESSAGES, no `data`) means the transfer was never
+   * accepted; a bare 404, other errors, malformed or unexpected bodies are ambiguous and throw.
+   */
   async findByReference(reference: string): Promise<(PayoutStatus & { providerPayoutId: string }) | null> {
     if (this.isMock) return null;
     const res = await this.call(`/transfers/verify/${encodeURIComponent(reference)}`, { headers: this.headers() });
-    if (res.status === 404) return null;
-    const json = await this.json<{ status?: string; message?: string; data?: { status?: string; failure_reason?: string } }>(res);
-    if (!res.ok) throw new PayoutProviderError(`Chapa transfer lookup failed: ${json.message ?? res.status}`, classifyHttpStatus(res.status), this.name, res.status);
-    if (!json.data) return null;
+    const json = await this.json<{ status?: string; message?: string; data?: { status?: string; failure_reason?: string } | null }>(res);
+    if (isChapaTransferNotFound(json)) return null;
+    if (!res.ok) throw new PayoutProviderError(`Chapa transfer lookup failed: ${json.message ?? res.status}`, 'ambiguous', this.name, res.status);
+    if (!json.data || typeof json.data !== 'object') {
+      throw new PayoutProviderError(`Chapa transfer lookup returned an unexpected reply (${json.status ?? 'no status'})`, 'ambiguous', this.name, res.status);
+    }
     const s = (json.data.status ?? '').toLowerCase();
     const status: PayoutStatus['status'] = s === 'success' ? 'completed' : s === 'failed' || s === 'reversed' ? 'failed' : 'processing';
     return { providerPayoutId: reference, status, failureReason: status === 'failed' ? json.data.failure_reason : undefined, raw: json };

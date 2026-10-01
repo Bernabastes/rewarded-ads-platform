@@ -32,6 +32,7 @@ describe('PayoutProcessor (ambiguous partner outcomes)', () => {
   const build = (providers: PayoutProvider[]) => {
     withdrawals = {
       markProcessing: jest.fn(async () => ({ ...w })),
+      findProcessingWithoutProvider: jest.fn(async () => null),
       setProvider: jest.fn(),
       markCompleted: jest.fn(),
       markFailed: jest.fn(),
@@ -127,5 +128,71 @@ describe('PayoutProcessor (ambiguous partner outcomes)', () => {
     await build([provider('chapa')]).poll(job({ withdrawalId: WD, providerName: 'telebirr', payoutId: 'TB-1', polls: 0 }));
     expect(withdrawals.markNeedsManualReview).toHaveBeenCalledWith(WD, expect.stringMatching(/no longer registered/));
     expect(withdrawals.markFailed).not.toHaveBeenCalled();
+  });
+
+  /* ---------------- Phase 5b New-2: only definitive failures refund; interrupted initiations resume safely ---------------- */
+
+  it('REGRESSION New-2: an ambiguous failure of the LAST provider (lookup "not found") parks the withdrawal, it is not refunded', async () => {
+    const tb = provider('telebirr', { initiatePayout: jest.fn(async () => { throw new PayoutProviderError('invalid msisdn', 'definitive', 'telebirr', 400); }) });
+    const ch = provider('chapa', { initiatePayout: jest.fn(async () => { throw new PayoutProviderError('HTTP 504', 'ambiguous', 'chapa', 504); }) });
+    await build([tb, ch]).initiate(job({ withdrawalId: WD }));
+    expect(withdrawals.markNeedsManualReview).toHaveBeenCalledWith(WD, expect.stringMatching(/did not confirm/));
+    expect(withdrawals.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('New-2: an unexpected (non-provider) error during initiation -> needs_manual_review, never markFailed', async () => {
+    const tb = provider('telebirr', { initiatePayout: jest.fn(async () => { throw new TypeError('Cannot read properties of undefined'); }) });
+    await build([tb]).initiate(job({ withdrawalId: WD }));
+    expect(withdrawals.markNeedsManualReview).toHaveBeenCalledWith(WD, expect.stringMatching(/unexpected error|did not confirm/));
+    expect(withdrawals.markFailed).not.toHaveBeenCalled();
+  });
+
+  describe('retry of an interrupted initiation (processing without a partner)', () => {
+    const retryJob = { data: { withdrawalId: WD }, attemptsMade: 1 } as unknown as Job<never>;
+
+    it('adopts the transfer when a partner already holds our reference (no second payout)', async () => {
+      const tb = provider('telebirr', { findByReference: jest.fn(async () => ({ providerPayoutId: 'TB-55', status: 'processing' })) });
+      const ch = provider('chapa');
+      const processor = build([tb, ch]);
+      withdrawals.markProcessing.mockResolvedValue(null);
+      withdrawals.findProcessingWithoutProvider = jest.fn(async () => ({ ...w }));
+      await processor.initiate(retryJob);
+      expect(tb.initiatePayout).not.toHaveBeenCalled();
+      expect(ch.initiatePayout).not.toHaveBeenCalled();
+      expect(withdrawals.setProvider).toHaveBeenCalledWith(WD, 'telebirr', 'TB-55', expect.anything());
+      expect(queue.add).toHaveBeenCalledWith('poll', expect.objectContaining({ providerName: 'telebirr', payoutId: 'TB-55' }), expect.anything());
+    });
+
+    it('sends normally when every partner explicitly answers "not found"', async () => {
+      const tb = provider('telebirr');
+      const processor = build([tb, provider('chapa')]);
+      withdrawals.markProcessing.mockResolvedValue(null);
+      withdrawals.findProcessingWithoutProvider = jest.fn(async () => ({ ...w }));
+      await processor.initiate(retryJob);
+      expect(tb.findByReference).toHaveBeenCalledWith(WD);
+      expect(tb.initiatePayout).toHaveBeenCalledTimes(1);
+      expect(withdrawals.setProvider).toHaveBeenCalledWith(WD, 'telebirr', 'telebirr-1', expect.anything());
+    });
+
+    it('parks for manual review when a partner cannot tell whether the transfer exists', async () => {
+      const tb = provider('telebirr', { findByReference: jest.fn(async () => { throw new PayoutProviderError('lookup timeout', 'ambiguous', 'telebirr'); }) });
+      const processor = build([tb, provider('chapa')]);
+      withdrawals.markProcessing.mockResolvedValue(null);
+      withdrawals.findProcessingWithoutProvider = jest.fn(async () => ({ ...w }));
+      await processor.initiate(retryJob);
+      expect(tb.initiatePayout).not.toHaveBeenCalled();
+      expect(withdrawals.markNeedsManualReview).toHaveBeenCalledWith(WD, expect.stringMatching(/interrupted/));
+      expect(withdrawals.markFailed).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the withdrawal is neither pending nor stuck', async () => {
+      const tb = provider('telebirr');
+      const processor = build([tb]);
+      withdrawals.markProcessing.mockResolvedValue(null);
+      withdrawals.findProcessingWithoutProvider = jest.fn(async () => null);
+      await processor.initiate(retryJob);
+      expect(tb.initiatePayout).not.toHaveBeenCalled();
+      expect(withdrawals.markNeedsManualReview).not.toHaveBeenCalled();
+    });
   });
 });

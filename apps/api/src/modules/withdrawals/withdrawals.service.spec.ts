@@ -30,6 +30,7 @@ describe('WithdrawalsService', () => {
   let trustScore: number;
   let kyc: any;
   let destinations: any;
+  let alerts: any;
 
   const finance = (adminId: string) => ({ adminId, role: 'finance' as const, ip: '1.1.1.1' });
 
@@ -51,6 +52,7 @@ describe('WithdrawalsService', () => {
       markUsed: jest.fn().mockResolvedValue(undefined),
       listKnown: jest.fn().mockResolvedValue([]),
     };
+    alerts = { raise: jest.fn().mockResolvedValue(undefined) };
     const config = testConfig({ QUEUES_ENABLED: 'true', NODE_ENV: 'development' });
     const ledger = new LedgerService(prisma, config, security);
     const registry = new PayoutProviderRegistry(
@@ -77,6 +79,7 @@ describe('WithdrawalsService', () => {
       notifications,
       kyc,
       destinations,
+      alerts,
       queue,
     );
 
@@ -448,6 +451,24 @@ describe('WithdrawalsService', () => {
   });
 
   describe('payout worker callbacks', () => {
+    it('Phase 5b New-2: the stuck-processing sweeper parks partner-less payouts older than the cutoff and alerts finance (never refunds)', async () => {
+      const stuckRow = { id: WD, userId: USER, amountEtb: D(60), coinAmount: 6000, status: 'processing', attempts: 1, providerName: null, providerPayoutId: null, payoutMethod: 'telebirr', ledgerHoldEntryId: uuid(31), updatedAt: new Date('2026-10-01T10:00:00Z') };
+      prisma.withdrawal.findMany.mockResolvedValue([stuckRow]);
+      prisma.withdrawal.findUnique.mockResolvedValue(stuckRow);
+      prisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
+      const parked = await service.sweepStuckProcessing(new Date('2026-10-01T10:30:00Z'));
+      expect(parked).toBe(1);
+      expect(prisma.withdrawal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { status: 'processing', providerName: null, updatedAt: { lt: new Date('2026-10-01T10:15:00Z') } } }),
+      );
+      expect(prisma.withdrawal.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: WD, status: 'processing' }, data: expect.objectContaining({ status: 'needs_manual_review' }) }),
+      );
+      expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+      expect(alerts.raise).toHaveBeenCalledWith(expect.objectContaining({ type: 'PAYOUT_STUCK_PROCESSING', severity: 'critical', dedupeKey: `payout_stuck:${WD}` }));
+      expect(notifications.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Withdrawal being verified' }));
+    });
+
     it('markFailed writes the reversing entry exactly once and notifies', async () => {
       prisma.withdrawal.findUnique.mockResolvedValue({
         id: WD,

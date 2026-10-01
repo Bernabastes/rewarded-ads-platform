@@ -113,8 +113,10 @@ export function classifyHttpStatus(status: number): PayoutErrorKind {
  * licensed partner through one of these implementations. `initiatePayout`/`checkStatus` match the spec signature;
  * the trailing `options` argument is optional metadata (bank code / account name) some partners require.
  * `resolveAccount` performs the partner's account-name enquiry used for destination verification.
- * `findByReference` looks a transfer up by OUR reference (the withdrawal id) after an ambiguous failure; it returns
- * null when the partner has no record (=> the transfer was not accepted) and throws when it cannot tell.
+ * `findByReference` looks a transfer up by OUR reference (the withdrawal id) after an ambiguous failure. Contract
+ * (Phase 5b New-2): it returns `null` ONLY when the partner's JSON carries its documented "order not found"
+ * business answer (=> the transfer was certainly not accepted); an HTTP 404 without that body, any other non-2xx,
+ * a malformed reply or an unexpected 2xx shape all THROW an ambiguous PayoutProviderError (=> manual review).
  */
 export interface PayoutProvider {
   readonly name: string;

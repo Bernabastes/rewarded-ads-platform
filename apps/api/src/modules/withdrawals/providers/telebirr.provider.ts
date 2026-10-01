@@ -18,6 +18,13 @@ import {
 } from './payout-provider';
 
 /**
+ * telebirr business codes that mean "no disbursement with this outTradeNo exists" (the ONLY answers that let the
+ * worker treat a transfer as never accepted). Taken from the merchant integration guide's "query order" error table;
+ * confirm against the contract-specific documentation before go-live. Anything else is ambiguous.
+ */
+export const TELEBIRR_ORDER_NOT_FOUND_CODES: readonly string[] = ['NOT_FOUND', 'ORDER_NOT_FOUND', 'ORDER_NOT_EXIST'];
+
+/**
  * telebirr business (B2C disbursement) provider.
  *
  * REAL mode (TELEBIRR_APP_ID + TELEBIRR_APP_KEY + TELEBIRR_SHORT_CODE set and PAYOUTS_MOCK=false): calls the
@@ -121,6 +128,11 @@ export class TelebirrPayoutProvider implements PayoutProvider {
   /**
    * Looks a disbursement up by OUR reference (`outTradeNo`) after an ambiguous failure. Endpoint and field names
    * follow the merchant guide's "query by merchant order" and MUST be confirmed with Ethio Telecom.
+   *
+   * Phase 5b New-2: `null` ("never accepted") is returned ONLY for the documented business answer
+   * (`code` in TELEBIRR_ORDER_NOT_FOUND_CODES inside a well-formed 2xx/4xx JSON reply). A bare HTTP 404, any other
+   * error status, a malformed body or a 2xx without `result.transactionNo` is AMBIGUOUS and throws, so the
+   * withdrawal is parked for manual review instead of being refunded or re-sent elsewhere.
    * MOCK mode: the partner has no record (null) - the registry then parks the withdrawal for manual review.
    */
   async findByReference(reference: string): Promise<(PayoutStatus & { providerPayoutId: string }) | null> {
@@ -129,10 +141,14 @@ export class TelebirrPayoutProvider implements PayoutProvider {
     const res = await this.call(`/apiaccess/payment/gateway/payment/v1/disbursement/query?outTradeNo=${encodeURIComponent(reference)}`, {
       headers: this.headers(token),
     });
-    if (res.status === 404) return null;
     const json = await this.json<{ code?: string; msg?: string; result?: { transactionNo?: string; status?: string; failReason?: string } }>(res);
-    if (!res.ok) throw new PayoutProviderError(`telebirr reference query failed: ${json.msg ?? res.status}`, classifyHttpStatus(res.status), this.name, res.status);
-    if (json.code === 'NOT_FOUND' || !json.result?.transactionNo) return null;
+    if (json.code !== undefined && TELEBIRR_ORDER_NOT_FOUND_CODES.includes(String(json.code))) return null;
+    if (!res.ok) {
+      throw new PayoutProviderError(`telebirr reference query failed: ${json.msg ?? res.status}`, 'ambiguous', this.name, res.status);
+    }
+    if (json.code !== '0' || !json.result?.transactionNo) {
+      throw new PayoutProviderError(`telebirr reference query returned an unexpected reply (code ${json.code ?? 'none'})`, 'ambiguous', this.name, res.status);
+    }
     const status = mapTelebirrStatus(json.result.status);
     return { providerPayoutId: json.result.transactionNo, status, failureReason: status === 'failed' ? json.result.failReason : undefined, raw: json };
   }

@@ -183,9 +183,10 @@ describe('PayoutProviderRegistry failover (security audit #7: only on DEFINITIVE
     });
     const registry = new PayoutProviderRegistry([telebirr, chapa], security);
     expect(registry.isMethodAvailable('telebirr')).toBe(true);
+    // Phase 5b New-2: the LAST provider failing ambiguously (+ "not found") is parked, not reported as a refundable failure
     await expect(
       registry.initiateWithFailover('telebirr', 'u1', 50, '+251911223344', { reference: 'w1' }),
-    ).rejects.toThrow('chapa 500');
+    ).rejects.toMatchObject({ name: 'PayoutOutcomeUnknownError', providerName: 'chapa', cause: expect.objectContaining({ message: 'chapa 500' }) });
     expect(telebirr.initiatePayout).not.toHaveBeenCalled();
     expect(registry.providersFor('bank').map((p) => p.name)).toEqual(['chapa']);
     expect(new PayoutProviderRegistry([telebirr], security).isMethodAvailable('bank')).toBe(false);
@@ -225,9 +226,11 @@ describe('fetchWithTimeout / error classification (security audit #7)', () => {
     await expect(chapa500.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 502 });
     const chapa400 = new ChapaPayoutProvider(real, (async () => new Response('{"status":"failed","message":"invalid account"}', { status: 400 })) as unknown as typeof fetch);
     await expect(chapa400.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'definitive', httpStatus: 400 });
-    // chapa verify 404 => partner has no record of our reference
-    const chapa404 = new ChapaPayoutProvider(real, (async () => new Response('{"status":"failed"}', { status: 404 })) as unknown as typeof fetch);
-    expect(await chapa404.findByReference('w1')).toBeNull();
+    // chapa verify: ONLY the documented "Transfer not found" business reply means "never accepted" (New-2)
+    const chapaNotFound = new ChapaPayoutProvider(real, (async () => new Response('{"status":"failed","message":"Transfer not found","data":null}', { status: 404 })) as unknown as typeof fetch);
+    expect(await chapaNotFound.findByReference('w1')).toBeNull();
+    const chapaBare404 = new ChapaPayoutProvider(real, (async () => new Response('{"status":"failed"}', { status: 404 })) as unknown as typeof fetch);
+    await expect(chapaBare404.findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 404 });
     // telebirr: token exchange fails before any transfer -> definitive
     const tbToken = new TelebirrPayoutProvider(real, (async () => new Response('{"msg":"bad key"}', { status: 401 })) as unknown as typeof fetch);
     await expect(tbToken.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'definitive' });
@@ -235,5 +238,71 @@ describe('fetchWithTimeout / error classification (security audit #7)', () => {
     let call = 0;
     const tb5xx = new TelebirrPayoutProvider(real, (async () => (call++ === 0 ? new Response('{"token":"t"}', { status: 200 }) : new Response('{"msg":"gateway"}', { status: 500 }))) as unknown as typeof fetch);
     await expect(tb5xx.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 500 });
+  });
+});
+
+/**
+ * Phase 5b New-2: `findByReference` returns null ONLY for the partner's documented "order not found" business
+ * answer; everything else is ambiguous. The registry never lets a chain that contained an ambiguous send end in a
+ * refundable failure.
+ */
+describe('findByReference semantics + registry parking (Phase 5b New-2)', () => {
+  const real = testConfig({ PAYOUTS_MOCK: 'false', TELEBIRR_APP_ID: 'a', TELEBIRR_APP_KEY: 'b', TELEBIRR_SHORT_CODE: 'c', CHAPA_SECRET_KEY: 'k', PAYOUT_PROVIDER_TIMEOUT_MS: 1000 });
+  const telebirrWith = (reply: () => Response) => {
+    let call = 0;
+    return new TelebirrPayoutProvider(real, (async () => (call++ === 0 ? new Response('{"token":"t"}', { status: 200 }) : reply())) as unknown as typeof fetch);
+  };
+
+  it('telebirr: documented NOT_FOUND code -> null; bare 404 / unexpected 2xx shape / malformed body -> ambiguous', async () => {
+    expect(await telebirrWith(() => new Response('{"code":"ORDER_NOT_FOUND","msg":"no such order"}', { status: 200 })).findByReference('w1')).toBeNull();
+    expect(await telebirrWith(() => new Response('{"code":"NOT_FOUND"}', { status: 404 })).findByReference('w1')).toBeNull();
+    await expect(telebirrWith(() => new Response('not json', { status: 404 })).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous' });
+    await expect(telebirrWith(() => new Response('{"msg":"route missing"}', { status: 404 })).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 404 });
+    await expect(telebirrWith(() => new Response('{"code":"0","result":{}}', { status: 200 })).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous' });
+    await expect(telebirrWith(() => new Response('{"code":"99","msg":"system busy"}', { status: 200 })).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous' });
+    await expect(telebirrWith(() => new Response('{"msg":"gateway"}', { status: 502 })).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 502 });
+    const found = await telebirrWith(() => new Response('{"code":"0","result":{"transactionNo":"TB-9","status":"SUCCESS"}}', { status: 200 })).findByReference('w1');
+    expect(found).toMatchObject({ providerPayoutId: 'TB-9', status: 'completed' });
+  });
+
+  it('chapa: documented "Transfer not found" -> null; unexpected 2xx without data / 401 / malformed -> ambiguous', async () => {
+    const chapa = (body: string, status: number) => new ChapaPayoutProvider(real, (async () => new Response(body, { status })) as unknown as typeof fetch);
+    expect(await chapa('{"status":"failed","message":"Transfer not found","data":null}', 404).findByReference('w1')).toBeNull();
+    expect(await chapa('{"status":"failed","message":"Transaction not found"}', 400).findByReference('w1')).toBeNull();
+    await expect(chapa('{"status":"success","message":"ok"}', 200).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous' });
+    await expect(chapa('{"status":"failed","message":"Invalid API key"}', 401).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 401 });
+    await expect(chapa('<html>502</html>', 502).findByReference('w1')).rejects.toMatchObject({ kind: 'ambiguous' });
+    expect(await chapa('{"status":"success","data":{"status":"pending"}}', 200).findByReference('w1')).toMatchObject({ providerPayoutId: 'w1', status: 'processing' });
+  });
+
+  const security = mockSecurity();
+  const make = (name: string, methods: string[], impl: () => Promise<unknown>, findByReference: () => Promise<unknown> = async () => null) =>
+    ({ name, isMock: false, supportedMethods: methods, isAvailable: () => true, initiatePayout: jest.fn(impl), checkStatus: jest.fn(), findByReference: jest.fn(findByReference) }) as unknown as PayoutProvider & { initiatePayout: jest.Mock; findByReference: jest.Mock };
+
+  it('REGRESSION: the last provider times out and answers "not found" -> PayoutOutcomeUnknownError, never a refundable failure', async () => {
+    const telebirr = make('telebirr', ['telebirr'], async () => { throw new PayoutProviderError('invalid msisdn', 'definitive', 'telebirr', 400); });
+    const chapa = make('chapa', ['bank', 'telebirr'], async () => { throw new PayoutProviderError('timeout', 'ambiguous', 'chapa'); });
+    const registry = new PayoutProviderRegistry([telebirr, chapa], security);
+    await expect(registry.initiateWithFailover('telebirr', 'u1', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ name: 'PayoutOutcomeUnknownError', providerName: 'chapa' });
+    expect(chapa.findByReference).toHaveBeenCalledWith('w1');
+    expect(security.error).toHaveBeenCalledWith('payout.outcome_unknown', expect.objectContaining({ reason: 'last_provider_not_found' }));
+  });
+
+  it('an ambiguous send followed only by definitive failures is still parked (ambiguous_then_exhausted)', async () => {
+    const telebirr = make('telebirr', ['telebirr'], async () => { throw new PayoutProviderError('timeout', 'ambiguous', 'telebirr'); });
+    const chapa = make('chapa', ['bank', 'telebirr'], async () => { throw new PayoutProviderError('invalid account', 'definitive', 'chapa', 400); });
+    const registry = new PayoutProviderRegistry([telebirr, chapa], security);
+    await expect(registry.initiateWithFailover('telebirr', 'u1', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ name: 'PayoutOutcomeUnknownError', providerName: 'telebirr' });
+    expect(chapa.initiatePayout).toHaveBeenCalledTimes(1); // the explicit not-found still allowed ONE failover attempt
+  });
+
+  it('findExisting (crash recovery): adopts a partner record, null when every partner says not found, unknown when one cannot tell', async () => {
+    const telebirr = make('telebirr', ['telebirr'], async () => ({}), async () => null);
+    const chapa = make('chapa', ['bank', 'telebirr'], async () => ({}), async () => ({ providerPayoutId: 'w1', status: 'processing' }));
+    expect(await new PayoutProviderRegistry([telebirr, chapa], security).findExisting('telebirr', 'w1')).toMatchObject({ provider: { name: 'chapa' }, result: { providerPayoutId: 'w1', status: 'processing' } });
+    const none = make('chapa', ['bank', 'telebirr'], async () => ({}), async () => null);
+    expect(await new PayoutProviderRegistry([telebirr, none], security).findExisting('telebirr', 'w1')).toBeNull();
+    const broken = make('telebirr', ['telebirr'], async () => ({}), async () => { throw new PayoutProviderError('lookup 502', 'ambiguous', 'telebirr', 502); });
+    await expect(new PayoutProviderRegistry([broken, none], security).findExisting('telebirr', 'w1')).rejects.toBeInstanceOf(PayoutOutcomeUnknownError);
   });
 });
