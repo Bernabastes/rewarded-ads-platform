@@ -440,6 +440,69 @@ describe('WithdrawalsService', () => {
       expect(prisma.coinLedger.create).not.toHaveBeenCalled();
       expect(prisma.withdrawal.update.mock.calls[0][0].data).toMatchObject({ status: 'completed' });
     });
+
+    describe('needs_manual_review (security audit #7)', () => {
+      const processing = {
+        id: WD,
+        userId: USER,
+        amountEtb: D(60),
+        coinAmount: 6000,
+        status: 'processing',
+        payoutMethod: 'telebirr',
+        providerName: 'telebirr',
+        providerPayoutId: 'TB-1',
+        payoutDestination: '+251911000001',
+        ledgerHoldEntryId: uuid(31),
+        attempts: 1,
+      };
+
+      it('markNeedsManualReview parks the withdrawal with the coins STILL held and notifies the user', async () => {
+        prisma.withdrawal.findUnique.mockResolvedValue({ ...processing });
+        prisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
+        balance = 4000;
+        await service.markNeedsManualReview(WD, 'partner timeout', { timeout: true });
+        expect(prisma.withdrawal.updateMany.mock.calls[0][0]).toMatchObject({
+          where: { id: WD, status: 'processing' },
+          data: { status: 'needs_manual_review', failureReason: 'partner timeout' },
+        });
+        expect(prisma.coinLedger.create).not.toHaveBeenCalled(); // NO refund
+        expect(balance).toBe(4000);
+        expect(security.error).toHaveBeenCalledWith('payout.outcome_unknown', expect.objectContaining({ withdrawalId: WD }));
+        expect(notifications.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Withdrawal being verified' }));
+      });
+
+      it('finance resolves "completed": status completed, hold kept, audited', async () => {
+        prisma.withdrawal.findUnique.mockImplementation(async ({ include }: any) =>
+          include?.user ? { ...processing, status: 'needs_manual_review', user: {}, approvals: [] } : { ...processing, status: 'needs_manual_review' },
+        );
+        prisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
+        balance = 4000;
+        await service.resolveManualReview(WD, finance(ADMIN_A), { outcome: 'completed', reason: 'telebirr confirmed TB-1 settled', providerReference: 'TB-1-settled' });
+        expect(prisma.withdrawal.updateMany.mock.calls[0][0].data).toMatchObject({ status: 'completed', processedBy: ADMIN_A, providerPayoutId: 'TB-1-settled' });
+        expect(prisma.coinLedger.create).not.toHaveBeenCalled();
+        expect(balance).toBe(4000);
+      });
+
+      it('finance resolves "failed": coins refunded against the current hold', async () => {
+        prisma.withdrawal.findUnique.mockImplementation(async ({ include }: any) =>
+          include?.user ? { ...processing, status: 'needs_manual_review', user: {}, approvals: [] } : { ...processing, status: 'needs_manual_review' },
+        );
+        prisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
+        balance = 4000;
+        await service.resolveManualReview(WD, finance(ADMIN_A), { outcome: 'failed', reason: 'partner has no record of the transfer' });
+        expect(prisma.coinLedger.create.mock.calls[0][0].data).toMatchObject({ amount: 6000, idempotencyKey: `withdrawal_reversal:${uuid(31)}` });
+        expect(balance).toBe(10_000);
+        expect(prisma.withdrawal.updateMany.mock.calls[0][0].data).toMatchObject({ status: 'failed' });
+      });
+
+      it('only needs_manual_review withdrawals can be resolved, only by finance/super_admin, and they cannot be "rejected"', async () => {
+        prisma.withdrawal.findUnique.mockResolvedValue({ ...processing });
+        await expect(service.resolveManualReview(WD, finance(ADMIN_A), { outcome: 'failed', reason: 'nope' })).rejects.toMatchObject({ code: ErrorCode.WITHDRAWAL_NOT_REVIEWABLE });
+        prisma.withdrawal.findUnique.mockResolvedValue({ ...processing, status: 'needs_manual_review' });
+        await expect(service.resolveManualReview(WD, { adminId: ADMIN_A, role: 'support' }, { outcome: 'failed', reason: 'nope' })).rejects.toMatchObject({ code: ErrorCode.DUAL_APPROVAL_ROLE_REQUIRED });
+        await expect(service.reject(WD, finance(ADMIN_A), 'cannot reject money that may be out')).rejects.toMatchObject({ code: ErrorCode.WITHDRAWAL_NOT_REVIEWABLE });
+      });
+    });
   });
 
   it('exposes config with thresholds and available methods', () => {

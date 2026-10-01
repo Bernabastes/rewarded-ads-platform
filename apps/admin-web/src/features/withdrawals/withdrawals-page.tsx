@@ -26,6 +26,7 @@ import { Tabs, TabsList, TabsTrigger, Tooltip } from '@/components/ui/primitives
 
 const TABS: Array<{ value: WithdrawalStatus | 'all'; label: string }> = [
   { value: 'flagged_for_review', label: 'Held for review' },
+  { value: 'needs_manual_review', label: 'Needs manual review' },
   { value: 'pending', label: 'Pending' },
   { value: 'processing', label: 'Processing' },
   { value: 'completed', label: 'Completed' },
@@ -186,7 +187,9 @@ export function WithdrawalsPage() {
             description={
               status === 'flagged_for_review'
                 ? 'Nothing is waiting for a decision. Requests that trip the first-withdrawal, large-amount or low-trust rules will appear here.'
-                : 'No requests with this status.'
+                : status === 'needs_manual_review'
+                  ? 'No payouts with an unknown partner outcome. Transfers that timed out or errored at the payout partner without a definitive answer land here instead of being auto-refunded.'
+                  : 'No requests with this status.'
             }
           />
         }
@@ -209,6 +212,7 @@ export function WithdrawalSheet({ id, initial, onClose }: { id: string | null; i
   const [reveal, setReveal] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [resolveOutcome, setResolveOutcome] = useState<'completed' | 'failed' | null>(null);
   const maxAttempts = MAX_PAYOUT_ATTEMPTS_DEFAULT;
 
   const invalidate = () => {
@@ -252,9 +256,21 @@ export function WithdrawalSheet({ id, initial, onClose }: { id: string | null; i
     },
     onError: (err) => toast.error('Could not retry', { description: describeError(err) }),
   });
+  const resolve = useMutation({
+    mutationFn: ({ outcome, reason }: { outcome: 'completed' | 'failed'; reason: string }) => withdrawalsApi.resolveManualReview(id!, { outcome, reason }),
+    onSuccess: (res, vars) => {
+      toast.success(vars.outcome === 'completed' ? 'Payout marked completed' : 'Payout marked failed', {
+        description: vars.outcome === 'completed' ? 'The coin hold stays debited - the money left the platform.' : 'The held coins were returned to the user’s balance.',
+      });
+      queryClient.setQueryData(queryKeys.withdrawal(id!), res);
+      setResolveOutcome(null);
+      invalidate();
+    },
+    onError: (err) => toast.error('Could not resolve', { description: describeError(err) }),
+  });
 
   const st = w ? getWithdrawalApprovalState(w, admin?.id, maxAttempts) : null;
-  const busy = approve.isPending || reject.isPending || retry.isPending;
+  const busy = approve.isPending || reject.isPending || retry.isPending || resolve.isPending;
 
   return (
     <Sheet
@@ -274,6 +290,16 @@ export function WithdrawalSheet({ id, initial, onClose }: { id: string | null; i
               <Button variant="outline" onClick={() => setRejectOpen(true)} disabled={busy}>
                 <X className="size-4 text-danger" /> Reject
               </Button>
+            ) : null}
+            {st.needsManualReview ? (
+              <>
+                <Button variant="outline" onClick={() => setResolveOutcome('failed')} disabled={busy} data-testid="resolve-failed">
+                  <X className="size-4 text-danger" /> Mark failed & refund
+                </Button>
+                <Button variant="success" onClick={() => setResolveOutcome('completed')} disabled={busy} data-testid="resolve-completed">
+                  <Check className="size-4" /> Mark completed
+                </Button>
+              </>
             ) : null}
             {w.status === 'flagged_for_review' ? (
               <Tooltip content={st.approveBlockedReason} disabled={!st.approveBlockedReason}>
@@ -342,6 +368,19 @@ export function WithdrawalSheet({ id, initial, onClose }: { id: string | null; i
                 <span className="font-medium">Payout failed:</span> {w.failureReason}
                 <div className="mt-0.5 text-fg-muted">
                   Attempts: {w.attempts ?? 0}/{maxAttempts} · coins were refunded to the user.
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {w.status === 'needs_manual_review' ? (
+            <div className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger/8 px-3 py-2 text-xs text-fg" data-testid="manual-review-banner">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-danger" />
+              <div>
+                <span className="font-medium">Partner outcome unknown:</span> {w.failureReason ?? 'the payout partner did not give a definitive answer.'}
+                <div className="mt-0.5 text-fg-muted">
+                  The {formatCoins(w.coinAmount)} coins are still held - nothing was auto-refunded. Check the transfer{w.providerPayoutId ? ` (${w.providerName ?? 'partner'} ref ${w.providerPayoutId})` : ''} in the partner portal, then mark it
+                  completed (money left) or failed (coins refunded).
                 </div>
               </div>
             </div>
@@ -484,6 +523,25 @@ export function WithdrawalSheet({ id, initial, onClose }: { id: string | null; i
             confirmLabel="Reject & refund coins"
             loading={reject.isPending}
             onConfirm={(reason) => reject.mutate(reason)}
+          />
+          <ReasonDialog
+            open={resolveOutcome !== null}
+            onOpenChange={(o) => !o && setResolveOutcome(null)}
+            destructive={resolveOutcome === 'failed'}
+            title={resolveOutcome === 'failed' ? 'Mark payout failed & refund coins' : 'Mark payout completed'}
+            description={
+              resolveOutcome === 'failed'
+                ? `Only do this if the partner confirms the transfer of ETB ${formatEtbBare(w.amountEtb)} did NOT go through. ${formatCoins(w.coinAmount)} coins are returned via a reversing ledger entry.`
+                : `Only do this if the partner confirms the transfer of ETB ${formatEtbBare(w.amountEtb)} to ${w.payoutDestination} settled. The coin hold stays debited.`
+            }
+            confirmLabel={resolveOutcome === 'failed' ? 'Mark failed & refund' : 'Mark completed'}
+            confirmVariant={resolveOutcome === 'failed' ? undefined : 'success'}
+            reasonLabel="Evidence / reason"
+            placeholder="e.g. Telebirr portal shows transfer TB-123 settled at 14:02."
+            loading={resolve.isPending}
+            onConfirm={(reason) => {
+              if (resolveOutcome) resolve.mutate({ outcome: resolveOutcome, reason });
+            }}
           />
         </>
       ) : null}

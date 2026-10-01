@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
   type AuthContext,
   ClientIp,
@@ -28,6 +28,7 @@ import {
   ReasonDto,
   RejectAdDto,
   RejectWithReasonDto,
+  ResolveManualReviewDto,
   RevenueQueryDto,
   ReviewAdReportDto,
 } from '../dto/admin.dto';
@@ -463,6 +464,22 @@ export class AdminWithdrawalsController {
   @ApiOperation({ summary: 'Retry a failed payout' })
   retry(@Param('id', ParseUUIDPipe) id: string, @CurrentAuth() auth: AuthContext, @ClientIp() ip: string) {
     return this.withdrawals.retry(id, { adminId: auth.subjectId, role: auth.role!, ip });
+  }
+
+  @Post(':id/resolve-manual-review')
+  @ApiOperation({
+    summary: 'Resolve a needs_manual_review payout after checking the partner (Phase 5 #7)',
+    description:
+      'The worker parks a withdrawal as needs_manual_review when the partner outcome is unknown (timeout / 5xx / polling exhausted); the coins stay held. `completed` keeps them debited, `failed` refunds them. Audited with the reason.',
+  })
+  @ApiResponse({ status: 409, description: 'WITHDRAWAL_NOT_REVIEWABLE (not in needs_manual_review)' })
+  resolveManualReview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResolveManualReviewDto,
+    @CurrentAuth() auth: AuthContext,
+    @ClientIp() ip: string,
+  ) {
+    return this.withdrawals.resolveManualReview(id, { adminId: auth.subjectId, role: auth.role!, ip }, dto);
   }
 }
 

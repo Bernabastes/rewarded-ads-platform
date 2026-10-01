@@ -1,7 +1,7 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { type DeletionRequestStatus, Prisma } from '@prisma/client';
-import { ErrorCode } from '@rap/shared';
+import { ErrorCode, IN_FLIGHT_WITHDRAWAL_STATUSES } from '@rap/shared';
 import { type Job, Queue } from 'bullmq';
 import { gzipSync } from 'node:zlib';
 import { AppException } from '../../common/errors/app.exception';
@@ -18,7 +18,7 @@ import { TokenService } from '../auth/token.service';
 import { NotificationService } from '../notifications/notifications.module';
 import { serializeValue } from '../../common/interceptors/serialize.interceptor';
 
-const IN_FLIGHT_WITHDRAWALS = ['pending', 'processing', 'flagged_for_review'] as const;
+const IN_FLIGHT_WITHDRAWALS = IN_FLIGHT_WITHDRAWAL_STATUSES;
 const adminUserSelect = { id: true, phoneNumber: true, fullName: true, status: true, coinBalance: true } as const;
 
 /**

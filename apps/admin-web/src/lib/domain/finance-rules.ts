@@ -18,6 +18,8 @@ export interface WithdrawalApprovalState {
   canApprove: boolean;
   canReject: boolean;
   canRetry: boolean;
+  /** Payout outcome unknown at the partner (needs_manual_review): finance must mark it completed or failed. */
+  needsManualReview: boolean;
   /** Why "Approve" is disabled, when it is. */
   approveBlockedReason: string | null;
 }
@@ -51,6 +53,7 @@ export function getWithdrawalApprovalState(
     canApprove: approveBlockedReason === null,
     canReject: REJECTABLE_STATUSES.includes(w.status),
     canRetry: w.status === WithdrawalStatus.failed && (w.attempts ?? 0) < maxAttempts,
+    needsManualReview: w.status === WithdrawalStatus.needs_manual_review,
     approveBlockedReason,
   };
 }

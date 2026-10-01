@@ -187,8 +187,21 @@ export const WithdrawalStatus = {
   failed: 'failed',
   flagged_for_review: 'flagged_for_review',
   rejected: 'rejected',
+  /**
+   * Phase 5 (#7): the payout partner's outcome is unknown (timeout / 5xx / polling exhausted). Coins stay held;
+   * finance resolves it with POST /admin/withdrawals/:id/resolve-manual-review { outcome: completed | failed }.
+   */
+  needs_manual_review: 'needs_manual_review',
 } as const;
 export type WithdrawalStatus = ValueOf<typeof WithdrawalStatus>;
+
+/** Statuses that hold the user's coins and block a second request / account deletion. */
+export const IN_FLIGHT_WITHDRAWAL_STATUSES = [
+  WithdrawalStatus.pending,
+  WithdrawalStatus.processing,
+  WithdrawalStatus.flagged_for_review,
+  WithdrawalStatus.needs_manual_review,
+] as const satisfies readonly WithdrawalStatus[];
 
 export const ApprovalDecision = {
   approved: 'approved',

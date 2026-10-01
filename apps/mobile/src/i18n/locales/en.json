@@ -467,6 +467,7 @@
       "completed": "Completed",
       "failed": "Failed",
       "flagged_for_review": "Under review",
+      "needs_manual_review": "Being verified",
       "rejected": "Rejected"
     },
     "statusBody": {
@@ -475,6 +476,7 @@
       "completed": "Your money has been sent. Thank you for using {{brand}}!",
       "failed": "The payout could not be completed. Your coins have been returned to your wallet.",
       "flagged_for_review": "A member of our team is checking this request. This happens for a first withdrawal or a large amount and normally takes up to one business day.",
+      "needs_manual_review": "{{provider}} has not confirmed this transfer yet. Our finance team is verifying it with the partner; your coins stay reserved until it is confirmed or returned to your wallet.",
       "rejected": "This request was not approved. Your coins have been returned to your wallet."
     },
     "providerFallback": "the payout partner",

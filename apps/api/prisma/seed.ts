@@ -1161,7 +1161,7 @@ async function main() {
   async function withdrawal(
     userIdx: number,
     amountEtb: number,
-    status: 'pending' | 'processing' | 'completed' | 'failed' | 'flagged_for_review' | 'rejected',
+    status: 'pending' | 'processing' | 'completed' | 'failed' | 'flagged_for_review' | 'rejected' | 'needs_manual_review',
     opts: {
       isFirst?: boolean;
       dual?: boolean;
@@ -1238,15 +1238,15 @@ async function main() {
         isFirstWithdrawal: Boolean(opts.isFirst),
         requiresDualApproval: Boolean(opts.dual),
         failureReason: opts.failureReason,
-        providerName: ['processing', 'completed', 'failed'].includes(status)
+        providerName: ['processing', 'completed', 'failed', 'needs_manual_review'].includes(status)
           ? method === 'bank'
             ? 'chapa'
             : 'telebirr'
           : null,
-        providerPayoutId: ['processing', 'completed', 'failed'].includes(status)
+        providerPayoutId: ['processing', 'completed', 'failed', 'needs_manual_review'].includes(status)
           ? `MOCK-TB-${requestedAt.getTime()}-SEED${userIdx}`
           : null,
-        attempts: ['processing', 'completed', 'failed'].includes(status) ? 1 : 0,
+        attempts: ['processing', 'completed', 'failed', 'needs_manual_review'].includes(status) ? 1 : 0,
         requestedAt,
         processedAt: ['completed', 'failed', 'rejected'].includes(status)
           ? new Date(requestedAt.getTime() + 3600_000)
@@ -1353,6 +1353,11 @@ async function main() {
   await withdrawal(9, 650, 'flagged_for_review', { dual: true, approvals: [finance.id], daysAgo: 1 });
   await withdrawal(10, 55, 'flagged_for_review', { isFirst: true, daysAgo: 1, method: 'cbe_birr' });
   await withdrawal(11, 100, 'rejected', { isFirst: true, daysAgo: 6 });
+  // Phase 5 (#7): a payout whose partner outcome is unknown - coins still held, finance must resolve it.
+  await withdrawal(12, 110, 'needs_manual_review', {
+    daysAgo: 0,
+    failureReason: 'MOCK: telebirr request timed out after 15000ms; status lookup found no record',
+  });
 
   /* coin adjustment requests: pending (awaiting second approval), rejected */
   const pendingAdj = await prisma.coinAdjustmentRequest.create({

@@ -86,3 +86,63 @@ describe('WithdrawalSheet dual approval', () => {
     expect(await screen.findByText('A different admin must provide the second approval.')).toBeInTheDocument();
   });
 });
+
+describe('WithdrawalSheet needs_manual_review (security audit #7)', () => {
+  const parked = {
+    ...largeWithdrawal,
+    id: 'wd-nmr',
+    status: 'needs_manual_review' as const,
+    requiresDualApproval: false,
+    approvals: [],
+    approvalsCount: 0,
+    providerName: 'telebirr',
+    providerPayoutId: 'TB-77',
+    failureReason: 'telebirr: request timed out after 15000ms; status lookup found no record',
+  };
+
+  it('shows the unknown-outcome banner, hides approve/reject/retry and posts the finance decision with evidence', async () => {
+    const user = userEvent.setup();
+    let body: unknown;
+    server.use(
+      http.get(`${BASE}/admin/withdrawals/:id`, () => HttpResponse.json(parked)),
+      http.post(`${BASE}/admin/withdrawals/:id/resolve-manual-review`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ ...parked, status: 'completed', processedBy: adminFinance.id }, { status: 201 });
+      }),
+    );
+    renderWithProviders(<WithdrawalSheet id={parked.id} initial={parked} onClose={vi.fn()} />, { admin: adminFinance, route: '/withdrawals/wd-nmr' });
+    expect(await screen.findByTestId('manual-review-banner')).toHaveTextContent(/still held/);
+    expect(screen.getByTestId('manual-review-banner')).toHaveTextContent('TB-77');
+    expect(screen.queryByTestId('approve-withdrawal')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^reject$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry payout/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('resolve-completed'));
+    const confirm = await screen.findByRole('button', { name: /^mark completed$/i });
+    await user.click(confirm);
+    expect(await screen.findByText(/at least 5 characters/i)).toBeInTheDocument();
+    expect(body).toBeUndefined();
+    await user.type(screen.getByRole('textbox'), 'Telebirr portal shows TB-77 settled');
+    await user.click(confirm);
+    await waitFor(() => expect(body).toEqual({ outcome: 'completed', reason: 'Telebirr portal shows TB-77 settled' }));
+    expect(await screen.findByText('Payout marked completed')).toBeInTheDocument();
+  });
+
+  it('"Mark failed & refund" sends outcome=failed', async () => {
+    const user = userEvent.setup();
+    let body: unknown;
+    server.use(
+      http.get(`${BASE}/admin/withdrawals/:id`, () => HttpResponse.json(parked)),
+      http.post(`${BASE}/admin/withdrawals/:id/resolve-manual-review`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ ...parked, status: 'failed' }, { status: 201 });
+      }),
+    );
+    renderWithProviders(<WithdrawalSheet id={parked.id} initial={parked} onClose={vi.fn()} />, { admin: adminFinance, route: '/withdrawals/wd-nmr' });
+    await user.click(await screen.findByTestId('resolve-failed'));
+    await user.type(await screen.findByRole('textbox'), 'Partner has no record of TB-77');
+    await user.click(screen.getByRole('button', { name: /^mark failed & refund$/i }));
+    await waitFor(() => expect(body).toEqual({ outcome: 'failed', reason: 'Partner has no record of TB-77' }));
+    expect(await screen.findByText('Payout marked failed')).toBeInTheDocument();
+  });
+});

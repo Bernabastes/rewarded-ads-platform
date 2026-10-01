@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { type ActorType, Prisma } from '@prisma/client';
-import { ErrorCode, normalizeEthiopianPhone } from '@rap/shared';
+import { ErrorCode, IN_FLIGHT_WITHDRAWAL_STATUSES, normalizeEthiopianPhone } from '@rap/shared';
 import { AppException } from '../../../common/errors/app.exception';
 import { pageArgs, paginated } from '../../../common/pagination';
 import { eachUtcDay, parseDateRange, startOfUtcDay, utcDayKey } from '../../../common/utils';
@@ -74,12 +74,13 @@ export class AdminReportsService {
         _sum: { costEtb: true, rewardEtb: true },
       }),
     ]);
-    const [pendingKyc, openAlerts, pendingDeletionRequests, adsProcessing, adsFailed] = await Promise.all([
+    const [pendingKyc, openAlerts, pendingDeletionRequests, adsProcessing, adsFailed, withdrawalsNeedingManualReview] = await Promise.all([
       this.prisma.kycSubmission.count({ where: { status: 'pending' } }),
       this.prisma.platformAlert.count({ where: { acknowledgedAt: null } }),
       this.prisma.accountDeletionRequest.count({ where: { status: 'pending' } }),
       this.prisma.ad.count({ where: { mediaStatus: 'processing' } }),
       this.prisma.ad.count({ where: { mediaStatus: 'failed' } }),
+      this.prisma.withdrawal.count({ where: { status: 'needs_manual_review' } }),
     ]);
     return {
       pendingAdReviews: pendingAds,
@@ -104,6 +105,8 @@ export class AdminReportsService {
       pendingDeletionRequests,
       adsMediaProcessing: adsProcessing,
       adsMediaFailed: adsFailed,
+      // Phase 5 (#7)
+      withdrawalsNeedingManualReview,
     };
   }
 
@@ -190,7 +193,7 @@ export class AdminReportsService {
         _sum: { amountEtb: true },
       }),
       this.prisma.withdrawal.aggregate({
-        where: { status: { in: ['pending', 'processing', 'flagged_for_review'] } },
+        where: { status: { in: [...IN_FLIGHT_WITHDRAWAL_STATUSES] } },
         _sum: { amountEtb: true },
       }),
       this.prisma.$queryRaw<

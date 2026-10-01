@@ -1,6 +1,14 @@
 import { mockSecurity, testConfig } from '../../../testing/test-utils';
 import { ChapaPayoutProvider } from './chapa-payout.provider';
-import { mockPayoutStatus, type PayoutProvider } from './payout-provider';
+import {
+  classifyFetchError,
+  classifyHttpStatus,
+  fetchWithTimeout,
+  mockPayoutStatus,
+  PayoutOutcomeUnknownError,
+  type PayoutProvider,
+  PayoutProviderError,
+} from './payout-provider';
 import { PayoutProviderRegistry } from './payout-provider.registry';
 import { TelebirrPayoutProvider } from './telebirr.provider';
 
@@ -54,14 +62,15 @@ describe('payout providers (mock mode)', () => {
   });
 });
 
-describe('PayoutProviderRegistry failover', () => {
+describe('PayoutProviderRegistry failover (security audit #7: only on DEFINITIVE pre-send failures)', () => {
   const security = mockSecurity();
   const make = (
     name: string,
     methods: string[],
     impl: () => Promise<unknown>,
     available = true,
-  ): PayoutProvider =>
+    findByReference: () => Promise<unknown> = async () => null,
+  ) =>
     ({
       name,
       isMock: true,
@@ -69,11 +78,14 @@ describe('PayoutProviderRegistry failover', () => {
       isAvailable: () => available,
       initiatePayout: jest.fn(impl),
       checkStatus: jest.fn(),
-    }) as unknown as PayoutProvider;
+      findByReference: jest.fn(findByReference),
+    }) as unknown as PayoutProvider & { initiatePayout: jest.Mock; findByReference: jest.Mock };
+  const definitive = (msg: string) => new PayoutProviderError(msg, 'definitive', 'telebirr', 400);
+  const ambiguous = (msg: string) => new PayoutProviderError(msg, 'ambiguous', 'telebirr', 504);
 
-  it('routes telebirr to the telebirr provider first and falls over to chapa on failure', async () => {
+  it('routes telebirr to the telebirr provider first and falls over to chapa on a DEFINITIVE failure', async () => {
     const telebirr = make('telebirr', ['telebirr'], async () => {
-      throw new Error('telebirr down');
+      throw definitive('telebirr rejected: invalid msisdn');
     });
     const chapa = make('chapa', ['bank', 'telebirr', 'cbe_birr'], async () => ({
       providerPayoutId: 'CH-1',
@@ -86,6 +98,7 @@ describe('PayoutProviderRegistry failover', () => {
     expect(provider.name).toBe('chapa');
     expect(result.providerPayoutId).toBe('CH-1');
     expect(telebirr.initiatePayout).toHaveBeenCalledTimes(1);
+    expect(telebirr.findByReference).not.toHaveBeenCalled(); // nothing was sent, no lookup needed
     expect(security.warn).toHaveBeenCalledWith(
       'payout.provider_failover',
       expect.objectContaining({ usedProvider: 'chapa', failedOver: ['telebirr'] }),
@@ -109,6 +122,55 @@ describe('PayoutProviderRegistry failover', () => {
     expect(chapa.initiatePayout).not.toHaveBeenCalled();
   });
 
+  it('AMBIGUOUS failure + partner HAS our reference -> continues with that transfer, never fails over (no double payout)', async () => {
+    const telebirr = make(
+      'telebirr',
+      ['telebirr'],
+      async () => {
+        throw ambiguous('telebirr request failed (timeout/network)');
+      },
+      true,
+      async () => ({ providerPayoutId: 'TB-77', status: 'processing', raw: { found: true } }),
+    );
+    const chapa = make('chapa', ['bank', 'telebirr'], async () => ({ providerPayoutId: 'CH-1', status: 'processing' }));
+    const registry = new PayoutProviderRegistry([telebirr, chapa], security);
+    const { provider, result } = await registry.initiateWithFailover('telebirr', 'u1', 50, '+251911223344', { reference: 'w1' });
+    expect(provider.name).toBe('telebirr');
+    expect(result).toMatchObject({ providerPayoutId: 'TB-77', status: 'processing' });
+    expect(telebirr.findByReference).toHaveBeenCalledWith('w1');
+    expect(chapa.initiatePayout).not.toHaveBeenCalled();
+  });
+
+  it('AMBIGUOUS failure + partner has NO record -> safe to fail over', async () => {
+    const telebirr = make('telebirr', ['telebirr'], async () => {
+      throw ambiguous('HTTP 503');
+    });
+    const chapa = make('chapa', ['bank', 'telebirr'], async () => ({ providerPayoutId: 'CH-2', status: 'processing' }));
+    const registry = new PayoutProviderRegistry([telebirr, chapa], security);
+    const { provider } = await registry.initiateWithFailover('telebirr', 'u1', 50, '+251911223344', { reference: 'w1' });
+    expect(provider.name).toBe('chapa');
+    expect(telebirr.findByReference).toHaveBeenCalledTimes(1);
+  });
+
+  it('AMBIGUOUS failure + lookup also fails -> PayoutOutcomeUnknownError (manual review), no failover, no refund', async () => {
+    const telebirr = make(
+      'telebirr',
+      ['telebirr'],
+      async () => {
+        throw ambiguous('timeout');
+      },
+      true,
+      async () => {
+        throw ambiguous('lookup timeout');
+      },
+    );
+    const chapa = make('chapa', ['bank', 'telebirr'], async () => ({ providerPayoutId: 'CH-3', status: 'processing' }));
+    const registry = new PayoutProviderRegistry([telebirr, chapa], security);
+    await expect(registry.initiateWithFailover('telebirr', 'u1', 50, '+251911223344', { reference: 'w1' })).rejects.toBeInstanceOf(PayoutOutcomeUnknownError);
+    expect(chapa.initiatePayout).not.toHaveBeenCalled();
+    expect(security.error).toHaveBeenCalledWith('payout.outcome_unknown', expect.objectContaining({ provider: 'telebirr', reference: 'w1' }));
+  });
+
   it('skips unavailable providers and fails when none can pay', async () => {
     const telebirr = make(
       'telebirr',
@@ -117,7 +179,7 @@ describe('PayoutProviderRegistry failover', () => {
       false,
     );
     const chapa = make('chapa', ['bank', 'telebirr'], async () => {
-      throw new Error('chapa 500');
+      throw new PayoutProviderError('chapa 500', 'ambiguous', 'chapa', 500);
     });
     const registry = new PayoutProviderRegistry([telebirr, chapa], security);
     expect(registry.isMethodAvailable('telebirr')).toBe(true);
@@ -127,5 +189,51 @@ describe('PayoutProviderRegistry failover', () => {
     expect(telebirr.initiatePayout).not.toHaveBeenCalled();
     expect(registry.providersFor('bank').map((p) => p.name)).toEqual(['chapa']);
     expect(new PayoutProviderRegistry([telebirr], security).isMethodAvailable('bank')).toBe(false);
+  });
+});
+
+describe('fetchWithTimeout / error classification (security audit #7)', () => {
+  it('classifies connection refused / DNS as definitive and timeouts / resets as ambiguous', () => {
+    expect(classifyFetchError(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toBe('definitive');
+    expect(classifyFetchError(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }))).toBe('definitive');
+    expect(classifyFetchError(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe('ambiguous');
+    expect(classifyFetchError(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } }))).toBe('ambiguous');
+    expect(classifyFetchError(new Error('weird'))).toBe('ambiguous');
+    expect(classifyHttpStatus(400)).toBe('definitive');
+    expect(classifyHttpStatus(422)).toBe('definitive');
+    expect(classifyHttpStatus(500)).toBe('ambiguous');
+    expect(classifyHttpStatus(504)).toBe('ambiguous');
+  });
+
+  it('aborts a hanging partner call after the timeout and reports it as ambiguous', async () => {
+    const hanging: typeof fetch = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      });
+    const started = Date.now();
+    await expect(fetchWithTimeout('telebirr', 'https://partner.invalid/x', {}, 50, hanging)).rejects.toMatchObject({
+      name: 'PayoutProviderError',
+      kind: 'ambiguous',
+      providerName: 'telebirr',
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('real telebirr/chapa providers surface 5xx as ambiguous and 4xx as definitive', async () => {
+    const real = testConfig({ PAYOUTS_MOCK: 'false', TELEBIRR_APP_ID: 'a', TELEBIRR_APP_KEY: 'b', TELEBIRR_SHORT_CODE: 'c', CHAPA_SECRET_KEY: 'k', PAYOUT_PROVIDER_TIMEOUT_MS: 1000 });
+    const chapa500 = new ChapaPayoutProvider(real, (async () => new Response('{"status":"failed","message":"upstream"}', { status: 502 })) as unknown as typeof fetch);
+    await expect(chapa500.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 502 });
+    const chapa400 = new ChapaPayoutProvider(real, (async () => new Response('{"status":"failed","message":"invalid account"}', { status: 400 })) as unknown as typeof fetch);
+    await expect(chapa400.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'definitive', httpStatus: 400 });
+    // chapa verify 404 => partner has no record of our reference
+    const chapa404 = new ChapaPayoutProvider(real, (async () => new Response('{"status":"failed"}', { status: 404 })) as unknown as typeof fetch);
+    expect(await chapa404.findByReference('w1')).toBeNull();
+    // telebirr: token exchange fails before any transfer -> definitive
+    const tbToken = new TelebirrPayoutProvider(real, (async () => new Response('{"msg":"bad key"}', { status: 401 })) as unknown as typeof fetch);
+    await expect(tbToken.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'definitive' });
+    // telebirr: token ok, disbursement 5xx -> ambiguous
+    let call = 0;
+    const tb5xx = new TelebirrPayoutProvider(real, (async () => (call++ === 0 ? new Response('{"token":"t"}', { status: 200 }) : new Response('{"msg":"gateway"}', { status: 500 }))) as unknown as typeof fetch);
+    await expect(tb5xx.initiatePayout('u', 50, '+251911223344', { reference: 'w1' })).rejects.toMatchObject({ kind: 'ambiguous', httpStatus: 500 });
   });
 });

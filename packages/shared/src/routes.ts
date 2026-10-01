@@ -155,6 +155,7 @@ export const API_ROUTES = {
     withdrawalApprove: (id: string) => `/admin/withdrawals/${id}/approve`,
     withdrawalReject: (id: string) => `/admin/withdrawals/${id}/reject`,
     withdrawalRetry: (id: string) => `/admin/withdrawals/${id}/retry`,
+    withdrawalResolveManualReview: (id: string) => `/admin/withdrawals/${id}/resolve-manual-review`,
     coinAdjustments: '/admin/coin-adjustments',
     coinAdjustment: (id: string) => `/admin/coin-adjustments/${id}`,
     coinAdjustmentApprove: (id: string) => `/admin/coin-adjustments/${id}/approve`,

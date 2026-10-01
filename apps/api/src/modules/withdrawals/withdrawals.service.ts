@@ -1,7 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { type PayoutMethod, Prisma, type Withdrawal, type WithdrawalStatus } from '@prisma/client';
-import { ErrorCode, normalizeEthiopianPhone, PAYOUT_METHOD_INFO } from '@rap/shared';
+import { ErrorCode, IN_FLIGHT_WITHDRAWAL_STATUSES, normalizeEthiopianPhone, PAYOUT_METHOD_INFO } from '@rap/shared';
 import { Queue } from 'bullmq';
 import { AppException } from '../../common/errors/app.exception';
 import { pageArgs, paginated } from '../../common/pagination';
@@ -144,7 +144,7 @@ export class WithdrawalsService {
 
     const [inFlight, completedCount, user] = await Promise.all([
       this.prisma.withdrawal.count({
-        where: { userId, status: { in: ['pending', 'processing', 'flagged_for_review'] } },
+        where: { userId, status: { in: [...IN_FLIGHT_WITHDRAWAL_STATUSES] } },
       }),
       this.prisma.withdrawal.count({ where: { userId, status: 'completed' } }),
       this.prisma.user.findUniqueOrThrow({
@@ -587,6 +587,110 @@ export class WithdrawalsService {
       body: `We could not complete your withdrawal of ${w.amountEtb.toFixed(2)} ETB. The coins have been returned to your balance; please try again.`,
       data: { withdrawalId: id, status: 'failed' },
     });
+  }
+
+  /**
+   * The partner's outcome is unknown (#7): park the withdrawal with the coins STILL HELD. Finance confirms the
+   * transfer with the partner and resolves it via `resolveManualReview`. Never refunds automatically.
+   */
+  async markNeedsManualReview(id: string, reason: string, raw?: unknown) {
+    const w = await this.prisma.withdrawal.findUnique({ where: { id } });
+    if (!w || w.status !== 'processing') return;
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.withdrawal.updateMany({
+        where: { id, status: 'processing' },
+        data: {
+          status: 'needs_manual_review',
+          failureReason: reason,
+          providerStatusRaw: raw === undefined ? undefined : toJson(raw),
+        },
+      });
+      if (claimed.count === 0) return;
+      await this.audit.record(
+        {
+          actorType: 'system',
+          action: 'withdrawal.needs_manual_review',
+          targetType: 'withdrawal',
+          targetId: id,
+          before: { status: 'processing' },
+          after: { status: 'needs_manual_review', reason, provider: w.providerName, providerPayoutId: w.providerPayoutId },
+        },
+        tx,
+      );
+    });
+    this.security.error('payout.outcome_unknown', {
+      withdrawalId: id,
+      userId: w.userId,
+      provider: w.providerName,
+      providerPayoutId: w.providerPayoutId,
+      amountEtb: w.amountEtb.toNumber(),
+      reason,
+    });
+    await this.notifications.notify({
+      userId: w.userId,
+      type: 'withdrawal_status',
+      title: 'Withdrawal being verified',
+      body: `We are confirming your withdrawal of ${w.amountEtb.toFixed(2)} ETB with the payout partner. Your coins stay reserved until it is confirmed.`,
+      data: { withdrawalId: id, status: 'needs_manual_review' },
+    });
+  }
+
+  /**
+   * Finance resolution of a `needs_manual_review` withdrawal after checking the partner's records:
+   * `completed` = the money reached the user (coins stay debited); `failed` = the partner never paid (coins refunded,
+   * admin may retry). Both are audited with the stated reason / partner reference.
+   */
+  async resolveManualReview(
+    id: string,
+    ctx: WithdrawalDecisionContext,
+    input: { outcome: 'completed' | 'failed'; reason: string; providerReference?: string },
+  ) {
+    this.assertFinanceRole(ctx);
+    const w = await this.prisma.withdrawal.findUnique({ where: { id } });
+    if (!w) throw AppException.notFound('Withdrawal not found');
+    if (w.status !== 'needs_manual_review') {
+      throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, `Withdrawal is ${w.status}, not needs_manual_review`);
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.withdrawal.updateMany({
+        where: { id, status: 'needs_manual_review' },
+        data: {
+          status: input.outcome,
+          processedAt: new Date(),
+          processedBy: ctx.adminId,
+          reviewNote: input.reason,
+          failureReason: input.outcome === 'failed' ? `Partner confirmed failure: ${input.reason}` : null,
+          providerPayoutId: input.providerReference ?? w.providerPayoutId,
+        },
+      });
+      if (claimed.count === 0) throw AppException.conflict(ErrorCode.WITHDRAWAL_NOT_REVIEWABLE, 'Withdrawal changed state concurrently');
+      if (input.outcome === 'failed') await this.reverseHold(tx, w, `Manual review: partner confirmed no payout (${input.reason})`);
+      await this.audit.record(
+        {
+          actorType: 'admin',
+          actorId: ctx.adminId,
+          action: `withdrawal.manual_review_${input.outcome}`,
+          targetType: 'withdrawal',
+          targetId: id,
+          before: { status: 'needs_manual_review', provider: w.providerName, providerPayoutId: w.providerPayoutId },
+          after: { status: input.outcome, reason: input.reason, providerReference: input.providerReference ?? null },
+          ipAddress: ctx.ip,
+        },
+        tx,
+      );
+    });
+    this.security.warn('payout.manual_review_decided', { withdrawalId: id, adminId: ctx.adminId, outcome: input.outcome, reason: input.reason });
+    await this.notifications.notify({
+      userId: w.userId,
+      type: 'withdrawal_status',
+      title: input.outcome === 'completed' ? 'Withdrawal completed' : 'Withdrawal failed',
+      body:
+        input.outcome === 'completed'
+          ? `${w.amountEtb.toFixed(2)} ETB has been confirmed as sent to your ${w.payoutMethod} account.`
+          : `We could not complete your withdrawal of ${w.amountEtb.toFixed(2)} ETB. The coins have been returned to your balance.`,
+      data: { withdrawalId: id, status: input.outcome },
+    });
+    return this.getForAdmin(id);
   }
 
   async setProvider(id: string, providerName: string, providerPayoutId: string, raw: unknown) {

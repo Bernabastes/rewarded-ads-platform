@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { type KycIdType, type KycStatus, type KycSubmission, Prisma } from '@prisma/client';
-import { type EthiopianDate, ErrorCode, KYC_UPLOAD_LIMITS, type KycUploadKind } from '@rap/shared';
+import { type EthiopianDate, ErrorCode, IN_FLIGHT_WITHDRAWAL_STATUSES, KYC_UPLOAD_LIMITS, type KycUploadKind } from '@rap/shared';
 import { AppException } from '../../common/errors/app.exception';
 import { pageArgs, paginated } from '../../common/pagination';
 import { sha256 } from '../../common/utils';
@@ -22,8 +22,8 @@ const userSelect = { id: true, phoneNumber: true, fullName: true, kycTier: true,
 const adminInclude = { user: { select: userSelect } } satisfies Prisma.KycSubmissionInclude;
 type AdminRow = Prisma.KycSubmissionGetPayload<{ include: typeof adminInclude }>;
 
-/** Statuses that count towards the rolling 30-day payout total (completed + in-flight). */
-export const MONTHLY_PAYOUT_STATUSES = ['completed', 'pending', 'processing', 'flagged_for_review'] as const;
+/** Statuses that count towards the rolling 30-day payout total (completed + in-flight, incl. needs_manual_review). */
+export const MONTHLY_PAYOUT_STATUSES = ['completed', ...IN_FLIGHT_WITHDRAWAL_STATUSES] as const;
 
 /**
  * KYC tiers (Feature 3). Everyone starts `phone_only`; an approved submission promotes the user to `id_verified`.

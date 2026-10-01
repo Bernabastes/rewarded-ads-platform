@@ -47,6 +47,7 @@ import {
   type PlatformConfigResponse,
   type RevenueOverview,
   type RevenueQuery,
+  type ResolveManualReviewDto,
   type ReviewAdReportDto,
   type UserProfile,
   type WithdrawalItem,
@@ -208,6 +209,8 @@ export const withdrawalsApi = {
   approve: (id: string, note?: string) => api.post<AdminWithdrawal>(API_ROUTES.admin.withdrawalApprove(id), { note }),
   reject: (id: string, reason: string) => api.post<AdminWithdrawal>(API_ROUTES.admin.withdrawalReject(id), { reason }),
   retry: (id: string) => api.post<AdminWithdrawal>(API_ROUTES.admin.withdrawalRetry(id), {}),
+  /** Finance decision for a payout whose partner outcome is unknown (status needs_manual_review). */
+  resolveManualReview: (id: string, body: ResolveManualReviewDto) => api.post<AdminWithdrawal>(API_ROUTES.admin.withdrawalResolveManualReview(id), body),
 };
 
 /* --------------------------- coin adjustments ----------------------- */

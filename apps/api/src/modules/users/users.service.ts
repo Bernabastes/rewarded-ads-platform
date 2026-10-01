@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ErrorCode } from '@rap/shared';
+import { ErrorCode, IN_FLIGHT_WITHDRAWAL_STATUSES } from '@rap/shared';
 import { AppException } from '../../common/errors/app.exception';
 import { startOfUtcDay } from '../../common/utils';
 import { AppConfig } from '../../config/app-config';
@@ -73,7 +73,7 @@ export class UsersService {
           _sum: { amountEtb: true },
         }),
         this.prisma.withdrawal.aggregate({
-          where: { userId, status: { in: ['pending', 'processing', 'flagged_for_review'] } },
+          where: { userId, status: { in: [...IN_FLIGHT_WITHDRAWAL_STATUSES] } },
           _sum: { amountEtb: true },
         }),
         this.notifications.unreadCount(userId),

@@ -59,6 +59,7 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   suspended: 'warning',
   flagged: 'accent',
   flagged_for_review: 'accent',
+  needs_manual_review: 'danger',
   processing: 'info',
   paused: 'neutral',
   draft: 'neutral',

@@ -38,10 +38,83 @@ export class DestinationNotFoundError extends Error {
 }
 
 /**
+ * Classification of a failed partner call (security audit #7).
+ *  - `definitive`: the transfer was certainly NOT sent (connection refused / DNS failure before the request left,
+ *    or a 4xx validation/authentication rejection) -> safe to fail over to the next provider or to refund.
+ *  - `ambiguous`: timeout, 5xx, connection reset mid-request, malformed reply -> the partner MAY have accepted
+ *    the transfer; never fail over or refund without a status query.
+ */
+export type PayoutErrorKind = 'definitive' | 'ambiguous';
+
+export class PayoutProviderError extends Error {
+  constructor(
+    message: string,
+    readonly kind: PayoutErrorKind,
+    readonly providerName: string,
+    readonly httpStatus?: number,
+  ) {
+    super(message);
+    this.name = 'PayoutProviderError';
+  }
+}
+
+/** Thrown by the registry when a provider's outcome stays unknown after the status query: park for manual review. */
+export class PayoutOutcomeUnknownError extends Error {
+  constructor(
+    readonly providerName: string,
+    readonly reference: string,
+    override readonly cause: Error,
+  ) {
+    super(`${providerName} outcome unknown for ${reference}: ${cause.message}`);
+    this.name = 'PayoutOutcomeUnknownError';
+  }
+}
+
+/** Maps a thrown fetch error to its classification. */
+export function classifyFetchError(err: unknown): PayoutErrorKind {
+  const e = err as { name?: string; code?: string; cause?: { code?: string } };
+  const code = e.code ?? e.cause?.code;
+  if (e.name === 'AbortError' || e.name === 'TimeoutError') return 'ambiguous';
+  if (code && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ERR_INVALID_URL', 'UND_ERR_INVALID_ARG'].includes(code)) return 'definitive';
+  return 'ambiguous';
+}
+
+/** fetch() with a hard timeout; errors are rethrown as PayoutProviderError with the right classification. */
+export async function fetchWithTimeout(
+  providerName: string,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    const kind = classifyFetchError(err);
+    throw new PayoutProviderError(
+      `${providerName} request failed (${kind === 'ambiguous' ? 'timeout/network' : 'unreachable'}): ${(err as Error).message}`,
+      kind,
+      providerName,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** HTTP status -> classification for a reply the partner DID send. */
+export function classifyHttpStatus(status: number): PayoutErrorKind {
+  return status >= 400 && status < 500 ? 'definitive' : 'ambiguous';
+}
+
+/**
  * Payout partner abstraction (spec §9). The platform never holds user funds: every withdrawal is executed by a
  * licensed partner through one of these implementations. `initiatePayout`/`checkStatus` match the spec signature;
  * the trailing `options` argument is optional metadata (bank code / account name) some partners require.
  * `resolveAccount` performs the partner's account-name enquiry used for destination verification.
+ * `findByReference` looks a transfer up by OUR reference (the withdrawal id) after an ambiguous failure; it returns
+ * null when the partner has no record (=> the transfer was not accepted) and throws when it cannot tell.
  */
 export interface PayoutProvider {
   readonly name: string;
@@ -56,6 +129,7 @@ export interface PayoutProvider {
   ): Promise<PayoutResult>;
   checkStatus(payoutId: string): Promise<PayoutStatus>;
   resolveAccount(method: PayoutMethod, destination: string, bankCode?: string): Promise<ResolvedAccount>;
+  findByReference(reference: string): Promise<(PayoutStatus & { providerPayoutId: string }) | null>;
 }
 
 export const PAYOUT_PROVIDERS = Symbol('PAYOUT_PROVIDERS');

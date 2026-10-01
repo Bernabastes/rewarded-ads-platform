@@ -51,6 +51,17 @@ export interface AdminOverview {
   pendingDeletionRequests: number;
   adsMediaProcessing: number;
   adsMediaFailed: number;
+  /** Phase 5 (#7): payouts whose partner outcome is unknown and need a finance decision. */
+  withdrawalsNeedingManualReview: number;
+}
+
+/** `POST /admin/withdrawals/:id/resolve-manual-review` (finance / super_admin). */
+export interface ResolveManualReviewDto {
+  /** completed = the partner paid (coins stay debited); failed = the partner never paid (coins refunded). */
+  outcome: 'completed' | 'failed';
+  reason: string;
+  /** Partner transaction reference confirmed during the check. */
+  providerReference?: string;
 }
 
 export interface PlatformConfigResponse {

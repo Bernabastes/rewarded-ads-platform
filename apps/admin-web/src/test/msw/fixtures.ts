@@ -84,6 +84,7 @@ export const overview: AdminOverview = {
   pendingAdvertiserVerifications: 1,
   withdrawalsAwaitingReview: 3,
   withdrawalsPendingPayout: 5,
+  withdrawalsNeedingManualReview: 0,
   pendingCoinAdjustments: 1,
   openFraudFlags: 15,
   openAdReports: 2,

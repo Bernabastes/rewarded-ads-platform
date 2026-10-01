@@ -16,6 +16,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsObject,
@@ -134,6 +135,25 @@ export class OptionalNoteDto {
   @IsString()
   @MaxLength(1000)
   note?: string;
+}
+
+/** Finance resolution of a `needs_manual_review` withdrawal after checking the partner's records (Phase 5 #7). */
+export class ResolveManualReviewDto {
+  @ApiProperty({ enum: ['completed', 'failed'], description: 'completed = partner paid (coins stay debited); failed = partner never paid (coins refunded)' })
+  @IsIn(['completed', 'failed'])
+  outcome: 'completed' | 'failed';
+
+  @ApiProperty({ example: 'telebirr support confirmed transfer TB-9981 settled on 2026-10-01 (ticket #77)' })
+  @IsString()
+  @MinLength(5)
+  @MaxLength(1000)
+  reason: string;
+
+  @ApiPropertyOptional({ description: 'Partner transaction reference confirmed during the check' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  providerReference?: string;
 }
 
 /* ----------------------------- advertisers ----------------------------- */

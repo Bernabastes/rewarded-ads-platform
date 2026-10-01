@@ -14,6 +14,7 @@ export const STATUS_TONES: Record<WithdrawalStatus, BadgeTone> = {
   completed: 'success',
   failed: 'danger',
   flagged_for_review: 'warning',
+  needs_manual_review: 'warning',
   rejected: 'danger',
 };
 
@@ -39,6 +40,7 @@ export function buildTimeline(item: Pick<WithdrawalItem, 'status' | 'reviewReaso
       steps.push({ key: 'queued', state: 'active' }, { key: 'sending', state: 'upcoming' }, { key: 'completed', state: 'upcoming' });
       break;
     case WithdrawalStatus.processing:
+    case WithdrawalStatus.needs_manual_review:
       if (reviewed) steps.push({ key: 'review', state: 'done' });
       steps.push({ key: 'queued', state: 'done' }, { key: 'sending', state: 'active' }, { key: 'completed', state: 'upcoming' });
       break;

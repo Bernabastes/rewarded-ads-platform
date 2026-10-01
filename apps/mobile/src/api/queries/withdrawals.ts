@@ -13,6 +13,7 @@ export const ACTIVE_WITHDRAWAL_STATUSES = new Set<string>([
   WithdrawalStatus.pending,
   WithdrawalStatus.processing,
   WithdrawalStatus.flagged_for_review,
+  WithdrawalStatus.needs_manual_review,
 ]);
 
 export function isWithdrawalActive(item: WithdrawalItem | undefined): boolean {
