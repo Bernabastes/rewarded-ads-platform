@@ -90,6 +90,31 @@ export class TokenService {
       throw AppException.unauthorized(ErrorCode.TOKEN_EXPIRED, 'Refresh token expired');
     }
 
+    // Security audit #15: claim the token atomically. Two concurrent rotations of the same token used to both
+    // succeed (two live sessions from one refresh token); now the loser of the race is treated exactly like reuse.
+    const claimed = await this.prisma.refreshToken.updateMany({
+      where: { id: stored.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (claimed.count === 0) {
+      await this.prisma.refreshToken.updateMany({
+        where: { familyId: stored.familyId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await this.invalidateAccessTokens(stored.subjectType, stored.subjectId, 'refresh_reuse');
+      this.security.warn('auth.refresh_reuse_detected', {
+        subjectType: stored.subjectType,
+        subjectId: stored.subjectId,
+        familyId: stored.familyId,
+        ip: meta.ip,
+        reason: 'concurrent_rotation',
+      });
+      throw AppException.unauthorized(
+        ErrorCode.REFRESH_TOKEN_REUSED,
+        'Refresh token reuse detected; please log in again',
+      );
+    }
+
     const role = stored.subjectType === 'admin' ? await this.adminRole(stored.subjectId) : undefined;
     const tokens = await this.issue(
       { type: stored.subjectType, id: stored.subjectId, role },
@@ -100,7 +125,7 @@ export class TokenService {
     });
     await this.prisma.refreshToken.update({
       where: { id: stored.id },
-      data: { revokedAt: new Date(), replacedById: replacement?.id },
+      data: { replacedById: replacement?.id },
     });
     return { tokens, subject: { type: stored.subjectType, id: stored.subjectId } };
   }

@@ -96,6 +96,72 @@ describe('AdminReportsService audit log (Phase 4C: actor labels + actor= filter)
   });
 });
 
+describe('AdminReportsService dismissFlag -> releaseFlaggedCompletion (security audit #15: atomic claim)', () => {
+  const FLAG = uuid(20);
+  const COMPLETION = uuid(21);
+  const CAMPAIGN = uuid(22);
+  let prisma: any;
+  let fraud: any;
+  let ledger: any;
+  let service: AdminReportsService;
+
+  beforeEach(() => {
+    prisma = mockPrisma();
+    fraud = { resolveFlag: jest.fn().mockResolvedValue({}), getFlag: jest.fn().mockResolvedValue({ id: FLAG, resolved: true }) };
+    ledger = { applyEntry: jest.fn().mockResolvedValue({ entry: { id: uuid(30) }, balanceAfter: 1150, replayed: false }) };
+    service = new AdminReportsService(prisma, testConfig(), mockAudit(), fraud, ledger, mockSecurity(), mockNotifications(), {} as never);
+    prisma.fraudFlag.findUnique.mockResolvedValue({ id: FLAG, relatedEntityType: 'ad_completion', relatedEntityId: COMPLETION, resolved: false });
+    prisma.fraudFlag.count.mockResolvedValue(0);
+    prisma.adCompletion.findUnique.mockResolvedValue({
+      id: COMPLETION,
+      userId: USER,
+      campaignId: CAMPAIGN,
+      watchSessionId: uuid(23),
+      status: 'flagged',
+      campaign: { costPerActionEtb: 2, rewardPerActionEtb: 1 },
+      ad: { title: 'Demo ad' },
+    });
+    prisma.$queryRaw.mockResolvedValue([{ id: CAMPAIGN }]);
+  });
+
+  it('claims the flagged row with updateMany(status=flagged) BEFORE charging the campaign and crediting the reward', async () => {
+    prisma.adCompletion.updateMany.mockResolvedValue({ count: 1 });
+    await service.dismissFlag(FLAG, 'genuine view', { adminId: ADMIN, ip: '1.1.1.1' });
+    expect(prisma.adCompletion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: COMPLETION, status: 'flagged' }, data: expect.objectContaining({ status: 'valid', coinRewardAmount: 100 }) }),
+    );
+    expect(prisma.adCompletion.update).not.toHaveBeenCalled();
+    const claimOrder = prisma.adCompletion.updateMany.mock.invocationCallOrder[0];
+    expect(claimOrder).toBeLessThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
+    expect(claimOrder).toBeLessThan(ledger.applyEntry.mock.invocationCallOrder[0]);
+    expect(ledger.applyEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it('the loser of a concurrent dismissal (claim count 0) credits nothing and charges nothing', async () => {
+    prisma.adCompletion.updateMany.mockResolvedValue({ count: 0 });
+    await service.dismissFlag(FLAG, 'genuine view', { adminId: ADMIN, ip: '1.1.1.1' });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(ledger.applyEntry).not.toHaveBeenCalled();
+  });
+
+  it('an exhausted campaign budget rolls the claim back (completion stays flagged) and credits nothing', async () => {
+    prisma.adCompletion.updateMany.mockResolvedValue({ count: 1 });
+    prisma.$queryRaw.mockResolvedValue([]);
+    let rolledBack = false;
+    prisma.$transaction.mockImplementation(async (fn: any) => {
+      try {
+        return await fn(prisma);
+      } catch (err) {
+        rolledBack = true;
+        throw err;
+      }
+    });
+    await expect(service.dismissFlag(FLAG, 'genuine view', { adminId: ADMIN, ip: '1.1.1.1' })).resolves.toBeDefined();
+    expect(rolledBack).toBe(true);
+    expect(ledger.applyEntry).not.toHaveBeenCalled();
+  });
+});
+
 describe('AdminReportsService overview (Phase 4 queue counters)', () => {
   it('reports pendingKyc, openAlerts, pendingDeletionRequests and media pipeline counters', async () => {
     const prisma = mockPrisma();

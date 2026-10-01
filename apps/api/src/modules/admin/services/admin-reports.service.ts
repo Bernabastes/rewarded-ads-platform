@@ -16,6 +16,13 @@ import type { AdminActor } from './admin-review.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Rolls back a `releaseFlaggedCompletion` transaction when the campaign budget cannot cover the release (#15). */
+class CampaignBudgetExhaustedError extends Error {
+  constructor() {
+    super('campaign budget exhausted');
+  }
+}
+
 /** Who an audit-log `actor=` / `actorId=` filter resolved to (exposed as `meta.actor`). */
 export interface ResolvedActor {
   id: string;
@@ -513,20 +520,17 @@ export class AdminReportsService {
       .round()
       .toNumber();
     const credited = await this.prisma.$transaction(async (tx) => {
+      // Security audit #15: claim the flagged row atomically so two concurrent resolvers cannot both release it
+      // (the ledger idempotency key is the second line of defence, not the first).
+      const claimed = await tx.adCompletion.updateMany({
+        where: { id: completionId, status: 'flagged' },
+        data: { status: 'valid', coinRewardAmount: coins, rewardEtb: completion.campaign.rewardPerActionEtb, costEtb: completion.campaign.costPerActionEtb, rejectionCode: null },
+      });
+      if (claimed.count === 0) return null;
       const charge = await tx.$queryRaw<Array<{ id: string }>>`
         UPDATE campaigns SET spent_etb = spent_etb + ${completion.campaign.costPerActionEtb}, updated_at = NOW()
         WHERE id = ${completion.campaignId}::uuid AND spent_etb + ${completion.campaign.costPerActionEtb} <= budget_etb RETURNING id`;
-      if (charge.length === 0) return null;
-      await tx.adCompletion.update({
-        where: { id: completionId },
-        data: {
-          status: 'valid',
-          coinRewardAmount: coins,
-          rewardEtb: completion.campaign.rewardPerActionEtb,
-          costEtb: completion.campaign.costPerActionEtb,
-          rejectionCode: null,
-        },
-      });
+      if (charge.length === 0) throw new CampaignBudgetExhaustedError();
       const write = await this.ledger.applyEntry(
         {
           userId: completion.userId,
@@ -552,6 +556,10 @@ export class AdminReportsService {
         tx,
       );
       return write;
+    }).catch((err: unknown) => {
+      // budget exhausted: the transaction (incl. the status claim) rolled back and the completion stays flagged
+      if (err instanceof CampaignBudgetExhaustedError) return null;
+      throw err;
     });
     if (credited) {
       this.security.info('fraud.flag_resolved', {

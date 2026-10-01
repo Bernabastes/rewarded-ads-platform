@@ -83,6 +83,41 @@ describe('TokenService access-token denylist (F2)', () => {
     expect(redis.store.has(tokensInvalidBeforeKey('user', userId))).toBe(true);
   });
 
+  describe('rotate claims the token atomically (security audit #15)', () => {
+    const live = (userId: string) => ({
+      id: 'rt-live',
+      tokenHash: 'h',
+      subjectType: 'user' as const,
+      subjectId: userId,
+      familyId: 'fam-2',
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    it('a successful claim (count 1) issues the replacement and links it', async () => {
+      const userId = uuid(9);
+      prisma.refreshToken.findUnique.mockResolvedValueOnce(live(userId)).mockResolvedValueOnce({ id: 'rt-new' });
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+      const { tokens } = await service.rotate('live-token', { ip: '1.1.1.1' });
+      expect(tokens.refreshToken).toBeTruthy();
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'rt-live', revokedAt: null }, data: { revokedAt: expect.any(Date) } }),
+      );
+      expect(prisma.refreshToken.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'rt-live' }, data: { replacedById: 'rt-new' } }));
+      expect(redis.store.has(tokensInvalidBeforeKey('user', userId))).toBe(false);
+    });
+
+    it('losing the race (count 0 although the row looked live) is treated as reuse: family revoked, access tokens invalidated', async () => {
+      const userId = uuid(10);
+      prisma.refreshToken.findUnique.mockResolvedValue(live(userId));
+      prisma.refreshToken.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+      await expect(service.rotate('raced-token', { ip: '1.1.1.1' })).rejects.toMatchObject({ code: 'REFRESH_TOKEN_REUSED' });
+      expect(prisma.refreshToken.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { familyId: 'fam-2', revokedAt: null } }));
+      expect(prisma.refreshToken.create).not.toHaveBeenCalled();
+      expect(redis.store.has(tokensInvalidBeforeKey('user', userId))).toBe(true);
+    });
+  });
+
   it('revokeAllForSubject (suspension / ban / age rejection) revokes refresh tokens and stamps the denylist', async () => {
     prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
     await service.revokeAllForSubject('user', uuid(5), 'age_restricted');
