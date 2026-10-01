@@ -51,4 +51,9 @@ export class AppException extends HttpException {
   ) {
     return new AppException(code, message, HttpStatus.TOO_MANY_REQUESTS, details);
   }
+
+  /** Phase 5b New-5: a Redis-backed security control failed CLOSED (Redis unreachable); the client should retry. */
+  static securityUnavailable(message = 'Security services are temporarily unavailable; please retry shortly') {
+    return new AppException(ErrorCode.SERVICE_UNAVAILABLE, message, HttpStatus.SERVICE_UNAVAILABLE, { retryAfterSeconds: 5 });
+  }
 }

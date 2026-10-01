@@ -192,8 +192,17 @@ export class TokenService {
       if (denied) return true;
       if (invalidBefore && claims.iat !== undefined && claims.iat * 1000 < Number(invalidBefore)) return true;
       return false;
-    } catch {
-      // Redis down: fail open (tokens are short-lived and account status is re-read from the DB anyway).
+    } catch (err) {
+      // Redis down (Phase 5b New-5): closed => the token is treated as denied (the guard answers 503 so clients
+      // retry rather than re-authenticate); open => accept (tokens are short-lived, account status is re-read).
+      this.security.error('auth.denylist_unavailable', {
+        scope: 'access_token_denylist',
+        subjectType: type,
+        subjectId: id,
+        failMode: this.config.redisFailClosed ? 'closed' : 'open',
+        error: (err as Error).message,
+      });
+      if (this.config.redisFailClosed) throw AppException.securityUnavailable();
       return false;
     }
   }

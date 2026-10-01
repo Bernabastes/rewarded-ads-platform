@@ -1,4 +1,5 @@
 import { JwtService } from '@nestjs/jwt';
+import { ErrorCode } from '@rap/shared';
 import { mockPrisma, mockSecurity, testConfig, uuid } from '../../testing/test-utils';
 import { deniedJtiKey, TokenService, tokensInvalidBeforeKey } from './token.service';
 
@@ -128,6 +129,14 @@ describe('TokenService access-token denylist (F2)', () => {
   it('fails open when Redis is unavailable (tokens are short-lived; account status is re-read from the DB)', async () => {
     redis.mget.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     expect(await service.isAccessTokenDenied('user', uuid(6), { jti: 'x', iat: 1 })).toBe(false);
+  });
+
+  it('Phase 5b New-5: the denylist check fails CLOSED (503) when SECURITY_REDIS_FAIL_MODE=closed', async () => {
+    const security = mockSecurity();
+    const closed = new TokenService(jwt, testConfig({ JWT_ACCESS_TTL_SECONDS: 900, SECURITY_REDIS_FAIL_MODE: 'closed' }), prisma, security, { client: redis } as never);
+    redis.mget.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await expect(closed.isAccessTokenDenied('user', uuid(6), { jti: 'x', iat: 1 })).rejects.toMatchObject({ code: ErrorCode.SERVICE_UNAVAILABLE, status: 503 });
+    expect(security.error).toHaveBeenCalledWith('auth.denylist_unavailable', expect.objectContaining({ scope: 'access_token_denylist', failMode: 'closed' }));
   });
 
   it('issues impersonation tokens with typ=impersonation, actorAdminId and no refresh token', async () => {

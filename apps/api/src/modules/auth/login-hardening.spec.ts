@@ -57,10 +57,20 @@ describe('LoginThrottle (security audit #5)', () => {
     });
   });
 
-  it('fails open (logs) when Redis is unavailable instead of blocking every login', async () => {
+  it('fails open (logs) when Redis is unavailable instead of blocking every login (default outside production)', async () => {
     redis.client.ttl.mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(throttle.assertAllowed('admin', 'x@rap.et', '1.1.1.1')).resolves.toBeUndefined();
-    expect(security.error).toHaveBeenCalledWith('auth.denylist_unavailable', expect.objectContaining({ scope: 'login_throttle' }));
+    expect(security.error).toHaveBeenCalledWith('auth.denylist_unavailable', expect.objectContaining({ scope: 'login_throttle', failMode: 'open' }));
+  });
+
+  it('Phase 5b New-5: fails CLOSED (503, security event) when SECURITY_REDIS_FAIL_MODE=closed and Redis is unavailable', async () => {
+    const closed = new LoginThrottle(redis, testConfig({ SECURITY_REDIS_FAIL_MODE: 'closed' }), security, audit);
+    redis.client.ttl.mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(closed.assertAllowed('admin', 'x@rap.et', '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.SERVICE_UNAVAILABLE, status: 503 });
+    expect(security.error).toHaveBeenCalledWith('auth.denylist_unavailable', expect.objectContaining({ scope: 'login_throttle', failMode: 'closed' }));
+    // production defaults to closed, development to open
+    expect(testConfig({ NODE_ENV: 'development' }).redisFailClosed).toBe(false);
+    expect(testConfig({ NODE_ENV: 'development', SECURITY_REDIS_FAIL_MODE: 'closed' }).redisFailClosed).toBe(true);
   });
 });
 
@@ -128,6 +138,16 @@ describe('MfaService (security audit #5)', () => {
     await mfa.verifyForAdmin(a, code, '1.1.1.1', 'login');
     await expect(mfa.verifyForAdmin(a, code, '1.1.1.1', 'login')).rejects.toMatchObject({ code: ErrorCode.MFA_CODE_INVALID });
     expect(security.warn).toHaveBeenCalledWith('auth.mfa_failed', expect.objectContaining({ reason: 'replay' }));
+  });
+
+  it('Phase 5b New-5: the replay guard fails closed (503) in closed mode and open (accept + security event) otherwise', async () => {
+    const secret = authenticator.generateSecret();
+    const a = admin({ mfaSecret: mfa.encrypt(secret), mfaEnabledAt: new Date() });
+    redis.client.set.mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(mfa.verifyForAdmin(a, authenticator.generate(secret), '1.1.1.1', 'login')).resolves.toBeUndefined();
+    expect(security.error).toHaveBeenCalledWith('auth.denylist_unavailable', expect.objectContaining({ scope: 'mfa_replay_guard', failMode: 'open' }));
+    const closed = new MfaService(prisma, testConfig({ ADMIN_MFA_REQUIRED: true, MFA_ENCRYPTION_KEY: 'unit-test-mfa-key', SECURITY_REDIS_FAIL_MODE: 'closed' }), redis, security, audit);
+    await expect(closed.verifyForAdmin(a, authenticator.generate(secret), '1.1.1.1', 'login')).rejects.toMatchObject({ code: ErrorCode.SERVICE_UNAVAILABLE, status: 503 });
   });
 
   it('disable requires MFA to be on, the password AND a valid code', async () => {

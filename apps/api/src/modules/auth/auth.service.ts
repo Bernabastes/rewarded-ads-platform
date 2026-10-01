@@ -461,7 +461,20 @@ export class AuthService {
     if (!admin || !admin.active || !admin.mfaEnabledAt) {
       throw AppException.unauthorized(ErrorCode.MFA_TOKEN_INVALID, 'Sign in again to get a new verification challenge');
     }
-    if (await this.redis.client.get(mfaTokenUsedKey(claims.jti)).catch(() => null)) {
+    // The challenge is single-use (Phase 5b New-5: the check fails closed in production when Redis is down).
+    let used: string | null;
+    try {
+      used = await this.redis.client.get(mfaTokenUsedKey(claims.jti));
+    } catch (err) {
+      this.security.error('auth.denylist_unavailable', {
+        scope: 'mfa_token_single_use',
+        failMode: this.config.redisFailClosed ? 'closed' : 'open',
+        error: (err as Error).message,
+      });
+      if (this.config.redisFailClosed) throw AppException.securityUnavailable('Sign-in is temporarily unavailable; please retry shortly');
+      used = null;
+    }
+    if (used) {
       throw AppException.unauthorized(ErrorCode.MFA_TOKEN_INVALID, 'This verification challenge was already used');
     }
     await this.loginThrottle.assertAllowed('admin', admin.email, meta.ip);

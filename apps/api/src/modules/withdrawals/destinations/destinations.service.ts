@@ -214,14 +214,19 @@ export class DestinationsService {
     return Math.max(0, this.config.platform.destinationLookupsPerDay - used);
   }
 
-  /** Per-user daily cap (429) + per-IP hourly spike alert. Fails open when Redis is unavailable. */
+  /** Per-user daily cap (429) + per-IP hourly spike alert. Phase 5b New-5: fails closed in production when Redis is down. */
   private async claimLookup(userId: string, ip?: string) {
     const limit = this.config.platform.destinationLookupsPerDay;
     let count: number;
     try {
       count = await this.redis.incrWithTtl(this.lookupDayKey(userId), secondsUntilEndOfUtcDay());
     } catch (err) {
-      this.security.error('auth.denylist_unavailable', { scope: 'destination_lookup_cap', error: (err as Error).message });
+      this.security.error('auth.denylist_unavailable', {
+        scope: 'destination_lookup_cap',
+        failMode: this.config.redisFailClosed ? 'closed' : 'open',
+        error: (err as Error).message,
+      });
+      if (this.config.redisFailClosed) throw AppException.securityUnavailable('Destination verification is temporarily unavailable; please retry shortly');
       return;
     }
     if (count > limit) {

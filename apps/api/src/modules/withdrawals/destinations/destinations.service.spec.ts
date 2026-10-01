@@ -254,6 +254,20 @@ describe('DestinationsService (withdrawal destination verification)', () => {
       expect(security.warn).toHaveBeenCalledWith('destination.lookup_rate_limited', expect.objectContaining({ userId: USER, count: 6 }));
     });
 
+    it('Phase 5b New-5: the daily cap fails open outside production (security event) and CLOSED (503) in closed mode', async () => {
+      prisma.payoutDestination.findUnique.mockResolvedValue({ id: uuid(5), lastUsedAt: new Date(), otpVerifiedAt: null, verifiedAt: null });
+      const brokenRedis = mockRedis();
+      brokenRedis.incrWithTtl.mockRejectedValue(new Error('ECONNREFUSED'));
+      const open = new DestinationsService(prisma, config, registry, brokenRedis, security, mockAudit(), new OtpVerifier(prisma, mockRedis(), config, mockSecurity()), alerts, { sendOtp: jest.fn() } as any);
+      await expect(open.resolve(USER, input, '1.1.1.1')).resolves.toMatchObject({ lookupPerformed: true });
+      expect(security.error).toHaveBeenCalledWith('auth.denylist_unavailable', expect.objectContaining({ scope: 'destination_lookup_cap', failMode: 'open' }));
+      const closedConfig = testConfig({ SECURITY_REDIS_FAIL_MODE: 'closed' });
+      const closed = new DestinationsService(prisma, closedConfig, registry, brokenRedis, security, mockAudit(), new OtpVerifier(prisma, mockRedis(), closedConfig, mockSecurity()), alerts, { sendOtp: jest.fn() } as any);
+      registry.resolveWithFailover.mockClear();
+      await expect(closed.resolve(USER, input, '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.SERVICE_UNAVAILABLE, status: 503 });
+      expect(registry.resolveWithFailover).not.toHaveBeenCalled();
+    });
+
     it('raises DESTINATION_LOOKUP_SPIKE once when one IP crosses the hourly threshold', async () => {
       const spiky = new DestinationsService(
         prisma,

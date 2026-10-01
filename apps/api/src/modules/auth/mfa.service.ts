@@ -126,10 +126,20 @@ export class MfaService {
       this.security.warn('auth.mfa_failed', { adminId: admin.id, ip, context });
       throw AppException.badRequest(ErrorCode.MFA_CODE_INVALID, 'The verification code is invalid');
     }
-    // Replay guard: a code accepted once is dead for the rest of its skew window.
-    const claimed = await this.redis.client
-      .set(mfaUsedCodeKey(admin.id, normalized), '1', 'EX', TOTP_STEP_SECONDS * (TOTP_WINDOW * 2 + 1), 'NX')
-      .catch(() => 'OK');
+    // Replay guard: a code accepted once is dead for the rest of its skew window. Phase 5b New-5: when Redis is
+    // unreachable the guard fails closed in production (503) instead of silently accepting a possible replay.
+    let claimed: string | null;
+    try {
+      claimed = await this.redis.client.set(mfaUsedCodeKey(admin.id, normalized), '1', 'EX', TOTP_STEP_SECONDS * (TOTP_WINDOW * 2 + 1), 'NX');
+    } catch (err) {
+      this.security.error('auth.denylist_unavailable', {
+        scope: 'mfa_replay_guard',
+        failMode: this.config.redisFailClosed ? 'closed' : 'open',
+        error: (err as Error).message,
+      });
+      if (this.config.redisFailClosed) throw AppException.securityUnavailable();
+      claimed = 'OK';
+    }
     if (claimed !== 'OK') {
       this.security.warn('auth.mfa_failed', { adminId: admin.id, ip, context, reason: 'replay' });
       throw AppException.badRequest(ErrorCode.MFA_CODE_INVALID, 'The verification code was already used');

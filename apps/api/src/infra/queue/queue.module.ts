@@ -58,7 +58,7 @@ export class QueueWorkersBootstrap implements OnApplicationBootstrap {
             host: url.hostname,
             port: Number(url.port || 6379),
             username: url.username || undefined,
-            password: url.password || undefined,
+            password: url.password ? decodeURIComponent(url.password) : undefined,
             db: url.pathname && url.pathname !== '/' ? Number(url.pathname.slice(1)) : undefined,
             tls: url.protocol === 'rediss:' ? {} : undefined,
             lazyConnect: true,

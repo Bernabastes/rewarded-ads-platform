@@ -211,6 +211,8 @@ export const envSchema = z
     /** Refresh-token cookie attributes for the web apps' cookie mode (#16). */
     AUTH_COOKIE_DOMAIN: z.string().optional(),
     AUTH_COOKIE_SECURE: bool.optional(),
+    /** Phase 5b New-5: Redis-backed security controls when Redis is unreachable (default closed in production). */
+    SECURITY_REDIS_FAIL_MODE: z.enum(['closed', 'open']).optional(),
   })
   .superRefine((env, ctx) => {
     const issue = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
@@ -240,6 +242,9 @@ export const envSchema = z
         issue('MFA_ENCRYPTION_KEY', 'must differ from JWT_ACCESS_SECRET and KYC_HASH_KEY');
       }
       if (env.SWAGGER_ENABLED) issue('SWAGGER_ENABLED', 'the interactive API docs must stay disabled in production');
+      // Phase 5b New-5: Redis holds the login lockouts, the token denylist and the BullMQ money queues - it must be
+      // authenticated (compose enforces --requirepass; the URL must carry the password).
+      if (!redisUrlHasPassword(env.REDIS_URL)) issue('REDIS_URL', 'must include a password (redis://:<password>@host:6379) in production');
     }
     if (env.SMS_PROVIDER === 'http' && !(env.SMS_API_URL && env.SMS_API_KEY)) {
       issue('SMS_PROVIDER', 'http requires SMS_API_URL and SMS_API_KEY');
@@ -262,6 +267,14 @@ export const envSchema = z
   });
 
 export type Env = z.infer<typeof envSchema>;
+
+export function redisUrlHasPassword(url: string): boolean {
+  try {
+    return new URL(url).password.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const parsed = envSchema.safeParse(source);

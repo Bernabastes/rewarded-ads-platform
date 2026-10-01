@@ -23,6 +23,7 @@ describe('env schema production gates', () => {
     MFA_ENCRYPTION_KEY: 'm'.repeat(40),
     SWAGGER_ENABLED: 'false',
     OTP_DEV_ECHO: 'false',
+    REDIS_URL: 'redis://:a-long-redis-password@redis:6379',
   };
 
   const issuesFor = (overrides: NodeJS.ProcessEnv) => {
@@ -54,6 +55,7 @@ describe('env schema production gates', () => {
     ['MFA encryption key equal to the JWT secret', { MFA_ENCRYPTION_KEY: 'p'.repeat(48) }, 'MFA_ENCRYPTION_KEY'],
     ['MFA encryption key equal to the KYC hash key', { MFA_ENCRYPTION_KEY: 'k'.repeat(40) }, 'MFA_ENCRYPTION_KEY'],
     ['Swagger enabled', { SWAGGER_ENABLED: 'true' }, 'SWAGGER_ENABLED'],
+    ['unauthenticated Redis (New-5)', { REDIS_URL: 'redis://redis:6379' }, 'REDIS_URL'],
   ])('rejects %s', (_label, overrides, path) => {
     expect(issuesFor(overrides)).toContain(path);
   });

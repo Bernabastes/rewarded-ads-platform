@@ -25,6 +25,16 @@ export class AppConfig {
     return this.env.NODE_ENV === 'development';
   }
 
+  /**
+   * Phase 5b New-5: what the Redis-backed security controls (login throttle / lockout, MFA replay guard and
+   * challenge single-use, destination lookup cap, access-token denylist) do when Redis is unreachable.
+   * `closed` refuses the request with 503; `open` lets it through with a security-log event. Default: closed in
+   * production, open elsewhere (SECURITY_REDIS_FAIL_MODE overrides).
+   */
+  get redisFailClosed(): boolean {
+    return (this.env.SECURITY_REDIS_FAIL_MODE ?? (this.isProduction ? 'closed' : 'open')) === 'closed';
+  }
+
   get corsOrigins(): string[] {
     return this.env.CORS_ORIGINS.split(',')
       .map((s) => s.trim())

@@ -3,11 +3,18 @@ name: rap
 # Security audit #10: images are pinned to digests, the data stores (postgres / redis / minio) are bound to
 # loopback only, and credentials are REQUIRED from .env - compose refuses to start (the ':?' messages below)
 # instead of silently falling back to well-known defaults.
+# Phase 5b New-5: Redis requires a password and the data stores live on the `backend` network, which the two
+# static web containers are NOT attached to (they only need the browser-facing `frontend` network).
+networks:
+  backend:
+  frontend:
+
 services:
   postgres:
     image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     container_name: rap-postgres
     restart: unless-stopped
+    networks: [backend]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (never rely on a default)}
@@ -26,7 +33,19 @@ services:
     image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     container_name: rap-redis
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    networks: [backend]
+    # --requirepass: Redis holds login lockouts, the token denylist and the BullMQ money queues; nothing on the
+    # compose network may touch it unauthenticated. Use URL-safe characters (the API reads it from REDIS_URL).
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env (Redis is never run unauthenticated)}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     ports:
       - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
@@ -41,6 +60,7 @@ services:
     image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     container_name: rap-minio
     restart: unless-stopped
+    networks: [backend]
     command: server /data --console-address ':9001'
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set in .env}
@@ -64,6 +84,7 @@ services:
   minio-init:
     image: quay.io/minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     container_name: rap-minio-init
+    networks: [backend]
     depends_on:
       minio:
         condition: service_healthy
@@ -99,6 +120,7 @@ services:
       dockerfile: apps/api/Dockerfile
     container_name: rap-api
     restart: unless-stopped
+    networks: [backend, frontend]
     depends_on:
       postgres:
         condition: service_healthy
@@ -113,7 +135,7 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-http://localhost:9000}
@@ -138,6 +160,7 @@ services:
         VITE_PUBLIC_URL: ${ADVERTISER_WEB_URL:-http://localhost:5173}
     container_name: rap-advertiser-web
     restart: unless-stopped
+    networks: [frontend]
     depends_on:
       api:
         condition: service_started
@@ -157,6 +180,7 @@ services:
         VITE_API_URL: ${API_PUBLIC_URL:-http://localhost:3000}
     container_name: rap-admin-web
     restart: unless-stopped
+    networks: [frontend]
     depends_on:
       api:
         condition: service_started

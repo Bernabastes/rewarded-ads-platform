@@ -55,8 +55,14 @@ export class LoginThrottle {
       ]);
     } catch (err) {
       if (err instanceof AppException) throw err;
-      // Redis unavailable: fail open for availability (bcrypt cost + lockout audit still apply when it returns).
-      this.security.error('auth.denylist_unavailable', { scope: 'login_throttle', error: (err as Error).message });
+      // Redis unavailable (Phase 5b New-5): closed => refuse the login (503); open => let it through (bcrypt cost +
+      // lockout audit still apply when Redis returns). Default closed in production.
+      this.security.error('auth.denylist_unavailable', {
+        scope: 'login_throttle',
+        failMode: this.config.redisFailClosed ? 'closed' : 'open',
+        error: (err as Error).message,
+      });
+      if (this.config.redisFailClosed) throw AppException.securityUnavailable('Sign-in is temporarily unavailable; please retry shortly');
       return;
     }
     if (ipCount > e.LOGIN_RATE_LIMIT_PER_IP || acctCount > e.LOGIN_RATE_LIMIT_PER_ACCOUNT) {
