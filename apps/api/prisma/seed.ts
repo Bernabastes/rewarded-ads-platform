@@ -14,7 +14,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { applyLedgerEntry } from '../src/modules/ledger/ledger.core';
@@ -50,6 +50,9 @@ const reward = (cost: number) =>
     .toDecimalPlaces(2);
 const coins = (etb: Prisma.Decimal | number) => dec(etb).mul(COINS_PER_ETB).round().toNumber();
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+// Security audit #14: identity numbers are stored as a keyed HMAC (same derivation as KycService.identityHash).
+const KYC_HASH_KEY = process.env.KYC_HASH_KEY ?? `dev-kyc-hash:${process.env.JWT_ACCESS_SECRET ?? 'dev-only-change-me-access-secret-0123456789'}`;
+const identityHash = (idType: string, idNumber: string) => createHmac('sha256', KYC_HASH_KEY).update(`${idType}:${idNumber.replace(/\s+/g, '')}`).digest('hex');
 
 /* ------------------------------ demo media (self-hosted) ------------------------------ */
 // Tiny synthetic clips + thumbnails from ./seed-assets (regenerate with seed-assets/generate.ps1). They are uploaded
@@ -1669,7 +1672,7 @@ async function main() {
       data: {
         userId: user.id,
         idType,
-        idNumberHash: sha(`${idType}:${idNumber}`),
+        idNumberHash: identityHash(idType, idNumber),
         idNumberLast4: idNumber.slice(-4),
         fullName: user.name,
         dateOfBirth: new Date(Date.UTC(1985 + userIdx % 15, userIdx % 12, 1 + (userIdx % 27))),

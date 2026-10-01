@@ -110,6 +110,27 @@ describe('KycService', () => {
       expect(result.status).toBe('pending');
     });
 
+    it('hashes the id number with a keyed HMAC, not a plain sha256 (security audit #14)', async () => {
+      const { createHash, createHmac } = await import('node:crypto');
+      await service.submit(uuid(1), dto, '1.1.1.1');
+      const stored = prisma.kycSubmission.create.mock.calls[0][0].data.idNumberHash as string;
+      expect(stored).not.toBe(createHash('sha256').update('fayda:1234567890123456').digest('hex'));
+      expect(stored).toBe(createHmac('sha256', `dev-kyc-hash:${config.env.JWT_ACCESS_SECRET}`).update('fayda:1234567890123456').digest('hex'));
+      // whitespace-insensitive and key-dependent
+      expect(service.identityHash('fayda', '1234 5678 9012 3456')).toBe(stored);
+      const keyed = new KycService(
+        prisma,
+        testConfig({ KYC_HASH_KEY: 'a-production-grade-32-char-hmac-key-xxxxxxxx' }),
+        {} as any,
+        mockAudit(),
+        mockSecurity(),
+        mockNotifications(),
+        {} as any,
+        new MockFaydaProvider(),
+      );
+      expect(keyed.identityHash('fayda', '1234567890123456')).not.toBe(stored);
+    });
+
     it('refuses a second pending submission (409 KYC_SUBMISSION_PENDING)', async () => {
       prisma.kycSubmission.findFirst.mockResolvedValue({ id: uuid(8), status: 'pending' });
       await expect(service.submit(uuid(1), dto, '1.1.1.1')).rejects.toMatchObject({ code: ErrorCode.KYC_SUBMISSION_PENDING });

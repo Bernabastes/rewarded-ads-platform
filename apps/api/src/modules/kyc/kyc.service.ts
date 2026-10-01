@@ -3,7 +3,7 @@ import { type KycIdType, type KycStatus, type KycSubmission, Prisma } from '@pri
 import { type EthiopianDate, ErrorCode, IN_FLIGHT_WITHDRAWAL_STATUSES, KYC_UPLOAD_LIMITS, type KycUploadKind } from '@rap/shared';
 import { AppException } from '../../common/errors/app.exception';
 import { pageArgs, paginated } from '../../common/pagination';
-import { sha256 } from '../../common/utils';
+import { createHmac } from 'node:crypto';
 import { AppConfig } from '../../config/app-config';
 import { SecurityLogger } from '../../infra/logger/logger.module';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -44,6 +44,16 @@ export class KycService {
   ) {}
 
   /* ------------------------------ threshold rule ------------------------------ */
+
+  /**
+   * Security audit #14: identity numbers are stored only as a keyed HMAC-SHA256 (`KYC_HASH_KEY`, required in
+   * production; dev/test derive a key from JWT_ACCESS_SECRET). Unlike a plain sha256, a leaked table cannot be
+   * brute-forced against the small space of national-id / passport numbers without the key.
+   */
+  identityHash(idType: string, idNumber: string): string {
+    const key = this.config.env.KYC_HASH_KEY ?? `dev-kyc-hash:${this.config.env.JWT_ACCESS_SECRET}`;
+    return createHmac('sha256', key).update(`${idType}:${idNumber.replace(/\s+/g, '')}`).digest('hex');
+  }
 
   /** Completed + in-flight payouts (ETB) requested in the rolling 30-day window. */
   async monthlyPayoutTotalEtb(userId: string, now = new Date(), tx?: Prisma.TransactionClient): Promise<Prisma.Decimal> {
@@ -168,7 +178,7 @@ export class KycService {
     const dob = this.auth.resolveDateOfBirth(input);
     const idNumber = input.idNumber.replace(/\s+/g, '');
     if (idNumber.length < 6) throw AppException.badRequest(ErrorCode.VALIDATION_ERROR, 'idNumber is too short');
-    const idNumberHash = sha256(`${input.idType}:${idNumber}`);
+    const idNumberHash = this.identityHash(input.idType, idNumber);
 
     const duplicates = await this.prisma.kycSubmission.count({
       where: { idNumberHash, userId: { not: userId }, status: { in: ['pending', 'approved'] } },

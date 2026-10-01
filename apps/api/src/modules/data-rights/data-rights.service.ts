@@ -19,6 +19,8 @@ import { NotificationService } from '../notifications/notifications.module';
 import { serializeValue } from '../../common/interceptors/serialize.interceptor';
 
 const IN_FLIGHT_WITHDRAWALS = IN_FLIGHT_WITHDRAWAL_STATUSES;
+/** Placeholder for non-nullable date columns that must lose their real value on deletion (#14). */
+export const ANONYMIZED_DATE = new Date('1900-01-01T00:00:00Z');
 const adminUserSelect = { id: true, phoneNumber: true, fullName: true, status: true, coinBalance: true } as const;
 
 /**
@@ -319,15 +321,48 @@ export class DataRightsService {
         data: { deviceFingerprint: 'anonymized', deviceId: null, ipAddress: '0.0.0.0', userAgent: null },
       });
       await tx.payoutDestination.deleteMany({ where: { userId: req.userId } });
+      // Security audit #14: identity data is scrubbed, not just the document pointers.
       await tx.kycSubmission.updateMany({
         where: { userId: req.userId },
-        data: { fullName: 'anonymized', documentFrontKey: 'deleted', documentBackKey: null, selfieKey: 'deleted', providerResult: Prisma.JsonNull },
+        data: {
+          fullName: 'anonymized',
+          dateOfBirth: ANONYMIZED_DATE,
+          idNumberLast4: '0000',
+          idNumberHash: `deleted:${sha256(req.userId)}`,
+          documentFrontKey: 'deleted',
+          documentBackKey: null,
+          selfieKey: 'deleted',
+          providerResult: Prisma.JsonNull,
+        },
       });
       // withdrawals keep amounts/status (financial record) but lose the destination details
       await tx.withdrawal.updateMany({
         where: { userId: req.userId },
         data: { payoutDestination: 'anonymized', destinationName: null, destinationAccountName: null },
       });
+      // #14: every other table that carries this user's network / device / behavioural PII
+      await tx.otpCode.deleteMany({ where: { phoneNumber: req.user.phoneNumber } });
+      await tx.adCompletion.updateMany({
+        where: { userId: req.userId },
+        data: { ipAddress: '0.0.0.0', deviceFingerprint: 'anonymized' },
+      });
+      await tx.refreshToken.updateMany({
+        where: { subjectType: 'user', subjectId: req.userId },
+        data: { ipAddress: null, userAgent: null },
+      });
+      await tx.surveyResponse.updateMany({
+        where: { userId: req.userId },
+        data: { answers: {}, ipAddress: null },
+      });
+      await tx.appInstallCompletion.updateMany({
+        where: { userId: req.userId },
+        data: { deviceFingerprint: 'anonymized', proof: null },
+      });
+      await tx.referral.updateMany({
+        where: { refereeId: req.userId },
+        data: { signupIp: null, signupDeviceFingerprint: null },
+      });
+      await tx.fraudFlag.updateMany({ where: { userId: req.userId }, data: { metadata: Prisma.JsonNull } });
       await this.audit.record(
         {
           actorType: actor.actorType,
@@ -336,7 +371,12 @@ export class DataRightsService {
           targetType: 'user',
           targetId: req.userId,
           before: { phoneNumber: sha256(req.user.phoneNumber), status: req.user.status },
-          after: { status: 'deleted', anonymizedAt: anonymized.anonymizedAt, retained: ['coin_ledger', 'ad_completions', 'withdrawals', 'audit_log'] },
+          after: {
+            status: 'deleted',
+            anonymizedAt: anonymized.anonymizedAt,
+            retained: ['coin_ledger', 'ad_completions', 'withdrawals', 'audit_log'],
+            scrubbed: ['kyc_submissions', 'otp_codes', 'ad_completions.ip/device', 'refresh_tokens.ip/ua', 'survey_responses', 'app_install_completions', 'referrals.signup', 'fraud_flags.metadata'],
+          },
           ipAddress: actor.ip,
         },
         tx,

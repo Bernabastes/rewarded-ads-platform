@@ -150,6 +150,76 @@ describe('DataRightsService (deletion + anonymisation)', () => {
       prisma.accountDeletionRequest.findUnique.mockResolvedValue({ id: REQ, userId: USER, status: 'cancelled', user: {} });
       await expect(service.execute(REQ, { actorType: 'system' })).rejects.toMatchObject({ code: ErrorCode.DELETION_REQUEST_NOT_PENDING });
     });
+
+    /**
+     * Security audit #14: after execution NO table may still carry the user's PII. The mock below applies every
+     * updateMany / deleteMany the service issues to an in-memory copy of the user's rows and then greps the result.
+     */
+    it('scrubs PII from every table (grep after deletion finds nothing)', async () => {
+      const PII = {
+        phone: '+251911000000',
+        ip: '197.156.64.12',
+        fingerprint: 'fp-samsung-a12-9f8e7d',
+        userAgent: 'RapMobile/1.4 (Android 13; SM-A125F)',
+        dob: '1990-05-14',
+        idLast4: '3456',
+        idHash: 'hmac-of-the-national-id',
+        surveyAnswer: 'I earn about 4000 birr per month',
+        installProof: 'attribution-token-9f9f9f',
+        fraudNote: 'same device as +251911000001',
+      };
+      const tables: Record<string, Array<Record<string, unknown>>> = {
+        kycSubmission: [{ userId: USER, fullName: 'Abebe Bikila', dateOfBirth: new Date(PII.dob), idNumberLast4: PII.idLast4, idNumberHash: PII.idHash, documentFrontKey: 'private/kyc/a', documentBackKey: 'private/kyc/c', selfieKey: 'private/kyc/b', providerResult: { match: true } }],
+        otpCode: [{ phoneNumber: PII.phone, codeHash: 'h', ipAddress: PII.ip }],
+        adCompletion: [{ userId: USER, ipAddress: PII.ip, deviceFingerprint: PII.fingerprint, coinReward: 150 }],
+        refreshToken: [{ subjectType: 'user', subjectId: USER, ipAddress: PII.ip, userAgent: PII.userAgent, revokedAt: null }],
+        surveyResponse: [{ userId: USER, answers: { q1: PII.surveyAnswer }, ipAddress: PII.ip }],
+        appInstallCompletion: [{ userId: USER, deviceFingerprint: PII.fingerprint, proof: PII.installProof }],
+        referral: [{ refereeId: USER, referrerId: uuid(7), signupIp: PII.ip, signupDeviceFingerprint: PII.fingerprint }],
+        fraudFlag: [{ userId: USER, metadata: { note: PII.fraudNote, ip: PII.ip } }],
+        adWatchSession: [{ userId: USER, deviceFingerprint: PII.fingerprint, deviceId: 'dev-1', ipAddress: PII.ip, userAgent: PII.userAgent }],
+        withdrawal: [{ userId: USER, payoutDestination: PII.phone, destinationName: 'Abebe', destinationAccountName: 'Abebe Bikila', amountEtb: 60 }],
+        payoutDestination: [{ userId: USER, destination: PII.phone }],
+        user: [{ id: USER, phoneNumber: PII.phone, fullName: 'Abebe Bikila', dateOfBirth: new Date(PII.dob), lastIp: PII.ip, signupIp: PII.ip, signupDeviceFingerprint: PII.fingerprint, deviceId: 'dev-1', referralCode: 'K7MP2X' }],
+      };
+      const matches = (row: Record<string, unknown>, where: Record<string, unknown>) =>
+        Object.entries(where).every(([k, v]) => (v && typeof v === 'object' && 'in' in (v as object) ? ((v as { in: unknown[] }).in ?? []).includes(row[k]) : row[k] === v));
+      for (const [name, rows] of Object.entries(tables)) {
+        prisma[name].updateMany.mockImplementation(async ({ where, data }: any) => {
+          let count = 0;
+          for (const row of rows) {
+            if (!matches(row, where)) continue;
+            Object.assign(row, data);
+            count++;
+          }
+          return { count };
+        });
+        prisma[name].update.mockImplementation(async ({ where, data }: any) => {
+          for (const row of rows) if (matches(row, where)) Object.assign(row, data);
+          return rows[0];
+        });
+        prisma[name].deleteMany.mockImplementation(async ({ where }: any) => {
+          const before = rows.length;
+          for (let i = rows.length - 1; i >= 0; i--) if (matches(rows[i], where)) rows.splice(i, 1);
+          return { count: before - rows.length };
+        });
+      }
+      prisma.kycSubmission.findMany.mockResolvedValue([]);
+      prisma.dataExportRequest.findMany.mockResolvedValue([]);
+
+      await service.execute(REQ, { actorType: 'system' });
+
+      const dump = JSON.stringify(tables, (_k, v) => (v instanceof Date ? v.toISOString() : v));
+      for (const [label, value] of Object.entries(PII)) {
+        expect({ label, found: dump.includes(value) }).toEqual({ label, found: false });
+      }
+      expect(tables.otpCode).toHaveLength(0);
+      expect(tables.payoutDestination).toHaveLength(0);
+      // financial facts survive
+      expect(tables.adCompletion[0].coinReward).toBe(150);
+      expect(tables.withdrawal[0].amountEtb).toBe(60);
+      expect(tables.kycSubmission[0].idNumberHash).toMatch(/^deleted:[a-f0-9]{64}$/);
+    });
   });
 
   it('cancel by the user leaves cancelledBy empty; by an admin records the admin', async () => {
