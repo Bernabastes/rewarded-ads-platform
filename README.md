@@ -62,7 +62,7 @@ operations in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 Prerequisites: Docker Desktop (Compose v2+). For development also Node.js ≥ 24.9 and pnpm ≥ 10.
 
 ```powershell
-Copy-Item .env.example .env        # cp .env.example .env on macOS/Linux; change POSTGRES_PORT if 5432 is taken. REQUIRED: compose has no default credentials any more
+Copy-Item .env.example .env        # cp .env.example .env on macOS/Linux; change POSTGRES_PORT if 5432 is taken. REQUIRED: compose has no default credentials (POSTGRES_*, S3_*, REDIS_PASSWORD - keep REDIS_URL's password in sync)
 docker compose up -d --build       # postgres, redis, minio (+bucket), api (migrations run on start), advertiser-web, admin-web
 pnpm install
 pnpm --filter @rap/api seed        # demo data + self-hosted demo videos (or set RUN_SEED=true in .env before the first start)
@@ -96,8 +96,8 @@ pnpm dev:mobile                               # Expo web on :8081 (EXPO_PUBLIC_A
 | `pnpm media:tools`                                          | Install desktop ffmpeg/ffprobe for the media pipeline when running the API outside Docker     |
 | `pwsh scripts/backup.ps1` / `scripts/restore.ps1`           | Database dump + bucket mirror, and the restore drill (see `docs/RUNBOOK.md`)                  |
 
-Test counts (all green): API 349 Jest unit tests + 6 e2e · mobile 145 Jest · advertiser portal 106 Vitest · admin
-dashboard 109 Vitest · shared 12.
+Test counts (all green): API 391 Jest unit tests + 8 e2e · mobile 145 Jest · advertiser portal 106 Vitest · admin
+dashboard 110 Vitest · shared 12.
 
 ## Demo credentials (seeded)
 
@@ -218,7 +218,7 @@ Security / infrastructure
   credentials), set `ADMIN_MFA_REQUIRED=true`, create real admin accounts through `POST /admin/admins` and delete the
   seeded ones, set `TRUST_PROXY_HOPS` to the number of proxies in front of the API, TLS everywhere, edge rate limiting / WAF.
 - Managed PostgreSQL with backups + PITR (replace `scripts/backup.*`), PgBouncer, managed Redis with persistence
-  (denylist, throttles and lockouts live there), a separate worker deployment (`QUEUES_ENABLED=false` on API replicas),
+  (denylist, throttles and lockouts live there; keep SECURITY_REDIS_FAIL_MODE=closed), a separate worker deployment (`QUEUES_ENABLED=false` on API replicas),
   S3 + CDN for media with the `docker/minio-bucket-policy.json` semantics (anonymous read for `creatives/*` only),
   virus scanning of creatives before transcoding, observability (ship the `channel=security` log stream to a SIEM; wire
   `ALERT_TELEGRAM_*` / `ALERT_WEBHOOK_URL` to on-call).
@@ -241,8 +241,10 @@ the seed and the scripts). Frontends read `VITE_API_URL` (web) and `EXPO_PUBLIC_
 `DATA_*`, `IMPERSONATION_TTL_SECONDS`, `IDEMPOTENCY_TTL_HOURS`. Phase 5 (security) groups: `TRUST_PROXY_HOPS`,
 `OTP_VERIFY_*`, `LOGIN_*` (throttle + lockout), `ADMIN_MFA_REQUIRED` / `MFA_ENCRYPTION_KEY`, `KYC_HASH_KEY`,
 `DESTINATION_LOOKUPS_PER_DAY` / `ALERT_DESTINATION_LOOKUPS_PER_IP_PER_HOUR`, `PAYOUT_PROVIDER_TIMEOUT_MS` /
-`PAYOUT_MAX_POLLS`, `AUTH_COOKIE_*`, `SMS_PROVIDER` / `SMS_API_*`, `SWAGGER_ENABLED`, `ALLOW_SEED_IN_PRODUCTION`,
-`MINIO_BIND`; `POSTGRES_*` and `S3_ACCESS_KEY` / `S3_SECRET_KEY` are **required** by docker compose (no defaults).
+`PAYOUT_MAX_POLLS` / `PAYOUT_INITIATE_ATTEMPTS` / `PAYOUT_STUCK_PROCESSING_MINUTES`, `AUTH_COOKIE_*`, `SMS_PROVIDER` /
+`SMS_API_*`, `SWAGGER_ENABLED`, `ALLOW_SEED_IN_PRODUCTION`, `MINIO_BIND`, `LOGIN_TRUSTED_IP_HOURS`,
+`SECURITY_REDIS_FAIL_MODE` (closed in production); `POSTGRES_*`, `S3_ACCESS_KEY` / `S3_SECRET_KEY` and
+`REDIS_PASSWORD` (mirrored into `REDIS_URL`) are **required** by docker compose (no defaults).
 
 ## Key engineering guarantees
 
@@ -251,11 +253,13 @@ the seed and the scripts). Frontends read `VITE_API_URL` (web) and `EXPO_PUBLIC_
 - **Rewards are decided server-side** from server timestamps and fraud signals; completions are idempotent.
 - **Risky withdrawals never auto-pay**; large ones need two distinct finance approvals; manual coin adjustments are a
   real two-step workflow; every admin decision is audited with before/after state; an ambiguous partner answer parks the
-  payout for a human instead of refunding (Phase 5).
+  payout for a human instead of refunding - only a partner's documented "order not found" answer ever counts as
+  "never accepted", and a payout stuck without a partner is parked and alerted, never refunded (Phase 5/5b).
 - **Money POSTs are idempotent** (`Idempotency-Key`), new payout destinations are OTP-confirmed before the partner is
   asked who owns them, and phone-only accounts are capped per rolling month until KYC (Phase 4A/5).
-- **Every money gate runs under a row lock** (completion, withdrawal request, campaign reservation, payment
-  settlement) and every status transition is an atomic claim – concurrency cannot double-spend (Phase 5).
+- **Every money gate runs under a row lock** (completion, withdrawal request, campaign budget edit / submit /
+  approve, payment settlement) and every status transition is a guarded atomic claim – concurrency cannot
+  double-spend; a live campaign can never pay beyond what its advertiser's wallet actually reserved (Phase 5/5b).
 - **Production is gated by the env schema**: no mock providers, default credentials or debug switches can reach a
   production boot (Phase 5; see `docs/SECURITY.md`).
 - **No chance-based mechanics anywhere.**

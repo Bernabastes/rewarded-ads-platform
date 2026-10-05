@@ -540,6 +540,51 @@ Deferred with reasons: telebirr's "query by outTradeNo" lookup must be confirmed
 documentation (the mock provider answers "not found", which is the safe branch); historic plain-sha256 KYC hashes are
 not re-hashed automatically (demo data is reseeded; a real database needs an offline re-hash with the key).
 
+### 12g. Phase 5b – second-opinion audit (2026-10-05)
+
+An independent verifier re-read the Phase 5 fixes (16 / 19 FIXED, #1 and #14 PARTIAL, 7 smaller items). The design
+changes, one commit per item (`docs/SECURITY.md` §3b has the commit / test table):
+
+- **Campaign reservation is computed under the campaign row lock** (New-1). Lock order everywhere is campaign row →
+  advertiser wallet row. `submit()` re-reads the row after `SELECT … FOR UPDATE`, requires the ledger to agree that
+  nothing beyond `spent_etb` is still reserved, claims `draft → pending_review` with `WHERE status = 'draft' AND
+  budget_etb = <locked> AND spent_etb = <locked>` and stamps `budget_reserved_etb` from the LOCKED budget; `update()`
+  re-validates every edit rule under the same lock and its write is guarded by status + budget + spent. Two more
+  independent fences: `chargeCampaign` spends against `LEAST(budget_etb, budget_reserved_etb)` and
+  `approveCampaign` refuses `reserved < budget` (`422 CAMPAIGN_UNDERFUNDED`). Invariant for every `pending_review` /
+  `active` / `paused` campaign: `budget_reserved_etb == budget_etb` (+ paused-time increases) and users are never paid
+  beyond the reservation. The e2e `REGRESSION New-1` interleaves 20 PATCH + submit rounds and asserts it.
+- **"Not found" from a payout partner is a business answer, not an HTTP status** (New-2). `findByReference` returns
+  `null` only for the partner's documented order-not-found reply (`TELEBIRR_ORDER_NOT_FOUND_CODES`,
+  `CHAPA_TRANSFER_NOT_FOUND_MESSAGES` – to be confirmed with each partner); a bare 404, another error status, a
+  malformed body or an unexpected 2xx shape is ambiguous and parks the withdrawal. Once any provider in the chain
+  failed ambiguously the chain can no longer end in a refund. The `initiate` job has retries; a retry that finds the
+  row `processing` without a partner first asks every partner for our reference (`findExisting`) and only sends when
+  all of them say "not found". A 10-minute sweeper parks payouts stuck `processing` without a partner for longer than
+  `PAYOUT_STUCK_PROCESSING_MINUTES` and raises `PAYOUT_STUCK_PROCESSING` (critical).
+- **Cookie mode is a browser capability, not a URL switch** (New-3): the `X-Auth-Mode: cookie` header is the only
+  selector (it forces a CORS preflight), `/auth/*` accepts JSON bodies only (415 otherwise, no urlencoded parser at
+  all) and cookie-mode requests are refused for `Sec-Fetch-Site: cross-site` / non-allow-listed origins before any
+  work. `AUTH_COOKIE_DOMAIN` stays unset (host-only cookie).
+- **Redis is a security dependency, so it is authenticated and fail-closed** (New-5): `--requirepass`, a password in
+  `REDIS_URL` (required in production), a `backend` compose network the SPA containers are not on, and
+  `SECURITY_REDIS_FAIL_MODE` (closed in production): the login throttle / lockout, MFA replay guard + challenge
+  single-use, destination lookup cap and the access-token denylist answer 503 instead of allowing when Redis is down.
+  Rate limits that only protect capacity (OTP request limits, fraud velocity counters) still fail open by design.
+- **Released rewards are charged only to live, funded campaigns** (New-6): `releaseFlaggedCompletion` runs before the
+  flag is resolved and requires `status IN (active, paused)` and reservation headroom; otherwise
+  `422 CAMPAIGN_NOT_CHARGEABLE` and the flag stays open.
+- **Admin MFA is re-authenticated and throttled end to end** (New-7): setup / enable require the password, every TOTP
+  check (login step 2, enable, disable) goes through `LoginThrottle`, unknown e-mails cost a full bcrypt compare
+  (per-process dummy hash), `BCRYPT_ROUNDS = 12` everywhere, `MFA_ENCRYPTION_KEY` is mandatory and distinct in
+  production (New-4).
+- **Lockout is keyed per account + source IP** (#5 note): an attacker locks only its own IP out of an account; the
+  per-account window remains as the soft throttle, with a 24 h exemption for IPs that completed a login for the
+  account (`LOGIN_TRUSTED_IP_HOURS`).
+- **Deletion scrub** (New-8) also covers `user_consents.ip_address/device_id` and `account_deletion_requests.ip_address`.
+
+No schema change was needed; `docker compose` now requires `REDIS_PASSWORD`.
+
 ## 13. Assumptions
 
 1. **Prepaid advertiser model**: the full campaign budget is reserved from the wallet at submit time; unspent budget is

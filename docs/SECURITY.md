@@ -123,6 +123,24 @@ be confirmed against Ethio Telecom's partner API before go-live (mock providers 
 hashes written before #14 do not match new submissions (reseed for demo data; re-hash offline with the key for a real
 database).
 
+### 3b. Second-opinion audit (Phase 5b)
+
+An independent verifier re-read every Phase 5 fix and test: 16 / 19 confirmed FIXED, #1 and #14 PARTIALLY FIXED,
+plus seven smaller items. Everything below was fixed with a regression test that fails before / passes after.
+
+| Item | Severity | Residual / finding | Fix (where) | Commit | Regression test |
+| --- | --- | --- | --- | --- | --- |
+| New-1 | HIGH (re-opens #1) | `PATCH budget` ∥ `submit` TOCTOU: the reservation was computed from a row read before the transaction; `chargeCampaign` spent against `budget_etb`; approve never checked funding | `submit()` locks the campaign row, re-reads it, requires the ledger to agree nothing beyond `spent_etb` is reserved, claims with `WHERE status='draft' AND budget_etb=<locked> AND spent_etb=<locked>` and stamps `budget_reserved_etb` from the locked budget; `update()` re-validates under the same lock and writes guarded by status + budget + spent; `chargeCampaign` caps at `LEAST(budget_etb, budget_reserved_etb)`; `approveCampaign` → `422 CAMPAIGN_UNDERFUNDED` when `reserved < budget` (`campaigns.service.ts`, `ads.service.ts`, `admin-review.service.ts`) | `b06e231` | `campaigns.service.spec.ts` (locked-row reservation, pinned claim, out-of-sync ledger, update re-validation), `admin-review.service.spec.ts` (funding gate), `ads.service.spec.ts` (LEAST cap), e2e `REGRESSION New-1` (20 interleaved PATCH + submit rounds → every pending campaign has `reserved == budget`, wallet reconciles); `scripts/audit-reservations.mjs` flags UNDERFUNDED live campaigns |
+| New-2 | MEDIUM (money) | `findByReference` treated HTTP 404 / unexpected 2xx as "never accepted" → failover (double payout) or refund while money in flight | `null` only for the partner's documented business "not found" (`TELEBIRR_ORDER_NOT_FOUND_CODES`, `CHAPA_TRANSFER_NOT_FOUND_MESSAGES`); everything else is ambiguous; the last provider's "not found" after an ambiguous send (or ambiguous-then-exhausted) → `needs_manual_review`; `markFailed` only on a definitive provider error; retried `initiate` jobs (`PAYOUT_INITIATE_ATTEMPTS`) resume via `findExisting()`; 10-minute sweeper parks payouts `processing` without a partner for > `PAYOUT_STUCK_PROCESSING_MINUTES` and raises `PAYOUT_STUCK_PROCESSING` (`providers/*`, `payout-provider.registry.ts`, `payout.processor.ts`, `withdrawals.service.ts`) | `09ca1ab` | `payout-providers.spec.ts` (lookup semantics per provider, parking branches, `findExisting`), `payout.processor.spec.ts` (last-provider parking, unexpected error, resume paths), `withdrawals.service.spec.ts` (sweeper) |
+| New-3 | LOW (login CSRF) | `?mode=cookie` + the urlencoded parser let a cross-site form POST plant a `rap_refresh` cookie | cookie mode is selected by `X-Auth-Mode: cookie` only; no urlencoded parser, `/auth/*` answers 415 to non-JSON bodies; `assertCookieModeOrigin` refuses cross-site / unknown-origin cookie-mode requests with 403 before any work (`auth-cookies.ts`, `app.setup.ts`, `auth.controller.ts`) | `f55cf2d` | `auth-cookies.spec.ts`, `app.setup.spec.ts` (415 matrix), e2e `REGRESSION New-3` (the exact exploit sets no cookie) |
+| New-4 | LOW | `MFA_ENCRYPTION_KEY` optional, fell back to `JWT_ACCESS_SECRET` | production requires a dedicated ≥ 32-char key that differs from the JWT / KYC keys (`config/env.ts`) | `ed91216` | `env.spec.ts` (missing / short / JWT-equal / KYC-equal) |
+| New-5 | LOW (infra) | Redis unauthenticated on the compose network; Redis-backed controls failed open | `redis-server --requirepass ${REDIS_PASSWORD:?}`, `REDIS_URL` with password (refused without one in production), `backend` network without the SPA containers; `SECURITY_REDIS_FAIL_MODE=closed\|open` (default closed in production) for the login throttle / lockout, MFA replay guard + challenge single-use, destination lookup cap and the access-token denylist → 503 + security event (`docker-compose.yml`, `app-config.ts`, `login-throttle.ts`, `mfa.service.ts`, `auth.service.ts`, `destinations.service.ts`, `token.service.ts`) | `70a25df` | `login-hardening.spec.ts`, `token.service.spec.ts`, `destinations.service.spec.ts` (open vs closed), `env.spec.ts`; live: `redis`/`postgres` unresolvable from `rap-admin-web`, NOAUTH without the password |
+| New-6 | LOW (money) | `releaseFlaggedCompletion` charged `spent_etb` without a campaign status / funding check | release runs before the flag is resolved and only when `status IN (active, paused)` and `spent + cost <= LEAST(budget, reserved)`; otherwise `422 CAMPAIGN_NOT_CHARGEABLE` and the flag stays open; admin UI explains it (`admin-reports.service.ts`, admin-web `errors.ts`) | `26810e6` | `admin-reports.service.spec.ts` (completed campaign, under-reserved active campaign, in-tx race), admin-web `errors.test.ts` |
+| New-7 | LOW | MFA endpoints unthrottled; setup/enable needed no password; timing oracle on unknown e-mails; missing mfaToken-as-Bearer test | `verifyForAdmin` runs the `LoginThrottle` (wrong codes count toward the lockout) for login step 2, enable and disable; setup + enable require the current password; constant-work `passwordMatches` against a per-process dummy hash; `BCRYPT_ROUNDS = 12` everywhere (`mfa.service.ts`, `auth/password.ts`, admin-web security page) | `155c52f` | `auth.guard.spec.ts` (mfaToken as Bearer → 401), `login-hardening.spec.ts` (password on setup/enable, 5 wrong codes → 423), admin-web `security-page.test.tsx` |
+| New-8 | LOW (partial #14) | deletion left `user_consents.ip_address/device_id` and `account_deletion_requests.ip_address` | both scrubbed in `DataRightsService.execute` | `f193889` | `data-rights.service.spec.ts` PII grep (consent proof survives identifier-free) |
+| New-9 | INFO | stray `apps/api/profile` (Jest/Prisma dump) committed | `git rm` + `.gitignore` | `f193889` | – |
+| #5/#7 notes | – | lockout keyed per account was a DoS vector against finance admins; bcrypt cost 10 vs documented 12 | hard lock + failure streak keyed account **+ IP**; the per-account window stays as the soft throttle and an IP that completed a login for the account within `LOGIN_TRUSTED_IP_HOURS` is exempt from it (never from the per-IP limit or its own lock) | `6980ec2` | `login-hardening.spec.ts` (attacker IP locked, owner admitted, trusted exemption), `auth.service.login.spec.ts` |
+
 ## 4. Production hardening checklist
 
 Most of these are **enforced** by the env schema (`apps/api/src/config/env.ts`): with `NODE_ENV=production` the API
@@ -134,19 +152,32 @@ Enforced at boot:
 - [ ] `CHAPA_SECRET_KEY` + `CHAPA_WEBHOOK_SECRET` (real gateway), `PAYOUTS_MOCK=false` with telebirr / Chapa payout credentials
 - [ ] `SMS_PROVIDER=http` (or another real provider) with `SMS_API_URL` / `SMS_API_KEY`
 - [ ] non-default `S3_ACCESS_KEY` / `S3_SECRET_KEY` (≥ 16 chars); `CORS_ORIGINS` is an explicit list (no `*`)
+- [ ] `REDIS_URL` carries a password (`redis://:<password>@host:6379`; compose enforces `--requirepass` with
+      `REDIS_PASSWORD`) - New-5
 - [ ] `SWAGGER_ENABLED=false`, `OTP_DEV_ECHO=false`, no `OTP_DEV_FIXED_CODE`, `RUN_SEED=false`
 
 Operational:
-- [ ] `ADMIN_MFA_REQUIRED=true`; every finance / super_admin enrols TOTP on first login; create admins only through
-      `POST /admin/admins` (temporary password shown once)
-- [ ] `TRUST_PROXY_HOPS` equals the number of reverse proxies / load balancers in front of the API; TLS everywhere
-      (`AUTH_COOKIE_SECURE` stays true; set `AUTH_COOKIE_DOMAIN` if the API and consoles share a parent domain)
-- [ ] Postgres / Redis / MinIO (or S3) reachable only from the API network; backups per `docs/RUNBOOK.md`; bucket
-      policy = `docker/minio-bucket-policy.json` (deny `private/*`)
+- [ ] `SECURITY_REDIS_FAIL_MODE` left at its production default (`closed`): when Redis is unreachable the login
+      throttle / lockout, MFA replay guard, destination lookup cap and token denylist answer 503 instead of allowing;
+      only set `open` knowingly, with the `auth.denylist_unavailable` security events alerting someone
+- [ ] `ADMIN_MFA_REQUIRED=true`; every finance / super_admin enrols TOTP on first login (setup and enable ask for the
+      password); create admins only through `POST /admin/admins` (temporary password shown once)
+- [ ] `TRUST_PROXY_HOPS` equals the number of reverse proxies / load balancers in front of the API (0 when exposed
+      directly) - the login lockout, OTP limits and security logs are keyed by the resulting client IP; TLS everywhere
+      (`AUTH_COOKIE_SECURE` stays true)
+- [ ] `AUTH_COOKIE_DOMAIN` stays **unset** (host-only refresh cookie; a parent-domain cookie could be planted by or
+      leak to sibling subdomains - New-3). Serve the API and each console on their own hosts and list the consoles
+      in `CORS_ORIGINS` (cookie mode is refused for any other origin)
+- [ ] Postgres / Redis / MinIO (or S3) reachable only from the API network (compose: the `backend` network; the web
+      containers are not attached to it); backups per `docs/RUNBOOK.md`; bucket policy =
+      `docker/minio-bucket-policy.json` (deny `private/*`)
 - [ ] Alert notifiers configured (`ALERT_TELEGRAM_*` or `ALERT_WEBHOOK_URL`) and someone on call for
-      `LEDGER_DRIFT`, `PAYOUT_FAILURE_RATE`, `DESTINATION_LOOKUP_SPIKE`
+      `LEDGER_DRIFT`, `PAYOUT_FAILURE_RATE`, `DESTINATION_LOOKUP_SPIKE`, `PAYOUT_STUCK_PROCESSING`
 - [ ] Review the `needs_manual_review` queue daily; `scripts/audit-reservations.mjs` in the weekly checks
-- [ ] Confirm telebirr "query by outTradeNo" and the Chapa transfer verify endpoint against the partners' current docs
+      (0 discrepancies; any UNDERFUNDED line is a New-1 class incident)
+- [ ] Confirm telebirr "query by outTradeNo" (and its "order not found" business codes) and the Chapa transfer verify
+      endpoint / "Transfer not found" reply against the partners' current docs - these are the ONLY answers that let
+      the worker treat a transfer as never accepted
 - [ ] Rotate `KYC_HASH_KEY` / `MFA_ENCRYPTION_KEY` only with a migration plan (re-hash / re-encrypt)
 - [ ] Re-run the pentest script (`live-pentest.mjs`) against staging after every release that touches auth or money
 

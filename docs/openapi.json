@@ -154,7 +154,7 @@
           {
             "name": "X-Auth-Mode",
             "in": "header",
-            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile). Cookie mode is selected by this header ONLY and is refused (403) for cross-site requests / unknown origins (Phase 5b New-3).",
             "required": false,
             "schema": {
               "type": "string"
@@ -192,7 +192,7 @@
           {
             "name": "X-Auth-Mode",
             "in": "header",
-            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile). Cookie mode is selected by this header ONLY and is refused (403) for cross-site requests / unknown origins (Phase 5b New-3).",
             "required": false,
             "schema": {
               "type": "string"
@@ -237,7 +237,7 @@
           {
             "name": "X-Auth-Mode",
             "in": "header",
-            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile). Cookie mode is selected by this header ONLY and is refused (403) for cross-site requests / unknown origins (Phase 5b New-3).",
             "required": false,
             "schema": {
               "type": "string"
@@ -289,7 +289,7 @@
           {
             "name": "X-Auth-Mode",
             "in": "header",
-            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile). Cookie mode is selected by this header ONLY and is refused (403) for cross-site requests / unknown origins (Phase 5b New-3).",
             "required": false,
             "schema": {
               "type": "string"
@@ -334,7 +334,7 @@
           {
             "name": "X-Auth-Mode",
             "in": "header",
-            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile). Cookie mode is selected by this header ONLY and is refused (403) for cross-site requests / unknown origins (Phase 5b New-3).",
             "required": false,
             "schema": {
               "type": "string"
@@ -388,7 +388,7 @@
           {
             "name": "X-Auth-Mode",
             "in": "header",
-            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile).",
+            "description": "Phase 5 (#16): `cookie` keeps the refresh token in an httpOnly, Secure, SameSite=Strict cookie (`rap_refresh`) and omits it from the body (web consoles). Default: body mode (mobile). Cookie mode is selected by this header ONLY and is refused (403) for cross-site requests / unknown origins (Phase 5b New-3).",
             "required": false,
             "schema": {
               "type": "string"
@@ -3243,11 +3243,31 @@
     },
     "/api/v1/admin/me/mfa/setup": {
       "post": {
+        "description": "Phase 5b New-7: requires the current password; attempts are throttled and count toward the account lockout.",
         "operationId": "mfaSetup",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaSetupDto"
+              }
+            }
+          }
+        },
         "responses": {
+          "401": {
+            "description": "INVALID_CREDENTIALS (password)"
+          },
           "409": {
             "description": "MFA_ALREADY_ENABLED"
+          },
+          "423": {
+            "description": "ACCOUNT_LOCKED"
+          },
+          "429": {
+            "description": "LOGIN_RATE_LIMITED"
           }
         },
         "security": [
@@ -3278,6 +3298,15 @@
         "responses": {
           "400": {
             "description": "MFA_CODE_INVALID | MFA_NOT_ENABLED (setup not started)"
+          },
+          "401": {
+            "description": "INVALID_CREDENTIALS (password)"
+          },
+          "423": {
+            "description": "ACCOUNT_LOCKED"
+          },
+          "429": {
+            "description": "LOGIN_RATE_LIMITED"
           }
         },
         "security": [
@@ -3285,7 +3314,7 @@
             "bearer": []
           }
         ],
-        "summary": "Confirm a code from the authenticator app and switch MFA on",
+        "summary": "Confirm a code from the authenticator app (plus the current password) and switch MFA on",
         "tags": [
           "admin"
         ]
@@ -3311,6 +3340,12 @@
           },
           "401": {
             "description": "INVALID_CREDENTIALS"
+          },
+          "423": {
+            "description": "ACCOUNT_LOCKED"
+          },
+          "429": {
+            "description": "LOGIN_RATE_LIMITED"
           }
         },
         "security": [
@@ -3318,7 +3353,7 @@
             "bearer": []
           }
         ],
-        "summary": "Switch MFA off (requires a current code AND the password)",
+        "summary": "Switch MFA off (requires a current code AND the password; throttled like a login)",
         "tags": [
           "admin"
         ]
@@ -6586,9 +6621,29 @@
         "type": "object",
         "properties": {}
       },
+      "MfaSetupDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Current password (re-authentication; a hijacked session cannot enrol an authenticator)"
+          }
+        },
+        "required": [
+          "password"
+        ]
+      },
       "MfaEnableDto": {
         "type": "object",
         "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Current password (re-authentication; a hijacked session cannot enrol an authenticator)"
+          },
           "code": {
             "type": "string",
             "minLength": 6,
@@ -6598,28 +6653,30 @@
           }
         },
         "required": [
+          "password",
           "code"
         ]
       },
       "MfaDisableDto": {
         "type": "object",
         "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Current password (re-authentication; a hijacked session cannot enrol an authenticator)"
+          },
           "code": {
             "type": "string",
             "minLength": 6,
             "maxLength": 6,
             "pattern": "^\\d{6}$",
             "example": "123456"
-          },
-          "password": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
           }
         },
         "required": [
-          "code",
-          "password"
+          "password",
+          "code"
         ]
       },
       "CreateAdminDto": {
