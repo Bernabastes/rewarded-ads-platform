@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { PayoutMethod } from '@prisma/client';
+import { AppConfig } from '../../../config/app-config';
 import { SecurityLogger } from '../../../infra/logger/logger.module';
 import {
   DestinationNotFoundError,
@@ -30,7 +31,19 @@ export class PayoutProviderRegistry {
   constructor(
     @Inject(PAYOUT_PROVIDERS) private readonly providers: PayoutProvider[],
     private readonly security: SecurityLogger,
+    @Optional() private readonly config?: AppConfig,
   ) {}
+
+  /**
+   * Phase 5c (New-2 caveat): until each partner's "order not found" contract is confirmed, PAYOUT_LOOKUP_STRICT
+   * (default true in production) makes EVERY not-found lookup answer ambiguous - the withdrawal is parked for a
+   * human instead of being sent again elsewhere or refunded.
+   */
+  get strictLookups(): boolean {
+    const env = this.config?.env;
+    if (!env) return false;
+    return env.PAYOUT_LOOKUP_STRICT ?? this.config!.isProduction;
+  }
 
   all(): PayoutProvider[] {
     return this.providers;
@@ -130,6 +143,11 @@ export class PayoutProviderRegistry {
       if (found) {
         return { provider, result: { providerPayoutId: found.providerPayoutId, status: found.status, message: found.failureReason, raw: found.raw } };
       }
+      if (this.strictLookups) {
+        // Phase 5c: a "not found" is not trusted to mean "never sent" until the partner contract is confirmed.
+        this.security.error('payout.outcome_unknown', { provider: provider.name, reference, reason: 'strict_lookup_not_found' });
+        throw new PayoutOutcomeUnknownError(provider.name, reference, new Error('partner reported "not found" (PAYOUT_LOOKUP_STRICT)'));
+      }
     }
     return null;
   }
@@ -143,7 +161,15 @@ export class PayoutProviderRegistry {
       this.security.error('payout.outcome_unknown', { provider: provider.name, reference, error: cause.message, lookupError: (lookupErr as Error).message });
       throw new PayoutOutcomeUnknownError(provider.name, reference, cause);
     }
-    if (found === null) return null;
+    if (found === null) {
+      if (this.strictLookups) {
+        // Phase 5c (New-2 caveat): in strict mode even an explicit "not found" after an ambiguous send parks the
+        // payout - no failover, no refund - until the partner's not-found semantics are contractually confirmed.
+        this.security.error('payout.outcome_unknown', { provider: provider.name, reference, error: cause.message, reason: 'strict_lookup_not_found' });
+        throw new PayoutOutcomeUnknownError(provider.name, reference, cause);
+      }
+      return null;
+    }
     this.security.warn('payout.outcome_unknown', {
       provider: provider.name,
       reference,

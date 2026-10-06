@@ -212,6 +212,12 @@ export const envSchema = z
     PAYOUT_INITIATE_ATTEMPTS: num(3),
     /** A payout `processing` without a partner for longer than this is parked for manual review + alert (New-2). */
     PAYOUT_STUCK_PROCESSING_MINUTES: num(15),
+    /**
+     * Phase 5c (New-2 caveat): true => a partner's "order not found" lookup answer is NOT trusted to mean "never sent";
+     * the withdrawal is parked as needs_manual_review instead of failing over / refunding. Default true in production
+     * until each partner's not-found contract is confirmed (go-live step in docs/SECURITY.md §4), false elsewhere.
+     */
+    PAYOUT_LOOKUP_STRICT: bool.optional(),
     /** Refresh-token cookie attributes for the web apps' cookie mode (#16). */
     AUTH_COOKIE_DOMAIN: z.string().optional(),
     AUTH_COOKIE_SECURE: bool.optional(),

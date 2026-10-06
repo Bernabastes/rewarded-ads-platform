@@ -23,6 +23,8 @@ import {
  * confirm against the contract-specific documentation before go-live. Anything else is ambiguous.
  */
 export const TELEBIRR_ORDER_NOT_FOUND_CODES: readonly string[] = ['NOT_FOUND', 'ORDER_NOT_FOUND', 'ORDER_NOT_EXIST'];
+/** HTTP statuses the guide documents for that business answer (Phase 5c): a NOT_FOUND code on any other status is ambiguous. */
+export const TELEBIRR_NOT_FOUND_HTTP_STATUSES: readonly number[] = [200, 400];
 
 /**
  * telebirr business (B2C disbursement) provider.
@@ -142,7 +144,11 @@ export class TelebirrPayoutProvider implements PayoutProvider {
       headers: this.headers(token),
     });
     const json = await this.json<{ code?: string; msg?: string; result?: { transactionNo?: string; status?: string; failReason?: string } }>(res);
-    if (json.code !== undefined && TELEBIRR_ORDER_NOT_FOUND_CODES.includes(String(json.code))) return null;
+    // Phase 5c (New-2 caveat): the business "not found" is honoured ONLY on the HTTP statuses the merchant guide
+    // documents for it (200 / 400). A NOT_FOUND code riding on a 5xx, 404 or anything else is ambiguous.
+    if (TELEBIRR_NOT_FOUND_HTTP_STATUSES.includes(res.status) && json.code !== undefined && TELEBIRR_ORDER_NOT_FOUND_CODES.includes(String(json.code))) {
+      return null;
+    }
     if (!res.ok) {
       throw new PayoutProviderError(`telebirr reference query failed: ${json.msg ?? res.status}`, 'ambiguous', this.name, res.status);
     }

@@ -25,6 +25,8 @@ const CHAPA_WALLET_BANK_CODES: Partial<Record<PayoutMethod, string>> = { telebir
  * "<one of these>", data: null }` (Transfers API reference). Only that exact shape means "never accepted".
  */
 export const CHAPA_TRANSFER_NOT_FOUND_MESSAGES: readonly RegExp[] = [/^transfer not found$/i, /^transaction not found$/i, /^invalid transfer reference$/i];
+/** HTTP statuses Chapa's reference documents for that reply (Phase 5c): the same body on a 5xx / other status is ambiguous. */
+export const CHAPA_NOT_FOUND_HTTP_STATUSES: readonly number[] = [200, 400, 404];
 
 export function isChapaTransferNotFound(json: { status?: string; message?: string; data?: unknown }): boolean {
   return (
@@ -129,7 +131,7 @@ export class ChapaPayoutProvider implements PayoutProvider {
     if (this.isMock) return null;
     const res = await this.call(`/transfers/verify/${encodeURIComponent(reference)}`, { headers: this.headers() });
     const json = await this.json<{ status?: string; message?: string; data?: { status?: string; failure_reason?: string } | null }>(res);
-    if (isChapaTransferNotFound(json)) return null;
+    if (CHAPA_NOT_FOUND_HTTP_STATUSES.includes(res.status) && isChapaTransferNotFound(json)) return null;
     if (!res.ok) throw new PayoutProviderError(`Chapa transfer lookup failed: ${json.message ?? res.status}`, 'ambiguous', this.name, res.status);
     if (!json.data || typeof json.data !== 'object') {
       throw new PayoutProviderError(`Chapa transfer lookup returned an unexpected reply (${json.status ?? 'no status'})`, 'ambiguous', this.name, res.status);
