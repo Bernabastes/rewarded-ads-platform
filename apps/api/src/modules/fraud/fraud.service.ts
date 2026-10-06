@@ -100,7 +100,22 @@ export class FraudService {
         },
       }),
     ]);
-    const ipRedis = await this.redis.getNumber(`fraud:ip:${input.ipAddress}:${hourKey()}`).catch(() => 0);
+    // Phase 5c (New-5 informational): the Redis velocity counter is one of the fraud signals. When Redis is down,
+    // closed mode treats the IP velocity as EXCEEDED (the completion is flagged for review - IP_VELOCITY is a
+    // medium-weight rule that never rejects on its own), open mode falls back to the DB count only. Both are logged.
+    let ipRedis = 0;
+    try {
+      ipRedis = await this.redis.getNumber(`fraud:ip:${input.ipAddress}:${hourKey()}`);
+    } catch (err) {
+      const failClosed = this.config.redisFailClosed;
+      this.security.error('auth.denylist_unavailable', {
+        scope: 'fraud_ip_velocity',
+        failMode: failClosed ? 'closed' : 'open',
+        userId: input.user.id,
+        error: (err as Error).message,
+      });
+      if (failClosed) ipRedis = this.thresholds.ipCompletionsPerHourThreshold;
+    }
     const distinctUsers = new Set(deviceUsers.map((d) => d.userId));
     distinctUsers.add(input.user.id);
 
