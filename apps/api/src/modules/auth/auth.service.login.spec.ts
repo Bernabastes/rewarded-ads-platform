@@ -20,6 +20,7 @@ describe('AuthService admin login (security audit #5)', () => {
   let redis: any;
   let security: any;
   let tokens: any;
+  let alerts: any;
   let mfa: MfaService;
   let service: AuthService;
   let passwordHash: string;
@@ -53,7 +54,8 @@ describe('AuthService admin login (security audit #5)', () => {
       revokeAllForSubject: jest.fn(),
     };
     const audit = mockAudit();
-    const throttle = new LoginThrottle(redis, config, security, audit);
+    alerts = { raise: jest.fn().mockResolvedValue({ id: 'alert-1' }) };
+    const throttle = new LoginThrottle(redis, config, security, audit, alerts);
     mfa = new MfaService(prisma, config, redis, security, audit, throttle);
     service = new AuthService(
       prisma,
@@ -138,6 +140,39 @@ describe('AuthService admin login (security audit #5)', () => {
       await expect(service.loginAdminMfa(mfaToken, '111111', meta)).rejects.toMatchObject({ code: ErrorCode.MFA_CODE_INVALID });
     }
     await expect(service.loginAdminMfa(mfaToken, authenticator.generate(secret), meta)).rejects.toMatchObject({ code: ErrorCode.ACCOUNT_LOCKED });
+  });
+
+  /* ---------------- Phase 5c New-10: trusted IP only after a FULL login; account-wide TOTP cap ---------------- */
+
+  it('REGRESSION New-10: a correct password alone does not trust the IP - the trust mark appears only after the TOTP step', async () => {
+    const secret = authenticator.generateSecret();
+    prisma.adminUser.findUnique.mockResolvedValue(adminRow({ mfaSecret: mfa.encrypt(secret), mfaEnabledAt: new Date() }));
+    const { mfaToken } = (await service.loginAdmin('finance@rap.et', 'Admin123!', meta)) as { mfaToken: string };
+    expect(await redis.client.get('login:trusted:admin:finance@rap.et:1.1.1.1')).toBeNull();
+    await service.loginAdminMfa(mfaToken, authenticator.generate(secret), meta);
+    expect(await redis.client.get('login:trusted:admin:finance@rap.et:1.1.1.1')).not.toBeNull();
+    // a password-only admin (no MFA) is a complete login and IS trusted
+    prisma.adminUser.findUnique.mockResolvedValue(adminRow({ email: 'support@rap.et' }));
+    await service.loginAdmin('support@rap.et', 'Admin123!', { ip: '2.2.2.2' });
+    expect(await redis.client.get('login:trusted:admin:support@rap.et:2.2.2.2')).not.toBeNull();
+  });
+
+  it('REGRESSION New-10: 10 wrong TOTP codes from rotating IPs lock the ACCOUNT for every IP (423, security log, critical alert)', async () => {
+    const secret = authenticator.generateSecret();
+    prisma.adminUser.findUnique.mockResolvedValue(adminRow({ mfaSecret: mfa.encrypt(secret), mfaEnabledAt: new Date() }));
+    const { mfaToken } = (await service.loginAdmin('finance@rap.et', 'Admin123!', meta)) as { mfaToken: string };
+    // each IP stays under the per-IP lockout (threshold 3) - only the account-wide cap can stop this
+    for (let i = 0; i < 10; i++) {
+      await expect(service.loginAdminMfa(mfaToken, '000000', { ip: `9.9.${Math.floor(i / 2)}.${i}` })).rejects.toMatchObject({ code: ErrorCode.MFA_CODE_INVALID });
+    }
+    await expect(service.loginAdminMfa(mfaToken, authenticator.generate(secret), { ip: '10.10.10.10' })).rejects.toMatchObject({
+      code: ErrorCode.ACCOUNT_LOCKED,
+      status: 423,
+      details: { retryAfterSeconds: expect.any(Number) },
+    });
+    expect(security.warn).toHaveBeenCalledWith('auth.account_locked', expect.objectContaining({ reason: 'mfa_account_cap', account: 'finance@rap.et', failures: 10 }));
+    expect(alerts.raise).toHaveBeenCalledWith(expect.objectContaining({ type: 'ADMIN_MFA_BRUTE_FORCE', severity: 'critical', dedupeKey: 'admin_mfa_brute_force:finance@rap.et' }));
+    expect(tokens.issue).not.toHaveBeenCalled();
   });
 
   it('changeAdminPassword clears mustChangePassword, stamps passwordChangedAt and revokes every session', async () => {

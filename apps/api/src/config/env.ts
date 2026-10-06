@@ -196,6 +196,8 @@ export const envSchema = z
     LOGIN_LOCKOUT_SECONDS: num(900),
     /** Phase 5b: an IP that completed a login for an account is exempt from that account's SOFT throttle for this long. */
     LOGIN_TRUSTED_IP_HOURS: num(24),
+    /** Phase 5c New-10: wrong TOTP codes per admin account per hour (any IP) before the account is locked for every IP. */
+    MFA_MAX_FAILURES_PER_ACCOUNT_PER_HOUR: num(10),
     /** Seeding is refused with NODE_ENV=production unless this is explicitly true. */
     ALLOW_SEED_IN_PRODUCTION: bool.default(false),
     /** Account-name lookups (destination verification) per user per UTC day (#11). */

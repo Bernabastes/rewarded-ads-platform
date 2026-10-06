@@ -124,12 +124,15 @@ export class MfaService {
     context: 'login' | 'enable' | 'disable',
   ): Promise<void> {
     await this.throttle.assertAllowed('admin', admin.email, ip);
+    // Phase 5c New-10: account-wide cap on wrong codes, independent of the source IP.
+    await this.throttle.assertMfaAccountNotLocked(admin.email, ip);
     const normalized = (code ?? '').replace(/\s+/g, '');
     const ok =
       Boolean(admin.mfaSecret) && /^\d{6}$/.test(normalized) && this.checkCode(this.decrypt(admin.mfaSecret as string), normalized);
     if (!ok) {
       this.security.warn('auth.mfa_failed', { adminId: admin.id, ip, context });
       await this.throttle.recordFailure('admin', admin.email, ip, admin.id);
+      await this.throttle.recordMfaFailure(admin.email, ip, admin.id);
       throw AppException.badRequest(ErrorCode.MFA_CODE_INVALID, 'The verification code is invalid');
     }
     // Replay guard: a code accepted once is dead for the rest of its skew window. Phase 5b New-5: when Redis is

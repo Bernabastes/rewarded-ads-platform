@@ -20,6 +20,8 @@ export const ALERT_TYPES = {
   destinationLookupSpike: 'DESTINATION_LOOKUP_SPIKE',
   /** Phase 5b New-2: a payout stayed `processing` without a partner for too long (worker crash) and was parked. */
   payoutStuckProcessing: 'PAYOUT_STUCK_PROCESSING',
+  /** Phase 5c New-10: an admin account hit the account-wide TOTP failure cap (password likely compromised). */
+  adminMfaBruteForce: 'ADMIN_MFA_BRUTE_FORCE',
 } as const;
 
 /* ------------------------------ payout failure rate ------------------------------ */

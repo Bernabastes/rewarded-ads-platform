@@ -432,8 +432,11 @@ export class AuthService {
       throw AppException.unauthorized(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
     }
     if (!admin.active) throw AppException.forbidden(ErrorCode.ADMIN_INACTIVE, 'Admin account deactivated');
-    await this.loginThrottle.recordSuccess('admin', account, meta.ip);
     if (admin.mfaEnabledAt) {
+      // Phase 5c New-10: a correct password is only HALF a login - the failure streak is cleared but the source IP
+      // is NOT trusted until the TOTP step succeeds (otherwise a stolen password would buy an exemption from the
+      // per-account throttle for guessing codes).
+      await this.loginThrottle.recordSuccess('admin', account, meta.ip, { trustIp: false });
       const mfaToken = await this.jwt.signAsync(
         { typ: 'mfa' },
         {
@@ -445,6 +448,7 @@ export class AuthService {
       );
       return { mfaRequired: true as const, mfaToken, expiresIn: MFA_TOKEN_TTL_SECONDS };
     }
+    await this.loginThrottle.recordSuccess('admin', account, meta.ip);
     return this.issueAdminSession(admin, meta);
   }
 

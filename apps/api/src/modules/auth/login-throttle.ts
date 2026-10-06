@@ -1,9 +1,11 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { ErrorCode } from '@rap/shared';
 import { AppException } from '../../common/errors/app.exception';
 import { AppConfig } from '../../config/app-config';
 import { SecurityLogger } from '../../infra/logger/logger.module';
 import { RedisService } from '../../infra/redis/redis.service';
+import { ALERT_TYPES } from '../alerts/alert.rules';
+import { AlertService } from '../alerts/alerts.service';
 import { AuditService } from '../audit/audit.service';
 
 export type LoginSubject = 'admin' | 'advertiser';
@@ -15,6 +17,9 @@ export const loginFailuresKey = (subject: LoginSubject, account: string, ip: str
 export const loginLockKey = (subject: LoginSubject, account: string, ip: string) => `login:lock:${subject}:${account}:${ip}`;
 /** An IP that completed a login for this account recently; exempt from the per-account (soft) throttle. */
 export const loginTrustedIpKey = (subject: LoginSubject, account: string, ip: string) => `login:trusted:${subject}:${account}:${ip}`;
+/** Phase 5c New-10: account-wide TOTP failure counter / lock (no IP in the key on purpose). */
+export const mfaFailuresKey = (account: string) => `login:mfa_fail:admin:${account}`;
+export const mfaAccountLockKey = (account: string) => `login:mfa_lock:admin:${account}`;
 
 /**
  * Security audit #5: password logins (admin + advertiser) are throttled per IP and per account inside
@@ -39,6 +44,7 @@ export class LoginThrottle {
     private readonly config: AppConfig,
     private readonly security: SecurityLogger,
     private readonly audit: AuditService,
+    @Optional() private readonly alerts?: AlertService,
   ) {}
 
   async assertAllowed(subject: LoginSubject, account: string, ip: string): Promise<void> {
@@ -136,15 +142,95 @@ export class LoginThrottle {
     return true;
   }
 
-  /** Clears the streak for this account + IP and marks the IP as trusted for the account (soft-throttle exemption). */
-  async recordSuccess(subject: LoginSubject, account: string, ip?: string): Promise<void> {
+  /**
+   * Clears the streak for this account + IP and (for a FULLY completed login - Phase 5c New-10) marks the IP as
+   * trusted for the account, i.e. exempt from the soft per-account throttle. Pass `trustIp: false` after a password
+   * step that still has to pass TOTP.
+   */
+  async recordSuccess(subject: LoginSubject, account: string, ip?: string, opts: { trustIp?: boolean } = {}): Promise<void> {
     const acct = normalizeAccount(account);
     if (!ip) return;
     const e = this.config.env;
     await this.redis.client.del(loginFailuresKey(subject, acct, ip)).catch(() => undefined);
+    if (opts.trustIp === false) return;
     await this.redis.client
       .set(loginTrustedIpKey(subject, acct, ip), String(Date.now()), 'EX', e.LOGIN_TRUSTED_IP_HOURS * 3600)
       .catch(() => undefined);
+  }
+
+  /**
+   * Phase 5c New-10: account-wide TOTP failure cap, independent of the source IP. With a stolen password the
+   * per-IP lock would otherwise allow LOGIN_LOCKOUT_THRESHOLD guesses per IP; rotating IPs must not multiply that.
+   * MFA_MAX_FAILURES_PER_ACCOUNT_PER_HOUR wrong codes within an hour lock the ACCOUNT for every IP
+   * (423 ACCOUNT_LOCKED, security log + critical alert). Returns true when this failure locked the account.
+   */
+  async recordMfaFailure(account: string, ip: string, subjectId?: string): Promise<boolean> {
+    const e = this.config.env;
+    const acct = normalizeAccount(account);
+    let failures = 0;
+    try {
+      failures = await this.redis.incrWithTtl(mfaFailuresKey(acct), 3600);
+      if (failures < e.MFA_MAX_FAILURES_PER_ACCOUNT_PER_HOUR) return false;
+      await this.redis.client.set(mfaAccountLockKey(acct), String(Date.now()), 'EX', e.LOGIN_LOCKOUT_SECONDS);
+    } catch (err) {
+      this.security.error('auth.denylist_unavailable', { scope: 'mfa_account_cap', error: (err as Error).message });
+      return false;
+    }
+    this.security.warn('auth.account_locked', {
+      subjectType: 'admin',
+      account: acct,
+      subjectId,
+      ip,
+      failures,
+      lockedForSeconds: e.LOGIN_LOCKOUT_SECONDS,
+      reason: 'mfa_account_cap',
+    });
+    await this.audit
+      .record({
+        actorType: 'system',
+        action: 'admin.login_locked',
+        targetType: 'admin',
+        targetId: subjectId,
+        metadata: { account: acct, ip, failures, lockedForSeconds: e.LOGIN_LOCKOUT_SECONDS, reason: 'mfa_account_cap' },
+        ipAddress: ip,
+      })
+      .catch(() => undefined);
+    await this.alerts
+      ?.raise({
+        type: ALERT_TYPES.adminMfaBruteForce,
+        severity: 'critical',
+        title: `${failures} wrong TOTP codes for ${acct} within an hour - account locked for every IP`,
+        payload: { account: acct, adminId: subjectId, failures, lastIp: ip, lockedForSeconds: e.LOGIN_LOCKOUT_SECONDS },
+        dedupeKey: `admin_mfa_brute_force:${acct}`,
+      })
+      .catch((err: Error) => this.security.error('auth.denylist_unavailable', { scope: 'mfa_account_cap_alert', error: err.message }));
+    return true;
+  }
+
+  /** 423 when the account-wide TOTP cap locked this account (any IP). */
+  async assertMfaAccountNotLocked(account: string, ip: string): Promise<void> {
+    const acct = normalizeAccount(account);
+    let ttl = -2;
+    try {
+      ttl = await this.redis.client.ttl(mfaAccountLockKey(acct));
+    } catch (err) {
+      this.security.error('auth.denylist_unavailable', {
+        scope: 'mfa_account_cap',
+        failMode: this.config.redisFailClosed ? 'closed' : 'open',
+        error: (err as Error).message,
+      });
+      if (this.config.redisFailClosed) throw AppException.securityUnavailable('Sign-in is temporarily unavailable; please retry shortly');
+      return;
+    }
+    if (ttl > 0) {
+      this.security.warn('auth.login_rate_limited', { subjectType: 'admin', account: acct, ip, reason: 'mfa_account_locked' });
+      throw new AppException(
+        ErrorCode.ACCOUNT_LOCKED,
+        'Too many failed verification codes; this account is temporarily locked',
+        HttpStatus.LOCKED,
+        { retryAfterSeconds: ttl },
+      );
+    }
   }
 }
 
