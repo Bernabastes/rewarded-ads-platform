@@ -64,7 +64,7 @@ describe('API e2e smoke (user money flow)', () => {
     const { AppModule } = await import('../src/app.module');
     const { configureApp } = await import('../src/app.setup');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = configureApp(moduleRef.createNestApplication<NestExpressApplication>({ logger: false }));
+    app = configureApp(moduleRef.createNestApplication<NestExpressApplication>({ logger: false, bodyParser: false }));
     await app.init();
     http = request(app.getHttpServer());
   }, 60_000);
@@ -648,10 +648,20 @@ describe('API e2e smoke (user money flow)', () => {
       .send('email=growth%40addisfintech.et&password=Advertiser123%21');
     expect(form.status).toBe(415);
     expect(form.headers['set-cookie']).toBeUndefined();
-    // 2. text/plain form variant
+    // 2. text/plain form variant (incl. a charset parameter and mixed case - Phase 5c)
     const plain = await http.post('/api/v1/auth/advertiser/login?mode=cookie').set('Origin', 'https://evil.example').type('text/plain').send('{"email":"growth@addisfintech.et","password":"Advertiser123!"}');
     expect(plain.status).toBe(415);
     expect(plain.headers['set-cookie']).toBeUndefined();
+    const plainCharset = await http.post('/api/v1/auth/advertiser/login').set('Content-Type', 'TEXT/PLAIN; charset=utf-8').send('{"email":"growth@addisfintech.et","password":"Advertiser123!"}');
+    expect(plainCharset.status).toBe(415);
+    // 2b. Phase 5c: the urlencoded parser is gone everywhere (bodyParser: false) - even off the auth prefix a form body
+    // is never parsed into req.body (the route sees an empty body and fails validation, not a login)
+    const unparsed = await http.post('/api/v1/billing/webhooks/chapa').type('form').send('status=success&tx_ref=x');
+    expect([400, 401, 403, 415, 503]).toContain(unparsed.status);
+    expect(unparsed.status).not.toBe(201);
+    // 2c. JSON with an upper-case / parameterised content type is still JSON
+    const mixed = await http.post('/api/v1/auth/advertiser/login').set('Content-Type', 'Application/JSON; charset=UTF-8').send('{"email":"growth@addisfintech.et","password":"Advertiser123!"}');
+    expect(mixed.status).toBe(201);
     // 3. JSON with ?mode=cookie but WITHOUT the header: plain body mode, no cookie
     const query = await http.post('/api/v1/auth/advertiser/login?mode=cookie').send({ email: 'growth@addisfintech.et', password: 'Advertiser123!' }).expect(201);
     expect(query.headers['set-cookie']).toBeUndefined();

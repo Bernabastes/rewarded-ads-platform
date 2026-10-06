@@ -20,7 +20,7 @@ import { configureApp } from './app.setup';
 import { buildOpenApiDocument } from './swagger';
 
 async function main() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn'] });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn'], bodyParser: false });
   configureApp(app);
   await app.init();
   const document = buildOpenApiDocument(app);

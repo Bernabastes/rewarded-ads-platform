@@ -12,7 +12,9 @@ import { AppConfig } from './config/app-config';
 import { buildOpenApiDocument } from './swagger';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  // Phase 5c (New-3 residual): Nest's default body parsers (json + urlencoded) are NOT registered; configureApp installs
+  // the single JSON parser (with raw-body capture for the webhook) - nothing in this API consumes form bodies.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, bodyParser: false });
   configureApp(app);
 
   const config = app.get(AppConfig);

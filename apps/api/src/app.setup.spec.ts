@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { flattenValidationErrors, rejectNonJsonAuthBodies } from './app.setup';
+import { flattenValidationErrors, mediaTypeOf, rejectNonJsonAuthBodies } from './app.setup';
 
 /**
  * Phase 5b New-3 (login CSRF): an HTML form can POST `application/x-www-form-urlencoded`, `multipart/form-data` or
@@ -22,6 +22,27 @@ describe('rejectNonJsonAuthBodies (Phase 5b New-3)', () => {
       expect(next).not.toHaveBeenCalled();
     },
   );
+
+  it.each(['TEXT/PLAIN; charset=utf-8', 'multipart/mixed', 'Multipart/Form-Data; boundary=----x', 'application/json-patch+json', 'application/x-www-form-urlencoded; charset=UTF-8'])(
+    'Phase 5c: %s (JSON text in a non-JSON envelope, mixed case, parameters) is still 415',
+    (contentType) => {
+      const { res, next } = run('POST', '/api/v1/auth/otp/verify', { 'content-type': contentType, 'transfer-encoding': 'chunked' });
+      expect(res.status).toHaveBeenCalledWith(415);
+      expect(next).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['application/json', 'APPLICATION/JSON', 'application/json; charset=utf-8', ' Application/Json ;charset=UTF-8'])(
+    'Phase 5c: %s is accepted (case-insensitive, parameter-tolerant)',
+    (contentType) => {
+      expect(run('POST', '/api/v1/auth/admin/login', { 'content-type': contentType, 'content-length': '42' }).next).toHaveBeenCalled();
+    },
+  );
+
+  it('mediaTypeOf normalises the header', () => {
+    expect(mediaTypeOf(' APPLICATION/JSON ; charset=utf-8')).toBe('application/json');
+    expect(mediaTypeOf(undefined)).toBe('');
+  });
 
   it('lets JSON bodies, body-less requests and non-auth routes through', () => {
     expect(run('POST', '/api/v1/auth/admin/login', { 'content-type': 'application/json; charset=utf-8', 'content-length': '42' }).next).toHaveBeenCalled();

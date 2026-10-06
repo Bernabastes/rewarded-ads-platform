@@ -71,14 +71,20 @@ interface ValidationErrorLike {
 
 const AUTH_PATH = new RegExp(`^/${GLOBAL_PREFIX}/auth(/|$)`);
 
+/** Media type of a Content-Type header: lower-cased, parameters (`; charset=utf-8`) stripped, whitespace trimmed. */
+export function mediaTypeOf(contentType: string | undefined): string {
+  return (contentType ?? '').split(';')[0].trim().toLowerCase();
+}
+
 /**
- * Phase 5b New-3: the auth endpoints accept JSON bodies only. A browser can submit `application/x-www-form-urlencoded`,
- * `multipart/form-data` and `text/plain` cross-site WITHOUT a preflight (HTML forms), so any body with another content
- * type is answered 415 before routing - independent of whether a parser exists for it.
+ * Phase 5b New-3 / 5c: the auth endpoints accept JSON bodies only. A browser can submit `application/x-www-form-urlencoded`,
+ * `multipart/form-data` and `text/plain` cross-site WITHOUT a preflight (HTML forms), so any body whose media type is not
+ * exactly `application/json` (case-insensitive, parameters such as `charset=utf-8` tolerated) is answered 415 before
+ * routing - including `multipart/*` and `text/plain` carrying JSON text. Independent of whether a parser exists for it.
  */
 export function rejectNonJsonAuthBodies(req: Request, res: Response, next: NextFunction) {
   if (!AUTH_PATH.test(req.path) || !['POST', 'PUT', 'PATCH'].includes(req.method)) return next();
-  const type = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  const type = mediaTypeOf(req.headers['content-type']);
   const hasBody = req.headers['content-length'] !== undefined || req.headers['transfer-encoding'] !== undefined;
   if (hasBody && type && type !== 'application/json') {
     res.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).json({
