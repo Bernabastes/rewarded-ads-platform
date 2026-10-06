@@ -180,8 +180,11 @@ export const envSchema = z
     SWAGGER_ENABLED: bool.default(true),
     /** HMAC key for the KYC identity-number duplicate hash (#14). Required (>= 32 chars) in production. */
     KYC_HASH_KEY: z.string().optional(),
-    /** AES-256-GCM key (any string, hashed) for admin TOTP secrets at rest. Production: required, >= 32 chars, != JWT secret (New-4). */
-    MFA_ENCRYPTION_KEY: z.string().optional(),
+    /**
+     * AES-256-GCM key (any string, hashed) for admin TOTP secrets at rest. Required in every environment (Phase 5c
+     * New-4 residual: no fallback to the JWT secret); production: >= 32 chars, != JWT / KYC keys.
+     */
+    MFA_ENCRYPTION_KEY: z.string().min(1, 'MFA_ENCRYPTION_KEY is required (copy the dev default from .env.example)'),
     /** finance / super_admin accounts must have TOTP enabled; until then every non-MFA admin route is 403 MFA_SETUP_REQUIRED. */
     ADMIN_MFA_REQUIRED: bool.default(false),
     /**
@@ -246,8 +249,8 @@ export const envSchema = z
       if (env.SMS_PROVIDER === 'mock') issue('SMS_PROVIDER', 'the mock SMS provider (OTPs in logs) is not allowed in production');
       if (!env.KYC_HASH_KEY || env.KYC_HASH_KEY.length < 32) issue('KYC_HASH_KEY', 'a >= 32 character HMAC key for identity-number hashes is required in production');
       // Phase 5b New-4: TOTP secrets must not be protected by the token-signing key (one leak would expose both).
-      if (!env.MFA_ENCRYPTION_KEY || env.MFA_ENCRYPTION_KEY.length < 32) {
-        issue('MFA_ENCRYPTION_KEY', 'a dedicated >= 32 character key for admin TOTP secrets at rest is required in production');
+      if (!env.MFA_ENCRYPTION_KEY || env.MFA_ENCRYPTION_KEY.length < 32 || env.MFA_ENCRYPTION_KEY.startsWith('dev-only')) {
+        issue('MFA_ENCRYPTION_KEY', 'a dedicated >= 32 character key for admin TOTP secrets at rest (not the dev default) is required in production');
       } else if (env.MFA_ENCRYPTION_KEY === env.JWT_ACCESS_SECRET || env.MFA_ENCRYPTION_KEY === env.KYC_HASH_KEY) {
         issue('MFA_ENCRYPTION_KEY', 'must differ from JWT_ACCESS_SECRET and KYC_HASH_KEY');
       }

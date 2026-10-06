@@ -5,7 +5,8 @@ import { type Env, envSchema } from '../config/env';
 
 /** Typed AppConfig with test-friendly defaults; override any env var. */
 export function testConfig(overrides: Partial<Record<keyof Env, unknown>> = {}): AppConfig {
-  const env = envSchema.parse({ NODE_ENV: 'test', OTP_DEV_ECHO: 'false', ...overrides });
+  // MFA_ENCRYPTION_KEY is required in every environment (Phase 5c New-4); tests get a fixed non-production key.
+  const env = envSchema.parse({ NODE_ENV: 'test', OTP_DEV_ECHO: 'false', MFA_ENCRYPTION_KEY: 'unit-test-mfa-encryption-key-0123456789', ...overrides });
   return new AppConfig(env);
 }
 

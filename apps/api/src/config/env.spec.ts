@@ -54,6 +54,7 @@ describe('env schema production gates', () => {
     ['short MFA encryption key', { MFA_ENCRYPTION_KEY: 'short-key' }, 'MFA_ENCRYPTION_KEY'],
     ['MFA encryption key equal to the JWT secret', { MFA_ENCRYPTION_KEY: 'p'.repeat(48) }, 'MFA_ENCRYPTION_KEY'],
     ['MFA encryption key equal to the KYC hash key', { MFA_ENCRYPTION_KEY: 'k'.repeat(40) }, 'MFA_ENCRYPTION_KEY'],
+    ['the dev-default MFA encryption key (Phase 5c)', { MFA_ENCRYPTION_KEY: 'dev-only-change-me-mfa-key-9876543210abcdef' }, 'MFA_ENCRYPTION_KEY'],
     ['Swagger enabled', { SWAGGER_ENABLED: 'true' }, 'SWAGGER_ENABLED'],
     ['unauthenticated Redis (New-5)', { REDIS_URL: 'redis://redis:6379' }, 'REDIS_URL'],
   ])('rejects %s', (_label, overrides, path) => {
@@ -65,8 +66,14 @@ describe('env schema production gates', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('Phase 5c New-4: MFA_ENCRYPTION_KEY is required in EVERY environment (no JWT fallback)', () => {
+    expect(envSchema.safeParse({ NODE_ENV: 'development' }).success).toBe(false);
+    expect(envSchema.safeParse({ NODE_ENV: 'test', MFA_ENCRYPTION_KEY: '' }).success).toBe(false);
+    expect(envSchema.safeParse({ NODE_ENV: 'development', MFA_ENCRYPTION_KEY: 'dev-only-change-me-mfa-key-9876543210abcdef' }).success).toBe(true);
+  });
+
   it('development keeps its convenience defaults (mocks allowed)', () => {
-    const env = envSchema.parse({ NODE_ENV: 'development' });
+    const env = envSchema.parse({ NODE_ENV: 'development', MFA_ENCRYPTION_KEY: 'dev-only-change-me-mfa-key-9876543210abcdef' });
     expect(env.PAYOUTS_MOCK).toBe(true);
     expect(env.SMS_PROVIDER).toBe('mock');
     expect(env.TRUST_PROXY_HOPS).toBe(0);
