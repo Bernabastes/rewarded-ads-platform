@@ -392,22 +392,36 @@ export class CampaignsService {
     return this.toSummary(updated);
   }
 
+  /**
+   * paused -> active. Phase 5c (New-1 residual): re-activation re-asserts the funding invariant under the campaign
+   * row lock (`budget_reserved_etb >= budget_etb`, else `422 CAMPAIGN_UNDERFUNDED`) and claims the status with
+   * `WHERE status = 'paused' AND budget_etb = <locked>` so a concurrent budget edit cannot slip in between.
+   */
   async resume(advertiserId: string, id: string) {
     const c = await this.owned(advertiserId, id, campaignSummaryInclude);
-    if (c.status !== 'paused')
-      throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, 'Only paused campaigns can be resumed');
-    if (c.pausedReason === 'admin_paused')
-      throw AppException.forbidden(
-        ErrorCode.CAMPAIGN_INVALID_STATE,
-        'This campaign was paused by the platform; contact support',
-      );
-    if (c.budgetEtb.minus(c.spentEtb).lessThan(c.costPerActionEtb)) {
-      throw AppException.conflict(ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED, 'Increase the budget before resuming');
-    }
-    const updated = await this.prisma.campaign.update({
-      where: { id },
-      data: { status: 'active', pausedReason: null },
-      include: campaignSummaryInclude,
+    this.assertResumable(c);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await this.lockOwned(tx, advertiserId, id);
+      if (!locked) throw AppException.notFound('Campaign not found');
+      this.assertResumable(locked);
+      if (locked.budgetReservedEtb.lessThan(locked.budgetEtb)) {
+        this.logger.error(
+          `Campaign ${id}: resume refused - reserved ${locked.budgetReservedEtb} < budget ${locked.budgetEtb} (under-funded)`,
+        );
+        throw AppException.unprocessable(
+          ErrorCode.CAMPAIGN_UNDERFUNDED,
+          'The wallet reservation does not cover this campaign budget; contact support before resuming',
+          { budgetEtb: locked.budgetEtb.toNumber(), budgetReservedEtb: locked.budgetReservedEtb.toNumber() },
+        );
+      }
+      const claimed = await tx.campaign.updateMany({
+        where: { id, advertiserId, status: 'paused', budgetEtb: locked.budgetEtb, budgetReservedEtb: locked.budgetReservedEtb },
+        data: { status: 'active', pausedReason: null },
+      });
+      if (claimed.count === 0) {
+        throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, 'Campaign changed concurrently; reload and retry');
+      }
+      return tx.campaign.findUniqueOrThrow({ where: { id }, include: campaignSummaryInclude });
     });
     await this.audit.record({
       actorType: 'advertiser',
@@ -419,6 +433,20 @@ export class CampaignsService {
       after: { status: 'active' },
     });
     return this.toSummary(updated);
+  }
+
+  /** Resume rules; evaluated on the plain read AND again on the locked row. */
+  private assertResumable(c: Campaign) {
+    if (c.status !== 'paused')
+      throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, 'Only paused campaigns can be resumed');
+    if (c.pausedReason === 'admin_paused')
+      throw AppException.forbidden(
+        ErrorCode.CAMPAIGN_INVALID_STATE,
+        'This campaign was paused by the platform; contact support',
+      );
+    if (c.budgetEtb.minus(c.spentEtb).lessThan(c.costPerActionEtb)) {
+      throw AppException.conflict(ErrorCode.CAMPAIGN_BUDGET_EXHAUSTED, 'Increase the budget before resuming');
+    }
   }
 
   /* ------------------------------ ads ------------------------------ */

@@ -120,4 +120,20 @@ describe('AdminReviewService.approveCampaign funding gate (Phase 5b New-1)', () 
     expect(row.status).toBe('active');
     expect(prisma.campaign.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'pending_review' }) }));
   });
+
+  it('REGRESSION Phase 5c (New-1 residual): admin un-pause refuses an under-reserved campaign (422) and pins the claim to the locked budget', async () => {
+    row.status = 'paused';
+    await expect(service.resumeCampaign(CAMPAIGN, { adminId: ADMIN })).rejects.toMatchObject({
+      code: ErrorCode.CAMPAIGN_UNDERFUNDED,
+      status: 422,
+      details: { budgetEtb: 10_000_000, budgetReservedEtb: 500 },
+    });
+    expect(row.status).toBe('paused');
+    row.budgetReservedEtb = D(10_000_000);
+    await service.resumeCampaign(CAMPAIGN, { adminId: ADMIN });
+    expect(row.status).toBe('active');
+    expect(prisma.campaign.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: 'paused', budgetEtb: D(10_000_000), budgetReservedEtb: D(10_000_000) }) }),
+    );
+  });
 });

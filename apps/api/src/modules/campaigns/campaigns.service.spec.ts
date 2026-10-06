@@ -65,7 +65,7 @@ function campaignRow(overrides: Partial<Record<string, unknown>> = {}) {
     reviewedAt: null,
     reviewedBy: null,
     rejectionReason: null,
-    pausedReason: null,
+    pausedReason: null as string | null,
     completedAt: null,
     budgetReservedEtb: D(0),
     submissionSeq: 0,
@@ -150,6 +150,7 @@ describe('CampaignsService budget reservation (security audit #1: reject -> edit
       // Phase 5b New-1: the guarded claims also pin budget / spent / seq to the values read under the lock
       if (where.budgetEtb !== undefined && !new Prisma.Decimal(where.budgetEtb).equals(row.budgetEtb)) return { count: 0 };
       if (where.spentEtb !== undefined && !new Prisma.Decimal(where.spentEtb).equals(row.spentEtb)) return { count: 0 };
+      if (where.budgetReservedEtb !== undefined && !new Prisma.Decimal(where.budgetReservedEtb).equals(row.budgetReservedEtb)) return { count: 0 };
       if (where.submissionSeq !== undefined && where.submissionSeq !== row.submissionSeq) return { count: 0 };
       applyUpdate(data);
       return { count: 1 };
@@ -336,5 +337,36 @@ describe('CampaignsService budget reservation (security audit #1: reject -> edit
     prisma.campaign.findUnique.mockImplementationOnce(async () => ({ ...row, budgetEtb: D(4999) }));
     await expect(service.update(ADVERTISER, CAMPAIGN, { title: 'guarded' })).rejects.toMatchObject({ code: ErrorCode.CAMPAIGN_INVALID_STATE });
     expect(row.title).toBe('Replay test');
+  });
+
+  /* ---------------- Phase 5c New-1 residual: resume() re-asserts funding under the row lock ---------------- */
+
+  it('REGRESSION New-1 (resume): a paused campaign whose reservation is below its budget cannot be re-activated (422 CAMPAIGN_UNDERFUNDED)', async () => {
+    row.status = 'paused';
+    row.pausedReason = 'advertiser_paused';
+    row.budgetEtb = D(10_000_000);
+    row.budgetReservedEtb = D(5000);
+    await expect(service.resume(ADVERTISER, CAMPAIGN)).rejects.toMatchObject({
+      code: ErrorCode.CAMPAIGN_UNDERFUNDED,
+      status: 422,
+      details: { budgetEtb: 10_000_000, budgetReservedEtb: 5000 },
+    });
+    expect(row.status).toBe('paused');
+  });
+
+  it('New-1 (resume): the status claim is pinned to the locked budget / reservation and a funded campaign resumes', async () => {
+    row.status = 'paused';
+    row.pausedReason = 'advertiser_paused';
+    row.budgetReservedEtb = D(5000);
+    // the locked re-read disagrees with the row (concurrent edit landed) -> 409, nothing activated
+    prisma.campaign.findUnique.mockImplementationOnce(async () => ({ ...row, budgetEtb: D(4000), budgetReservedEtb: D(4000) }));
+    await expect(service.resume(ADVERTISER, CAMPAIGN)).rejects.toMatchObject({ code: ErrorCode.CAMPAIGN_INVALID_STATE });
+    expect(row.status).toBe('paused');
+    // consistent row -> active
+    await expect(service.resume(ADVERTISER, CAMPAIGN)).resolves.toMatchObject({ status: 'active' });
+    expect(row.pausedReason).toBeNull();
+    expect(prisma.campaign.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: 'paused', budgetEtb: D(5000), budgetReservedEtb: D(5000) }) }),
+    );
   });
 });

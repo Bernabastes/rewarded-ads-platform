@@ -348,13 +348,35 @@ export class AdminReviewService {
     return this.getCampaign(id);
   }
 
+  /** Admin un-pause. Phase 5c (New-1 residual): same funding assertion + pinned claim as the advertiser's resume(). */
   async resumeCampaign(id: string, actor: AdminActor) {
     const c = await this.prisma.campaign.findUnique({ where: { id } });
     if (!c) throw AppException.notFound('Campaign not found');
     if (c.status !== 'paused')
       throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, `Campaign is ${c.status}`);
     await this.prisma.$transaction(async (tx) => {
-      await tx.campaign.update({ where: { id }, data: { status: 'active', pausedReason: null } });
+      const locked = await this.lifecycle.lockCampaign(tx, id);
+      if (!locked || locked.status !== 'paused')
+        throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, `Campaign is ${locked?.status ?? 'missing'}`);
+      if (locked.budgetReservedEtb.lessThan(locked.budgetEtb)) {
+        this.security.error('ledger.write', {
+          campaignId: id,
+          problem: 'campaign_underfunded',
+          budgetEtb: locked.budgetEtb.toNumber(),
+          budgetReservedEtb: locked.budgetReservedEtb.toNumber(),
+          adminId: actor.adminId,
+        });
+        throw AppException.unprocessable(
+          ErrorCode.CAMPAIGN_UNDERFUNDED,
+          'The wallet reservation does not cover this campaign budget; it cannot be re-activated',
+          { budgetEtb: locked.budgetEtb.toNumber(), budgetReservedEtb: locked.budgetReservedEtb.toNumber() },
+        );
+      }
+      const claimed = await tx.campaign.updateMany({
+        where: { id, status: 'paused', budgetEtb: locked.budgetEtb, budgetReservedEtb: locked.budgetReservedEtb },
+        data: { status: 'active', pausedReason: null },
+      });
+      if (claimed.count === 0) throw AppException.conflict(ErrorCode.CAMPAIGN_INVALID_STATE, 'Campaign changed concurrently');
       await this.audit.record(
         {
           actorType: 'admin',
@@ -362,7 +384,7 @@ export class AdminReviewService {
           action: 'campaign.resumed_by_admin',
           targetType: 'campaign',
           targetId: id,
-          before: { status: 'paused' },
+          before: { status: 'paused', budgetEtb: locked.budgetEtb, budgetReservedEtb: locked.budgetReservedEtb },
           after: { status: 'active' },
           ipAddress: actor.ip,
         },
