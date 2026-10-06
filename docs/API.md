@@ -58,7 +58,8 @@ Human-readable companion to the machine contract:
 | `CAMPAIGN_UNDERFUNDED` (422)                                                                                                                                                                                                                       | `POST /admin/campaigns/:id/approve`                | Explain that the reservation does not cover the budget; reject so the advertiser resubmits (Phase 5b New-1) |
 | `CAMPAIGN_NOT_CHARGEABLE` (422)                                                                                                                                                                                                                    | `POST /admin/fraud/flags/:id/dismiss`              | The campaign is no longer live / funded; the flag stays open – escalate or confirm instead (Phase 5b New-6) |
 | `SERVICE_UNAVAILABLE` (503) with `details.retryAfterSeconds`                                                                                                                                                                                       | login / MFA / destination resolve / any authenticated route | Redis-backed security control failed closed; retry shortly, do NOT treat as a lost session (Phase 5b New-5) |
-| `415` (`VALIDATION_ERROR`)                                                                                                                                                                                                                         | any `/auth/*` POST without an `application/json` body | Send JSON (Phase 5b New-3) |
+| `415` (`VALIDATION_ERROR`)                                                                                                                                                                                                                         | any `/auth/*` POST without an `application/json` body | Send JSON – exactly `application/json` (any case, `; charset=…` allowed); `text/plain`, `multipart/*`, form bodies are refused (Phase 5b/5c New-3) |
+| `ACCOUNT_LOCKED` (423) with `"Too many failed verification codes"`                                                                                                                                                                                 | `POST /auth/admin/login/mfa`, `/admin/me/mfa/enable|disable` | Account-wide TOTP cap (any IP): tell the admin to wait `details.retryAfterSeconds` and that security has been alerted (Phase 5c New-10) |
 
 ### Idempotency keys on money POSTs (Phase 4A)
 
@@ -360,6 +361,17 @@ credentials.
 
 Local setup change: `docker compose` now requires `REDIS_PASSWORD` in `.env` and `REDIS_URL` must carry it
 (`redis://:<password>@localhost:6379`); copy the new lines from `.env.example`.
+
+### Phase 5c contract changes (third verifier)
+
+| Item | Change | Affects |
+| --- | ------ | ------- |
+| New-10 | Admin TOTP: the source IP is only "trusted" (exempt from the soft per-account throttle) after the TOTP step succeeded; `MFA_MAX_FAILURES_PER_ACCOUNT_PER_HOUR` wrong codes (any IP) → `423 ACCOUNT_LOCKED` on `POST /auth/admin/login/mfa` and `/admin/me/mfa/enable|disable` for every IP, even with a correct code, until `details.retryAfterSeconds` elapse | admin |
+| New-2 caveat | With `PAYOUT_LOOKUP_STRICT=true` (production default) a payout whose partner lookup answers "not found" after an ambiguous send is parked as `needs_manual_review` instead of being re-sent through the next partner – expect more items in that admin tab until the partner contracts are confirmed | admin |
+| New-1 residual | `POST /campaigns/:id/resume` and `POST /admin/campaigns/:id/resume` answer `422 CAMPAIGN_UNDERFUNDED { budgetEtb, budgetReservedEtb }` when the reservation does not cover the budget, `409 CAMPAIGN_INVALID_STATE` on a concurrent change | advertiser, admin |
+| New-3 residual | `/auth/*` content-type check is case-insensitive and parameter-tolerant; `multipart/*` and `text/plain` are 415 like form bodies; no endpoint anywhere parses `application/x-www-form-urlencoded` | all |
+| New-4 residual | `MFA_ENCRYPTION_KEY` is required to boot in every environment (local `.env` needs the new line from `.env.example`) | – |
+| New-8 residual | Account deletion also clears `withdrawals.provider_status_raw/bank_code`, the user's idempotency rows and the user's identifiers inside alert payloads (server-side) | – |
 ## Boolean query parameters
 
 Boolean filters (`?resolved=false`) accept `true|false|1|0|yes|no`; they are parsed server-side with a dedicated

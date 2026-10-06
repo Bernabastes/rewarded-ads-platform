@@ -141,6 +141,25 @@ plus seven smaller items. Everything below was fixed with a regression test that
 | New-9 | INFO | stray `apps/api/profile` (Jest/Prisma dump) committed | `git rm` + `.gitignore` | `f193889` | – |
 | #5/#7 notes | – | lockout keyed per account was a DoS vector against finance admins; bcrypt cost 10 vs documented 12 | hard lock + failure streak keyed account **+ IP**; the per-account window stays as the soft throttle and an IP that completed a login for the account within `LOGIN_TRUSTED_IP_HOURS` is exempt from it (never from the per-IP limit or its own lock) | `6980ec2` | `login-hardening.spec.ts` (attacker IP locked, owner admitted, trusted exemption), `auth.service.login.spec.ts` |
 
+### 3c. Third verifier (Phase 5c) – Conditional GO residuals
+
+The third independent verifier reviewed the Phase 5b diff: New-1..New-9 CLOSED, one MEDIUM plus six residuals.
+All closed with fail-before / pass-after tests.
+
+| Item | Severity | Residual | Fix (where) | Commit | Regression test |
+| --- | --- | --- | --- | --- | --- |
+| New-10 | MEDIUM | the source IP was trusted after the *password* step, before TOTP – a stolen password bought 5 TOTP guesses per IP per 15 min with no account-wide cap | `loginAdmin` clears the streak but trusts the IP only when no TOTP step follows; `loginAdminMfa` trusts it after the code passes; `MFA_MAX_FAILURES_PER_ACCOUNT_PER_HOUR` (10) wrong codes per ACCOUNT across all IPs lock the account for every IP (`423 ACCOUNT_LOCKED`, security log, audit row, critical `ADMIN_MFA_BRUTE_FORCE` alert), enforced inside `verifyForAdmin` for login step 2 / enable / disable (`auth.service.ts`, `login-throttle.ts`, `mfa.service.ts`) | `ec74721` | `auth.service.login.spec.ts` (no trust mark after the password step; 10 wrong codes from rotating IPs → 423 for a fresh IP, alert raised); pentest probe New-10 |
+| New-2 caveat | – | the NOT_FOUND business code was honoured on any HTTP status | telebirr: only on 200 / 400 (`TELEBIRR_NOT_FOUND_HTTP_STATUSES`), Chapa: only on 200 / 400 / 404; `PAYOUT_LOOKUP_STRICT` (default **true in production**) makes every not-found ambiguous → `needs_manual_review` (no failover, no refund) on both registry paths until the partner contract is confirmed (`telebirr.provider.ts`, `chapa-payout.provider.ts`, `payout-provider.registry.ts`) | `da0b09b` | `payout-providers.spec.ts` (status matrix per provider; strict vs lenient on `initiateWithFailover` and `findExisting`; defaults) |
+| New-1 residual | – | `resume()` / admin un-pause were not pinned | both lock the campaign row, refuse `budget_reserved_etb < budget_etb` (`422 CAMPAIGN_UNDERFUNDED`) and claim `WHERE status='paused' AND budget_etb=<locked> AND budget_reserved_etb=<locked>` (`campaigns.service.ts`, `admin-review.service.ts`) | `6546edc` | `campaigns.service.spec.ts`, `admin-review.service.spec.ts` |
+| New-3 residual | – | content-type gate tolerance; Nest's default `urlencoded` parser still registered | `bodyParser: false` in `main.ts`, the OpenAPI exporter and the e2e harness (only `configureApp`'s JSON parser with raw-body capture exists); `mediaTypeOf()` – exactly `application/json`, case-insensitive, parameters tolerated; `multipart/*`, `text/plain` JSON, `json-patch` → 415 (`app.setup.ts`) | `594f2cc` | `app.setup.spec.ts` (mixed-case / parameter / multipart matrix), e2e `REGRESSION New-3` (`TEXT/PLAIN; charset` → 415, mixed-case JSON → 201, form body never parsed on a non-auth route) |
+| New-8 residual | – | deletion left `withdrawals.provider_status_raw/bank_code`, alert payloads, idempotency rows | all scrubbed: partner payload / bank code nulled (amounts, status, provider ids kept), the user's `idempotency_keys` rows deleted, `platform_alerts.payload` phone strings replaced by `deleted:<userId>` + `subjectDeleted` flag (jsonb text replace, validated on live Postgres) (`data-rights.service.ts`) | `c4eeb60` | `data-rights.service.spec.ts` PII grep (other users' alerts / advertiser idempotency rows untouched) |
+| New-4 residual | – | dev fallback `MFA_ENCRYPTION_KEY ?? JWT_ACCESS_SECRET` | removed; the key is required in every environment (dev default in `.env.example`, distinct from the JWT dev secret and rejected in production) (`mfa.service.ts`, `config/env.ts`) | `effd61e` | `env.spec.ts` |
+| New-5 info | – | fraud IP-velocity read failed open silently | honours `SECURITY_REDIS_FAIL_MODE`: closed → velocity treated as exceeded → `IP_VELOCITY` hit → completion **flagged** for review (never rejected on this signal alone); both modes log `auth.denylist_unavailable{scope: fraud_ip_velocity}` (`fraud.service.ts`) | `f7bbca6` | `fraud.service.spec.ts` |
+
+Final live pentest re-run (2026-10-06, rebuilt stack, 17 probes incl. the new New-10 probe): **17 / 17 BLOCKED** –
+New-10: 5 wrong codes evaluated (per-IP lock), then `423 ACCOUNT_LOCKED` for the account on a brand-new password
+login from the same host; no session issued.
+
 ## 4. Production hardening checklist
 
 Most of these are **enforced** by the env schema (`apps/api/src/config/env.ts`): with `NODE_ENV=production` the API
@@ -148,7 +167,8 @@ refuses to start until they hold. The rest are operational.
 
 Enforced at boot:
 - [ ] `JWT_ACCESS_SECRET` ≥ 32 random chars (not the dev default); `KYC_HASH_KEY` ≥ 32 chars; `MFA_ENCRYPTION_KEY`
-      ≥ 32 chars and different from both (dedicated key for TOTP secrets at rest - New-4)
+      set in EVERY environment and, in production, ≥ 32 chars, not the dev default and different from both
+      (dedicated key for TOTP secrets at rest - New-4)
 - [ ] `CHAPA_SECRET_KEY` + `CHAPA_WEBHOOK_SECRET` (real gateway), `PAYOUTS_MOCK=false` with telebirr / Chapa payout credentials
 - [ ] `SMS_PROVIDER=http` (or another real provider) with `SMS_API_URL` / `SMS_API_KEY`
 - [ ] non-default `S3_ACCESS_KEY` / `S3_SECRET_KEY` (≥ 16 chars); `CORS_ORIGINS` is an explicit list (no `*`)
@@ -161,7 +181,14 @@ Operational:
       throttle / lockout, MFA replay guard, destination lookup cap and token denylist answer 503 instead of allowing;
       only set `open` knowingly, with the `auth.denylist_unavailable` security events alerting someone
 - [ ] `ADMIN_MFA_REQUIRED=true`; every finance / super_admin enrols TOTP on first login (setup and enable ask for the
-      password); create admins only through `POST /admin/admins` (temporary password shown once)
+      password); create admins only through `POST /admin/admins` (temporary password shown once).
+      `MFA_MAX_FAILURES_PER_ACCOUNT_PER_HOUR` (default 10) stays low - it is the only cap on TOTP guessing that
+      an attacker with a stolen password and many IPs cannot route around; route `ADMIN_MFA_BRUTE_FORCE` alerts to
+      on-call (New-10)
+- [ ] `PAYOUT_LOOKUP_STRICT` left at its production default (`true`) until BOTH partners have confirmed, in
+      writing, their "order not found" business answer (telebirr `code` values + HTTP statuses for the outTradeNo
+      query; Chapa's "Transfer not found" reply) – only then set `false` so a confirmed not-found may fail over
+      instead of parking the payout; expect more `needs_manual_review` items while strict (go-live step)
 - [ ] `TRUST_PROXY_HOPS` equals the number of reverse proxies / load balancers in front of the API (0 when exposed
       directly) - the login lockout, OTP limits and security logs are keyed by the resulting client IP; TLS everywhere
       (`AUTH_COOKIE_SECURE` stays true)
@@ -172,7 +199,7 @@ Operational:
       containers are not attached to it); backups per `docs/RUNBOOK.md`; bucket policy =
       `docker/minio-bucket-policy.json` (deny `private/*`)
 - [ ] Alert notifiers configured (`ALERT_TELEGRAM_*` or `ALERT_WEBHOOK_URL`) and someone on call for
-      `LEDGER_DRIFT`, `PAYOUT_FAILURE_RATE`, `DESTINATION_LOOKUP_SPIKE`, `PAYOUT_STUCK_PROCESSING`
+      `LEDGER_DRIFT`, `PAYOUT_FAILURE_RATE`, `DESTINATION_LOOKUP_SPIKE`, `PAYOUT_STUCK_PROCESSING`, `ADMIN_MFA_BRUTE_FORCE`
 - [ ] Review the `needs_manual_review` queue daily; `scripts/audit-reservations.mjs` in the weekly checks
       (0 discrepancies; any UNDERFUNDED line is a New-1 class incident)
 - [ ] Confirm telebirr "query by outTradeNo" (and its "order not found" business codes) and the Chapa transfer verify

@@ -96,7 +96,7 @@ pnpm dev:mobile                               # Expo web on :8081 (EXPO_PUBLIC_A
 | `pnpm media:tools`                                          | Install desktop ffmpeg/ffprobe for the media pipeline when running the API outside Docker     |
 | `pwsh scripts/backup.ps1` / `scripts/restore.ps1`           | Database dump + bucket mirror, and the restore drill (see `docs/RUNBOOK.md`)                  |
 
-Test counts (all green): API 391 Jest unit tests + 8 e2e · mobile 145 Jest · advertiser portal 106 Vitest · admin
+Test counts (all green): API 414 Jest unit tests + 8 e2e · mobile 145 Jest · advertiser portal 106 Vitest · admin
 dashboard 110 Vitest · shared 12.
 
 ## Demo credentials (seeded)
@@ -196,7 +196,7 @@ Many former checklist items are now **enforced by the API's environment schema**
 refuses to boot with mock payments / payouts / SMS, default storage credentials, wildcard CORS, a short
 `JWT_ACCESS_SECRET`, a missing `KYC_HASH_KEY`, `OTP_DEV_*` switches or Swagger enabled, mock checkout routes answer
 404 and the seed refuses to run (`ALLOW_SEED_IN_PRODUCTION`). The full threat model, controls, audit-finding table and
-hardening checklist live in [`docs/SECURITY.md`](docs/SECURITY.md). What remains is contractual and operational:
+hardening checklist live in [`docs/SECURITY.md`](docs/SECURITY.md); the CISO-level programme summary, residual-risk
 
 Legal / money
 
@@ -243,7 +243,7 @@ the seed and the scripts). Frontends read `VITE_API_URL` (web) and `EXPO_PUBLIC_
 `DESTINATION_LOOKUPS_PER_DAY` / `ALERT_DESTINATION_LOOKUPS_PER_IP_PER_HOUR`, `PAYOUT_PROVIDER_TIMEOUT_MS` /
 `PAYOUT_MAX_POLLS` / `PAYOUT_INITIATE_ATTEMPTS` / `PAYOUT_STUCK_PROCESSING_MINUTES`, `AUTH_COOKIE_*`, `SMS_PROVIDER` /
 `SMS_API_*`, `SWAGGER_ENABLED`, `ALLOW_SEED_IN_PRODUCTION`, `MINIO_BIND`, `LOGIN_TRUSTED_IP_HOURS`,
-`SECURITY_REDIS_FAIL_MODE` (closed in production); `POSTGRES_*`, `S3_ACCESS_KEY` / `S3_SECRET_KEY` and
+`SECURITY_REDIS_FAIL_MODE` (closed in production), `MFA_MAX_FAILURES_PER_ACCOUNT_PER_HOUR`, `PAYOUT_LOOKUP_STRICT`
 `REDIS_PASSWORD` (mirrored into `REDIS_URL`) are **required** by docker compose (no defaults).
 
 ## Key engineering guarantees
