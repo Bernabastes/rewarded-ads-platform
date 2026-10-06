@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { ErrorCode } from '@rap/shared';
 import { mockAudit, mockNotifications, mockPrisma, mockQueue, mockSecurity, testConfig, uuid } from '../../testing/test-utils';
 import { anonymizedUserData, DataRightsService } from './data-rights.service';
@@ -168,6 +169,8 @@ describe('DataRightsService (deletion + anonymisation)', () => {
         installProof: 'attribution-token-9f9f9f',
         fraudNote: 'same device as +251911000001',
         deviceId: 'android-id-7e7e7e7e',
+        bankCode: 'CBETETAA-branch-0412',
+        partnerPayload: 'telebirr-trace-5f5f5f',
       };
       const tables: Record<string, Array<Record<string, unknown>>> = {
         kycSubmission: [{ userId: USER, fullName: 'Abebe Bikila', dateOfBirth: new Date(PII.dob), idNumberLast4: PII.idLast4, idNumberHash: PII.idHash, documentFrontKey: 'private/kyc/a', documentBackKey: 'private/kyc/c', selfieKey: 'private/kyc/b', providerResult: { match: true } }],
@@ -179,7 +182,10 @@ describe('DataRightsService (deletion + anonymisation)', () => {
         referral: [{ refereeId: USER, referrerId: uuid(7), signupIp: PII.ip, signupDeviceFingerprint: PII.fingerprint }],
         fraudFlag: [{ userId: USER, metadata: { note: PII.fraudNote, ip: PII.ip } }],
         adWatchSession: [{ userId: USER, deviceFingerprint: PII.fingerprint, deviceId: 'dev-1', ipAddress: PII.ip, userAgent: PII.userAgent }],
-        withdrawal: [{ userId: USER, payoutDestination: PII.phone, destinationName: 'Abebe', destinationAccountName: 'Abebe Bikila', amountEtb: 60 }],
+        withdrawal: [{ userId: USER, payoutDestination: PII.phone, destinationName: 'Abebe', destinationAccountName: 'Abebe Bikila', amountEtb: 60, status: 'completed', bankCode: PII.bankCode, providerStatusRaw: { receiverMsisdn: PII.phone, raw: PII.partnerPayload } }],
+        // Phase 5c (New-8 residual): cached idempotent responses and alert payloads that name the user
+        idempotencyKey: [{ actorType: 'user', actorId: USER, key: 'k1', responseBody: { payoutDestination: PII.phone } }, { actorType: 'advertiser', actorId: uuid(8), key: 'k2', responseBody: { keep: 'me' } }],
+        platformAlert: [{ id: uuid(9), type: 'ACCOUNT_MINTING', payload: { userId: USER, phoneNumber: PII.phone, note: 'signup from ' + PII.phone } }, { id: uuid(10), type: 'LEDGER_DRIFT', payload: { userId: uuid(11), phoneNumber: '+251922000000' } }],
         payoutDestination: [{ userId: USER, destination: PII.phone }],
         user: [{ id: USER, phoneNumber: PII.phone, fullName: 'Abebe Bikila', dateOfBirth: new Date(PII.dob), lastIp: PII.ip, signupIp: PII.ip, signupDeviceFingerprint: PII.fingerprint, deviceId: 'dev-1', referralCode: 'K7MP2X' }],
         // Phase 5b New-8: consent receipts and the deletion request itself carried the IP / device too
@@ -210,6 +216,25 @@ describe('DataRightsService (deletion + anonymisation)', () => {
       }
       prisma.kycSubmission.findMany.mockResolvedValue([]);
       prisma.dataExportRequest.findMany.mockResolvedValue([]);
+      // the alert-payload scrub is raw SQL (replace(payload::text, needle, replacement)); emulate it on the in-memory rows
+      prisma.$executeRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const sql = strings.join('?');
+        if (!sql.includes('UPDATE platform_alerts')) return 0;
+        let count = 0;
+        for (const row of tables.platformAlert) {
+          const text = JSON.stringify(row.payload);
+          if (sql.includes('replace(')) {
+            const [needle, replacement] = values as [string, string];
+            if (!text.includes(needle)) continue;
+            row.payload = JSON.parse(text.split(needle).join(replacement));
+            count++;
+          } else if (text.includes(String(values[0]).replace(/%/g, ''))) {
+            row.payload = { ...(row.payload as object), subjectDeleted: true };
+            count++;
+          }
+        }
+        return count;
+      });
 
       await service.execute(REQ, { actorType: 'system' });
 
@@ -226,6 +251,13 @@ describe('DataRightsService (deletion + anonymisation)', () => {
       // legal proof of consent survives without identifiers; the request row is executed and IP-free
       expect(tables.userConsent[0]).toMatchObject({ kind: 'terms', version: '2026-09', ipAddress: null, deviceId: null });
       expect(tables.accountDeletionRequest[0]).toMatchObject({ status: 'executed', ipAddress: null });
+      // Phase 5c: partner payload / bank code gone, amounts + status kept; only the user's idempotency rows deleted;
+      // the user's alert payload is anonymised while another user's alert is untouched
+      expect(tables.withdrawal[0]).toMatchObject({ amountEtb: 60, status: 'completed', bankCode: null });
+      expect(tables.withdrawal[0].providerStatusRaw).toBe(Prisma.JsonNull);
+      expect(tables.idempotencyKey).toEqual([expect.objectContaining({ key: 'k2' })]);
+      expect(tables.platformAlert[0].payload).toMatchObject({ phoneNumber: 'deleted:' + USER, subjectDeleted: true });
+      expect(tables.platformAlert[1].payload).toEqual({ userId: uuid(11), phoneNumber: '+251922000000' });
     });
   });
 

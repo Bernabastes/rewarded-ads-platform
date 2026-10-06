@@ -367,6 +367,15 @@ export class DataRightsService {
       // and the deletion request itself must not retain the requester's IP once executed.
       await tx.userConsent.updateMany({ where: { userId: req.userId }, data: { ipAddress: null, deviceId: null } });
       await tx.accountDeletionRequest.updateMany({ where: { userId: req.userId }, data: { ipAddress: null } });
+      // Phase 5c (New-8 residual): partner payloads / bank codes on withdrawals (amounts + status stay), the user's
+      // idempotency rows (cached response bodies carry masked destinations; 24 h TTL anyway) and alert payloads that
+      // name the user (phone / user id -> the anonymised id).
+      await tx.withdrawal.updateMany({
+        where: { userId: req.userId },
+        data: { bankCode: null, providerStatusRaw: Prisma.JsonNull },
+      });
+      await tx.idempotencyKey.deleteMany({ where: { actorType: 'user', actorId: req.userId } });
+      await this.scrubAlertPayloads(tx, req.userId, req.user.phoneNumber, anonymized.phoneNumber);
       await this.audit.record(
         {
           actorType: actor.actorType,
@@ -379,7 +388,7 @@ export class DataRightsService {
             status: 'deleted',
             anonymizedAt: anonymized.anonymizedAt,
             retained: ['coin_ledger', 'ad_completions', 'withdrawals', 'audit_log'],
-            scrubbed: ['kyc_submissions', 'otp_codes', 'ad_completions.ip/device', 'refresh_tokens.ip/ua', 'survey_responses', 'app_install_completions', 'referrals.signup', 'fraud_flags.metadata', 'user_consents.ip/device', 'account_deletion_requests.ip'],
+            scrubbed: ['kyc_submissions', 'otp_codes', 'ad_completions.ip/device', 'refresh_tokens.ip/ua', 'survey_responses', 'app_install_completions', 'referrals.signup', 'fraud_flags.metadata', 'user_consents.ip/device', 'account_deletion_requests.ip', 'withdrawals.provider_status_raw/bank_code', 'idempotency_keys', 'platform_alerts.payload'],
           },
           ipAddress: actor.ip,
         },
@@ -393,6 +402,27 @@ export class DataRightsService {
     for (const e of exports) if (e.storageKey) await this.storage.delete(e.storageKey);
     this.security.warn('data_rights.deletion_executed', { userId: req.userId, requestId: id, by: actor.actorType });
     return this.toDeletionItem(await this.prisma.accountDeletionRequest.findUniqueOrThrow({ where: { id } }));
+  }
+
+  /**
+   * Phase 5c (New-8 residual): alerts have no user column - the user can only appear INSIDE `payload`. Every payload
+   * that mentions the phone number or the user id gets those strings replaced by the anonymised phone marker
+   * (`deleted:<userId>`), so the alert history keeps its meaning without identifying the person.
+   */
+  private async scrubAlertPayloads(tx: Prisma.TransactionClient, userId: string, phoneNumber: string, replacement: string) {
+    const needles = [phoneNumber, phoneNumber.replace(/^\+251/, '0')].filter((n) => n.length >= 9);
+    for (const needle of needles) {
+      await tx.$executeRaw`
+        UPDATE platform_alerts
+        SET payload = replace(payload::text, ${needle}, ${replacement})::jsonb
+        WHERE payload::text LIKE ${`%${needle}%`}`;
+    }
+    // the user id itself is kept (it is the anonymised identity) but any "userId"-adjacent PII fields are gone with the
+    // phone replacement above; mark payloads that reference the id as belonging to a deleted account
+    await tx.$executeRaw`
+      UPDATE platform_alerts
+      SET payload = payload || jsonb_build_object('subjectDeleted', true)
+      WHERE payload::text LIKE ${`%${userId}%`} AND NOT (payload ? 'subjectDeleted')`;
   }
 
   /** Hourly job: execute due requests, expire old exports, purge expired idempotency keys. */
